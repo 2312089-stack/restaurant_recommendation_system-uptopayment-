@@ -1,6 +1,7 @@
+// components/seller/auth/SellerLogin.jsx - FIXED VERSION
 import React, { useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
-
+import { useNavigate } from 'react-router-dom';
 const SellerLogin = ({ onLoginComplete, onForgotPassword, onCreateAccount }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -24,6 +25,7 @@ const SellerLogin = ({ onLoginComplete, onForgotPassword, onCreateAccount }) => 
       <div className="absolute bottom-1.5 right-6 w-1.5 h-1.5 bg-white rounded-full"></div>
     </div>
   );
+  
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -42,11 +44,14 @@ const SellerLogin = ({ onLoginComplete, onForgotPassword, onCreateAccount }) => 
     try {
       console.log('🔐 Attempting seller login for:', email);
       
-      // Updated endpoint for seller authentication
+      // FIXED: Use correct seller login endpoint
       const res = await fetch(`${API_BASE_URL}/seller/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ 
+          email: email.toLowerCase().trim(), 
+          password 
+        }),
       });
 
       const data = await res.json();
@@ -63,8 +68,8 @@ const SellerLogin = ({ onLoginComplete, onForgotPassword, onCreateAccount }) => 
         
         if (data.seller) {
           localStorage.setItem('seller', JSON.stringify(data.seller));
-          localStorage.setItem('sellerType', 'seller'); // Distinguish from regular users
-          console.log('👤 Seller data stored');
+          localStorage.setItem('userType', 'seller'); // Distinguish from regular users
+          console.log('👤 Seller data stored:', data.seller);
         }
         
         // Clear form
@@ -110,7 +115,7 @@ const SellerLogin = ({ onLoginComplete, onForgotPassword, onCreateAccount }) => 
 
         {/* Error message */}
         {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded mb-4 text-sm">
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">
             {error}
           </div>
         )}
@@ -123,7 +128,7 @@ const SellerLogin = ({ onLoginComplete, onForgotPassword, onCreateAccount }) => 
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             onKeyPress={handleKeyPress}
-            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+            className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent disabled:opacity-50"
             disabled={loading}
           />
           
@@ -134,13 +139,13 @@ const SellerLogin = ({ onLoginComplete, onForgotPassword, onCreateAccount }) => 
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               onKeyPress={handleKeyPress}
-              className="w-full px-4 py-3 pr-12 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="w-full px-4 py-3 pr-12 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent disabled:opacity-50"
               disabled={loading}
             />
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700"
+              className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700 transition-colors"
               disabled={loading}
             >
               {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
@@ -159,7 +164,7 @@ const SellerLogin = ({ onLoginComplete, onForgotPassword, onCreateAccount }) => 
         <div className="text-center mb-6">
           <button
             onClick={onForgotPassword}
-            className="text-orange-600 underline text-sm hover:text-orange-800"
+            className="text-orange-600 underline text-sm hover:text-orange-800 transition-colors"
             disabled={loading}
           >
             Forgot Password?
@@ -172,7 +177,17 @@ const SellerLogin = ({ onLoginComplete, onForgotPassword, onCreateAccount }) => 
           disabled={loading || !email || password.length < 6}
           className="w-full bg-gradient-to-r from-orange-500 to-red-500 text-white font-semibold py-3 rounded-lg hover:from-orange-600 hover:to-red-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg"
         >
-          {loading ? "Signing in..." : "Sign In to Seller Portal"}
+          {loading ? (
+            <span className="flex items-center justify-center">
+              <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              Signing in...
+            </span>
+          ) : (
+            'Sign In to Seller Portal'
+          )}
         </button>
 
         {/* Create Account */}

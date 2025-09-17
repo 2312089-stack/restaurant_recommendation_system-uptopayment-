@@ -1,4 +1,4 @@
-// components/seller/auth/SellerForgotPassword.jsx
+// components/seller/auth/SellerForgotPassword.jsx - FIXED VERSION
 import React, { useState } from "react";
 import { ArrowLeft } from "lucide-react";
 
@@ -34,11 +34,11 @@ const SellerForgotPassword = ({ onBackToLogin }) => {
     try {
       console.log('📧 Sending seller forgot password request for:', email);
       
-      // Updated endpoint for seller authentication
+      // FIXED: Use correct seller forgot password endpoint
       const res = await fetch("http://localhost:5000/api/seller/auth/forgot-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email: email.toLowerCase().trim() }),
       });
 
       const data = await res.json();
@@ -81,7 +81,7 @@ const SellerForgotPassword = ({ onBackToLogin }) => {
           <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-6">
             <p className="text-orange-800 text-sm">
               📧 Click the link in your business email to reset your seller account password. 
-              The link will expire in 15 minutes.
+              The link will expire in 10 minutes.
             </p>
           </div>
           
@@ -143,7 +143,7 @@ const SellerForgotPassword = ({ onBackToLogin }) => {
 
         {/* Error/Success Message */}
         {message && !isSubmitted && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4 text-sm">
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">
             {message}
           </div>
         )}

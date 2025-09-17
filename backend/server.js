@@ -54,6 +54,9 @@ import settingsAuthRoutes from './routes/settingsAuth.js';
 import addressRoutes from './routes/addressRoutes.js';
 import paymentRoutes from './routes/payment.js';
 
+import sellerAuthRoutes from './routes/sellerAuth.js';
+import sellerOtpRoutes from './routes/sellerOtp.js';
+
 // Connect to MongoDB
 connectDB();
 
@@ -142,6 +145,8 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/settings-auth', settingsAuthRoutes);
 app.use('/api/addresses', addressRoutes);
 app.use('/api/payment', paymentRoutes);
+app.use('/api/seller/auth', sellerAuthRoutes);
+app.use('/api/seller/otp', sellerOtpRoutes);
 
 // 404 handler
 app.use((req, res) => {
