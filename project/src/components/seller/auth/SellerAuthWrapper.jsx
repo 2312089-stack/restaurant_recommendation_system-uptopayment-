@@ -1,5 +1,5 @@
 // components/seller/SellerAuthWrapper.jsx
-import React, { useState } from 'react';
+import React from 'react';
 import { Routes, Route, useNavigate } from 'react-router-dom';
 import SellerLogin from './auth/SellerLogin';
 import SellerSignup from './auth/SellerSignup';
@@ -11,25 +11,31 @@ const SellerAuthWrapper = () => {
 
   // Navigation handlers
   const handleLoginComplete = () => {
-    console.log('Seller login completed');
-    // For now, redirect to login (later you can create a seller dashboard)
-    navigate('/seller/login');
+    console.log('Seller login completed, redirecting to dashboard...');
+    // For now, redirect to a dashboard route (you'll create this later)
+    window.location.href = '/seller/dashboard';
+    // OR use: navigate('/seller/dashboard');
   };
 
   const handleSignupComplete = () => {
-    console.log('Seller signup completed');
-    navigate('/seller/login');
+    console.log('Seller signup completed, redirecting to dashboard...');
+    // After successful onboarding, redirect to dashboard
+    window.location.href = '/seller/dashboard';
+    // OR use: navigate('/seller/dashboard');
   };
 
   const handleForgotPassword = () => {
+    console.log('Navigating to forgot password...');
     navigate('/seller/forgot-password');
   };
 
   const handleCreateAccount = () => {
+    console.log('Navigating to signup...');
     navigate('/seller/signup');
   };
 
   const handleBackToLogin = () => {
+    console.log('Navigating back to login...');
     navigate('/seller/login');
   };
 

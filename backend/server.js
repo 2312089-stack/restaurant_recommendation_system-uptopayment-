@@ -1,4 +1,4 @@
-// server.js - FIXED VERSION with proper environment loading
+// server.js - COMPLETE UPDATED VERSION with seller profile and customer discovery
 import dotenv from 'dotenv';
 
 // Load environment variables FIRST - before any other imports
@@ -15,6 +15,10 @@ console.log('TWILIO_WHATSAPP_NUMBER:', process.env.TWILIO_WHATSAPP_NUMBER ? 'Fou
 const validateEnv = () => {
   const required = [
     'MONGODB_URI',
+    'JWT_SECRET'
+  ];
+
+  const optional = [
     'RAZORPAY_KEY_ID',
     'RAZORPAY_KEY_SECRET',
     'EMAIL_USER',
@@ -33,6 +37,15 @@ const validateEnv = () => {
     console.log('\n💡 Please check your .env file and make sure all required variables are set.');
     process.exit(1);
   }
+
+  const missingOptional = optional.filter(key => !process.env[key]);
+  if (missingOptional.length > 0) {
+    console.log('⚠️ Optional environment variables not set:');
+    missingOptional.forEach(key => {
+      console.log(`   - ${key}`);
+    });
+    console.log('Some features may not work without these variables.');
+  }
   
   console.log('✅ All critical environment variables are loaded');
 };
@@ -43,6 +56,9 @@ validateEnv();
 // Now import everything else
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 import connectDB from './connectDB.js';
 
 // Import routes AFTER environment validation
@@ -54,8 +70,18 @@ import settingsAuthRoutes from './routes/settingsAuth.js';
 import addressRoutes from './routes/addressRoutes.js';
 import paymentRoutes from './routes/payment.js';
 
+// Import seller routes
 import sellerAuthRoutes from './routes/sellerAuth.js';
 import sellerOtpRoutes from './routes/sellerOtp.js';
+import sellerOnboardingRoutes from './routes/sellerOnboarding.js';
+import sellerProfileRoutes from './routes/sellerProfile.js';
+
+// Import customer discovery routes
+import customerDiscoveryRoutes from './routes/customerDiscovery.js';
+
+// Get current directory for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Connect to MongoDB
 connectDB();
@@ -64,9 +90,9 @@ const app = express();
 
 // CORS configuration
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:3000'],
+  origin: ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:5174'],
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
@@ -74,7 +100,23 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Request logging
+// Create uploads directories if they don't exist
+const uploadsDir = path.join(__dirname, 'uploads');
+const sellersDir = path.join(uploadsDir, 'sellers');
+
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+  console.log('📁 Created uploads directory');
+}
+if (!fs.existsSync(sellersDir)) {
+  fs.mkdirSync(sellersDir, { recursive: true });
+  console.log('📁 Created sellers uploads directory');
+}
+
+// Serve static files from uploads directory
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Request logging middleware
 app.use((req, res, next) => {
   console.log(`${req.method} ${req.path} - ${new Date().toISOString()}`);
   next();
@@ -114,30 +156,60 @@ app.get('/health', (req, res) => {
 app.get('/api', (req, res) => {
   res.json({
     success: true,
-    message: 'TasteSphere API is running!',
+    message: 'TasteSphere API Routes',
     routes: {
+      // Customer routes
       auth: '/api/auth',
-      users: '/api/users',
+      users: '/api/users', 
       otp: '/api/otp',
       upload: '/api/upload',
       settings: '/api/settings-auth',
       addresses: '/api/addresses',
-      payment: '/api/payment'
+      payment: '/api/payment',
+      discovery: '/api/discovery',
+      
+      // Seller routes
+      seller: {
+        auth: '/api/seller/auth',
+        otp: '/api/seller/otp',
+        onboarding: '/api/seller/onboarding',
+        profile: '/api/seller/profile'
+      }
     },
     timestamp: new Date().toISOString()
   });
 });
 
-// ✅ FIXED: Payment debugging middleware BEFORE route mounting
+// Debug middleware for seller routes
+app.use('/api/seller', (req, res, next) => {
+  console.log(`🏪 Seller API: ${req.method} ${req.path}`, {
+    hasBody: ['POST', 'PATCH', 'PUT'].includes(req.method),
+    contentType: req.headers['content-type'],
+    hasAuth: req.headers.authorization ? 'Yes' : 'No'
+  });
+  next();
+});
+
+// Debug middleware for discovery routes
+app.use('/api/discovery', (req, res, next) => {
+  console.log(`🔍 Discovery API: ${req.method} ${req.path}`, {
+    query: Object.keys(req.query).length > 0 ? Object.keys(req.query) : 'none',
+    hasAuth: req.headers.authorization ? 'Yes' : 'No'
+  });
+  next();
+});
+
+// Debug middleware for payment routes
 app.use('/api/payment', (req, res, next) => {
   console.log(`💳 Payment API: ${req.method} ${req.path}`, {
-    body: req.method === 'POST' ? 'has body' : 'no body',
+    hasBody: ['POST', 'PATCH', 'PUT'].includes(req.method),
     headers: Object.keys(req.headers)
   });
   next();
 });
 
-// Mount routes
+// Mount all routes
+// Customer routes
 app.use('/api/auth', authRouter);
 app.use('/api/users', userRouter);
 app.use('/api/otp', otpRouter);
@@ -145,15 +217,27 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/settings-auth', settingsAuthRoutes);
 app.use('/api/addresses', addressRoutes);
 app.use('/api/payment', paymentRoutes);
+app.use('/api/discovery', customerDiscoveryRoutes);
+
+// Seller routes
 app.use('/api/seller/auth', sellerAuthRoutes);
 app.use('/api/seller/otp', sellerOtpRoutes);
+app.use('/api/seller/onboarding', sellerOnboardingRoutes);
+app.use('/api/seller', sellerProfileRoutes); // This handles /api/seller/profile/*
 
 // 404 handler
 app.use((req, res) => {
   console.log('404 Not Found:', req.originalUrl);
   res.status(404).json({ 
     success: false, 
-    error: `Route ${req.originalUrl} not found` 
+    error: `Route ${req.originalUrl} not found`,
+    availableRoutes: {
+      auth: '/api/auth/*',
+      users: '/api/users/*',
+      discovery: '/api/discovery/*',
+      seller: '/api/seller/*',
+      payment: '/api/payment/*'
+    }
   });
 });
 
@@ -161,6 +245,38 @@ app.use((req, res) => {
 app.use((err, req, res, next) => {
   console.error('Server Error:', err.message);
   
+  // Handle multer errors
+  if (err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(400).json({
+      success: false,
+      error: 'File size too large. Maximum size is 5MB.'
+    });
+  }
+  
+  if (err.message && err.message.includes('Invalid file type')) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid file type. Only images and PDFs are allowed.'
+    });
+  }
+
+  // Handle MongoDB errors
+  if (err.name === 'ValidationError') {
+    return res.status(400).json({
+      success: false,
+      error: 'Validation error',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+
+  if (err.code === 11000) {
+    return res.status(409).json({
+      success: false,
+      error: 'Duplicate entry error',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+
   const message = process.env.NODE_ENV === 'production' 
     ? 'Something went wrong!' 
     : err.message;
@@ -168,7 +284,10 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({
     success: false,
     error: message,
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+    ...(process.env.NODE_ENV === 'development' && { 
+      stack: err.stack,
+      details: err.message 
+    })
   });
 });
 
@@ -186,16 +305,46 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`📱 WhatsApp: ${process.env.TWILIO_ACCOUNT_SID ? 'Configured' : 'Not configured'}`);
   console.log('🚀=================================🚀');
   console.log('📋 Available API Endpoints:');
-  console.log('   🏠 GET  / (health check)');
-  console.log('   🏠 GET  /health (detailed health)');
-  console.log('   🔐 POST /api/auth/login');
-  console.log('   🔐 POST /api/auth/forgot-password');
-  console.log('   👤 POST /api/users (signup)');
-  console.log('   📱 POST /api/otp/send');
-  console.log('   📍 GET  /api/addresses');
-  console.log('   💳 POST /api/payment/create-order');
-  console.log('   ✅ POST /api/payment/verify-payment');
-  console.log('   💵 POST /api/payment/create-cod-order');
-  console.log('   ❤️  GET  /api/payment/health');
+  
+  // Customer endpoints
+  console.log('   👤 Customer Routes:');
+  console.log('     🔐 POST /api/auth/login');
+  console.log('     🔐 POST /api/auth/forgot-password');
+  console.log('     👤 POST /api/users (signup)');
+  console.log('     🔍 GET  /api/discovery/restaurants');
+  console.log('     🔍 GET  /api/discovery/restaurant/:id');
+  console.log('     🔍 GET  /api/discovery/restaurant/:id/menu');
+  console.log('     🔍 GET  /api/discovery/featured');
+  console.log('     🔍 GET  /api/discovery/nearby');
+  console.log('     📍 GET  /api/addresses');
+  console.log('     💳 POST /api/payment/create-order');
+  console.log('     ✅ POST /api/payment/verify-payment');
+  
+  // Seller endpoints
+  console.log('   🏪 Seller Routes:');
+  console.log('     🔐 POST /api/seller/auth/signup');
+  console.log('     🔐 POST /api/seller/auth/login');
+  console.log('     🔐 POST /api/seller/auth/forgot-password');
+  console.log('     👤 GET  /api/seller/profile');
+  console.log('     👤 PATCH /api/seller/profile');
+  console.log('     🍽️  POST /api/seller/menu/dish');
+  console.log('     🍽️  GET  /api/seller/menu/dishes');
+  console.log('     🍽️  PATCH /api/seller/menu/dish/:id');
+  console.log('     🍽️  DELETE /api/seller/menu/dish/:id');
+  console.log('     📊 GET  /api/seller/stats');
+  console.log('     🏪 PATCH /api/seller/closure-toggle');
+  console.log('     📋 POST /api/seller/onboarding/complete');
+  
+  // System endpoints
+  console.log('   🔧 System Routes:');
+  console.log('     🏠 GET  / (health check)');
+  console.log('     🔍 GET  /health (detailed health)');
+  console.log('     📋 GET  /api (API overview)');
+  
+  console.log('🚀=================================🚀');
+  console.log('💡 Notes:');
+  console.log('   - Make sure to create uploads/sellers directory');
+  console.log('   - Set JWT_SECRET in your .env file');
+  console.log('   - Configure optional services for full functionality');
   console.log('🚀=================================🚀');
 });
