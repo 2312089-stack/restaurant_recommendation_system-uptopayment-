@@ -12,31 +12,38 @@ const VerifyEmailChange = () => {
   useEffect(() => {
     const verifyEmailChange = async () => {
       const token = searchParams.get('token');
-      const userId = searchParams.get('userId');
 
-      if (!token || !userId) {
-        setMessage('Invalid verification link');
+      if (!token) {
+        setMessage('Invalid verification link - token missing');
+        setSuccess(false);
         setLoading(false);
         return;
       }
 
       try {
-        const response = await fetch('http://localhost:5000/api/settings-auth/verify-email-change', {
+        const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+        
+        const response = await fetch(`${API_BASE_URL}/settings-auth/verify-email-change`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token, userId })
+          headers: { 
+            'Content-Type': 'application/json' 
+          },
+          body: JSON.stringify({ token }) // Only send token, not userId
         });
 
         const data = await response.json();
         
         if (data.success) {
           setSuccess(true);
-          setMessage(`Email successfully changed to ${data.newEmail}`);
+          setMessage(data.message || 'Email successfully changed!');
+          // Redirect to login after 3 seconds
+          setTimeout(() => navigate('/login'), 3000);
         } else {
           setSuccess(false);
-          setMessage(data.message);
+          setMessage(data.message || 'Email verification failed');
         }
       } catch (error) {
+        console.error('Verification error:', error);
         setSuccess(false);
         setMessage('Network error. Please try again.');
       } finally {
@@ -45,7 +52,7 @@ const VerifyEmailChange = () => {
     };
 
     verifyEmailChange();
-  }, [searchParams]);
+  }, [searchParams, navigate]);
 
   if (loading) {
     return (
@@ -80,12 +87,24 @@ const VerifyEmailChange = () => {
         </h1>
         <p className="text-gray-600 mb-8">{message}</p>
         
-        <button
-          onClick={() => navigate('/settings')}
-          className="w-full bg-orange-500 text-white font-semibold py-3 rounded-full hover:bg-orange-600 transition-colors"
-        >
-          {success ? 'Go to Settings' : 'Try Again'}
-        </button>
+        {success ? (
+          <div className="space-y-3">
+            <p className="text-sm text-gray-500">Redirecting to login in 3 seconds...</p>
+            <button
+              onClick={() => navigate('/login')}
+              className="w-full bg-orange-500 text-white font-semibold py-3 rounded-full hover:bg-orange-600 transition-colors"
+            >
+              Go to Login
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => navigate('/settings')}
+            className="w-full bg-orange-500 text-white font-semibold py-3 rounded-full hover:bg-orange-600 transition-colors"
+          >
+            Back to Settings
+          </button>
+        )}
       </div>
     </div>
   );

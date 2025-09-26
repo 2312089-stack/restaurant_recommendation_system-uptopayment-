@@ -1,74 +1,159 @@
-// backend/middleware/authMiddleware.js
+// authMiddleware.js
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 
+/**
+ * Middleware to authenticate regular users
+ */
 export const authenticateToken = async (req, res, next) => {
   try {
-    const authHeader = req.headers.authorization;
-    const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+    console.log('🔐 Authentication middleware called');
+    console.log('Headers:', req.headers);
 
-    console.log('🔐 Auth middleware - Token received:', token ? 'Yes' : 'No');
+    let token = null;
+
+    // 1. Authorization header (Bearer token)
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
+      console.log('✅ Token found in Authorization header');
+    }
+
+    // 2. x-access-token header
+    if (!token && req.headers['x-access-token']) {
+      token = req.headers['x-access-token'];
+      console.log('✅ Token found in x-access-token header');
+    }
+
+    // 3. token header
+    if (!token && req.headers.token) {
+      token = req.headers.token;
+      console.log('✅ Token found in token header');
+    }
 
     if (!token) {
       console.log('❌ No token provided');
       return res.status(401).json({
         success: false,
-        message: 'Access token is required'
+        error: 'Access denied. No token provided.',
+        code: 'NO_TOKEN'
       });
     }
 
-    // ✅ FIX: Check if JWT_SECRET exists
-    if (!process.env.JWT_SECRET) {
-      console.error('❌ JWT_SECRET environment variable is not set!');
-      return res.status(500).json({
-        success: false,
-        message: 'Server configuration error - JWT secret not found'
-      });
-    }
+    token = token.trim();
 
-    // Verify the token
+    // Verify token
+    console.log('🔍 Verifying JWT token...');
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    console.log('✅ Token decoded:', { id: decoded.id, emailId: decoded.emailId });
+    console.log('✅ Token verified. User ID:', decoded.id || decoded.userId);
 
-    // Use 'id' instead of 'userId' based on your token structure
-    const user = await User.findById(decoded.id);
-    if (!user) {
-      console.log('❌ User not found:', decoded.id);
+    const userId = decoded.id || decoded.userId || decoded.user?.id;
+
+    if (!userId) {
+      console.log('❌ No user ID in token payload');
       return res.status(401).json({
         success: false,
-        message: 'User no longer exists'
+        error: 'Invalid token payload',
+        code: 'INVALID_TOKEN_PAYLOAD'
       });
     }
 
-    // Set req.user with correct field names
+    // Lookup user
+    console.log('👤 Looking up user in database...');
+    const user = await User.findById(userId).select('-password');
+
+    if (!user) {
+      console.log('❌ User not found');
+      return res.status(401).json({
+        success: false,
+        error: 'User not found',
+        code: 'USER_NOT_FOUND'
+      });
+    }
+
+    console.log('✅ User authenticated:', user.emailId);
+
     req.user = {
-      id: decoded.id,           
-      emailId: decoded.emailId  
+      id: user._id.toString(),
+      userId: user._id.toString(),
+      email: user.emailId,
+      user
     };
 
-    console.log('✅ Authentication successful for:', decoded.emailId);
     next();
-
   } catch (error) {
-    console.error('❌ Authentication error:', error.message);
-    
+    console.error('🚨 Authentication error:', error.message);
+
     if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid token'
-      });
+      return res.status(401).json({ success: false, error: 'Invalid token', code: 'INVALID_TOKEN' });
     }
-    
     if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({
-        success: false,
-        message: 'Token has expired'
-      });
+      return res.status(401).json({ success: false, error: 'Token expired', code: 'TOKEN_EXPIRED' });
     }
-    
-    return res.status(500).json({
+    if (error.name === 'NotBeforeError') {
+      return res.status(401).json({ success: false, error: 'Token not active yet', code: 'TOKEN_NOT_ACTIVE' });
+    }
+
+    return res.status(401).json({
       success: false,
-      message: 'Authentication failed'
+      error: 'Authentication failed',
+      code: 'AUTH_FAILED',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
+
+/**
+ * Middleware to authenticate sellers (optional)
+ */
+export const authenticateSellerToken = async (req, res, next) => {
+  try {
+    console.log('🏪 Seller authentication middleware called');
+
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
+
+    if (!token) {
+      console.log('❌ No seller token provided');
+      return res.status(401).json({
+        success: false,
+        error: 'Access denied. No seller token provided.',
+        code: 'NO_SELLER_TOKEN'
+      });
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const sellerId = decoded.id || decoded.sellerId;
+
+    if (!sellerId) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid seller token payload',
+        code: 'INVALID_SELLER_TOKEN_PAYLOAD'
+      });
+    }
+
+    // If you add a Seller model:
+    // const seller = await Seller.findById(sellerId);
+    // if (!seller) return res.status(401).json({ success: false, error: 'Seller not found', code: 'SELLER_NOT_FOUND' });
+
+    req.seller = { id: sellerId, sellerId };
+    console.log('✅ Seller authenticated:', sellerId);
+
+    next();
+  } catch (error) {
+    console.error('🚨 Seller authentication error:', error.message);
+
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({ success: false, error: 'Invalid seller token', code: 'INVALID_SELLER_TOKEN' });
+    }
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ success: false, error: 'Seller token expired', code: 'SELLER_TOKEN_EXPIRED' });
+    }
+
+    return res.status(401).json({ success: false, error: 'Seller authentication failed', code: 'SELLER_AUTH_FAILED' });
+  }
+};
+
+// 👇 Export alias for backwards compatibility
+export { authenticateToken as authenticateUser };

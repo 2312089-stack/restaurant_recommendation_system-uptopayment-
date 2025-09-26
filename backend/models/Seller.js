@@ -1,57 +1,94 @@
-// models/Seller.js - Updated for onboarding support
+// models/Seller.js - Complete Seller model for restaurant owners
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 
 const sellerSchema = new mongoose.Schema({
+  // Basic authentication
   email: {
     type: String,
     required: true,
     unique: true,
     lowercase: true,
-    trim: true
+    trim: true,
+    match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please enter a valid email']
   },
   passwordHash: {
     type: String,
     required: true,
-    select: false // Hide by default in queries
+    minlength: 8
   },
+  
+  // Basic business information
   businessName: {
     type: String,
-    trim: true
+    required: true,
+    trim: true,
+    maxlength: 100
   },
   businessType: {
     type: String,
-    enum: ['Restaurant', 'Café', 'Hotel Dining', 'Cloud Kitchen', 'Fast Food', 'Bakery', 'Sweet Shop', 'Bar & Grill'],
+    required: true,
+    enum: ['Restaurant', 'Café', 'Fast Food', 'Cloud Kitchen', 'Bakery', 'Food Truck'],
     default: 'Restaurant'
   },
   phone: {
     type: String,
-    trim: true
+    required: true,
+    trim: true,
+    match: [/^\+?[\d\s\-\(\)]{10,}$/, 'Please enter a valid phone number']
   },
+  
+  // Address information
   address: {
-    street: String,
-    city: String,
-    state: String,
-    zipCode: String,
-    country: { type: String, default: 'India' },
+    street: {
+      type: String,
+      trim: true
+    },
+    city: {
+      type: String,
+      trim: true
+    },
+    state: {
+      type: String,
+      trim: true
+    },
+    zipCode: {
+      type: String,
+      trim: true
+    },
     coordinates: {
-      latitude: Number,
-      longitude: Number
+      latitude: {
+        type: Number,
+        min: -90,
+        max: 90
+      },
+      longitude: {
+        type: Number,
+        min: -180,
+        max: 180
+      }
     }
   },
+  
+  // Detailed business information
   businessDetails: {
-    // Owner and basic info
-    ownerName: String,
-    description: String,
-    
-    // Cuisine and pricing
-    cuisine: [String], // ['Indian', 'Chinese', etc.]
+    ownerName: {
+      type: String,
+      trim: true
+    },
+    description: {
+      type: String,
+      maxlength: 1000
+    },
+    cuisine: [{
+      type: String,
+      trim: true
+    }],
     priceRange: {
       type: String,
-      enum: ['budget', 'mid-range', 'premium', 'fine-dining']
+      enum: ['budget', 'mid-range', 'premium'],
+      default: 'mid-range'
     },
-    
-    // Operating hours
     openingHours: {
       monday: {
         open: String,
@@ -89,44 +126,30 @@ const sellerSchema = new mongoose.Schema({
         closed: { type: Boolean, default: false }
       }
     },
-    
-    // Menu items
+    seatingCapacity: {
+      type: Number,
+      min: 0
+    },
+    servicesOffered: [{
+      type: String,
+      enum: ['Dine-in', 'Takeaway', 'Delivery', 'Catering', 'Online Ordering']
+    }],
+    // Legacy dishes array (keeping for backward compatibility)
     dishes: [{
       name: String,
       price: String,
-      category: {
-        type: String,
-        enum: ['Starters', 'Main Course', 'Desserts', 'Beverages', 'Chinese', 'Indian', 'Continental', 'South Indian']
-      },
-      type: {
-        type: String,
-        enum: ['veg', 'non-veg'],
-        default: 'veg'
-      },
+      category: String,
+      type: String,
       description: String,
-      image: String // File path for dish image
+      image: String
     }],
-    
-    // Banking and financial details
-    banking: {
-      accountNumber: String,
-      ifscCode: String,
-      accountHolder: String,
-      panNumber: String,
-      gstNumber: String,
-      razorpayId: String
-    },
-    
-    // Document and image uploads
     documents: {
-      logo: String, // File path for logo
-      bannerImage: String, // File path for banner
-      ownerIdProof: String, // File path for owner ID proof
-      businessProof: String // File path for business proof (FSSAI/GST/Trade License)
-    },
-    
-    // Features and amenities
-    features: [String] // ['parking', 'wifi', 'outdoor-seating', etc.]
+      logo: String,
+      bannerImage: String,
+      businessLicense: String,
+      fssaiLicense: String,
+      gstCertificate: String
+    }
   },
   
   // Verification and status
@@ -138,88 +161,126 @@ const sellerSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
-  verificationStatus: {
-    type: String,
-    enum: ['pending', 'under_review', 'approved', 'rejected'],
-    default: 'pending'
-  },
-  verificationNotes: String, // Admin notes for verification
-  
-  // Password reset functionality
-  passwordResetToken: {
-    type: String,
-    default: null
-  },
-  passwordResetExpires: {
-    type: Date,
-    default: null
-  },
-  passwordChangedAt: {
-    type: Date,
-    default: Date.now
-  },
-  lastLogin: {
-    type: Date,
-    default: null
-  },
-  
-  // Onboarding tracking
   onboardingCompleted: {
     type: Boolean,
     default: false
   },
-  onboardingStep: {
-    type: Number,
-    default: 1,
-    min: 1,
-    max: 6
-  },
-  onboardingCompletedAt: Date,
   
-  // Terms and conditions
-  termsAcceptedAt: Date,
-  termsVersion: {
-    type: String,
-    default: '1.0'
-  }
+  // OTP and password reset
+  otp: {
+    code: String,
+    expiresAt: Date,
+    isUsed: { type: Boolean, default: false }
+  },
+  passwordResetToken: String,
+  passwordResetExpires: Date,
+  passwordChangedAt: Date,
+  
+  // Subscription and payments
+  subscription: {
+    plan: {
+      type: String,
+      enum: ['free', 'basic', 'premium'],
+      default: 'free'
+    },
+    status: {
+      type: String,
+      enum: ['active', 'inactive', 'suspended'],
+      default: 'active'
+    },
+    validUntil: Date
+  },
+  
+  // Performance metrics
+  metrics: {
+    totalOrders: { type: Number, default: 0 },
+    totalRevenue: { type: Number, default: 0 },
+    averageRating: { type: Number, default: 0 },
+    totalReviews: { type: Number, default: 0 }
+  },
+  
+  // Settings
+  settings: {
+    notifications: {
+      email: { type: Boolean, default: true },
+      sms: { type: Boolean, default: true },
+      push: { type: Boolean, default: true }
+    },
+    orderAcceptance: {
+      auto: { type: Boolean, default: false },
+      manualTimeout: { type: Number, default: 15 } // minutes
+    }
+  },
+  
+  // Timestamps
+  lastLogin: Date,
+  emailVerifiedAt: Date
 }, {
-  timestamps: true // Adds createdAt and updatedAt
+  timestamps: true
 });
 
-// Indexes for performance
+// Indexes for better performance
 sellerSchema.index({ email: 1 });
-sellerSchema.index({ passwordResetToken: 1 });
-sellerSchema.index({ 'address.zipCode': 1 });
-sellerSchema.index({ businessType: 1 });
-sellerSchema.index({ isVerified: 1 });
-sellerSchema.index({ verificationStatus: 1 });
-sellerSchema.index({ onboardingCompleted: 1 });
+sellerSchema.index({ businessName: 1 });
+sellerSchema.index({ 'address.city': 1 });
+sellerSchema.index({ 'address.coordinates': '2dsphere' });
+sellerSchema.index({ isActive: 1, isVerified: 1 });
 
 // Virtual for full address
 sellerSchema.virtual('fullAddress').get(function() {
   if (!this.address) return '';
-  const { street, city, state, zipCode, country } = this.address;
-  return [street, city, state, zipCode, country].filter(Boolean).join(', ');
+  
+  const parts = [
+    this.address.street,
+    this.address.city,
+    this.address.state,
+    this.address.zipCode
+  ].filter(part => part && part.trim());
+  
+  return parts.join(', ');
 });
 
-// Virtual for total dishes count
-sellerSchema.virtual('totalDishes').get(function() {
-  return this.businessDetails?.dishes?.length || 0;
+// Virtual for business status
+sellerSchema.virtual('businessStatus').get(function() {
+  if (!this.isActive) return 'Inactive';
+  if (!this.isVerified) return 'Pending Verification';
+  if (!this.onboardingCompleted) return 'Onboarding Incomplete';
+  return 'Active';
 });
 
-// Virtual for verification display status
-sellerSchema.virtual('displayVerificationStatus').get(function() {
-  if (this.isVerified) return 'Verified';
-  if (!this.onboardingCompleted) return 'Onboarding Pending';
-  return this.verificationStatus?.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Pending';
+// Hash password before saving
+sellerSchema.pre('save', async function(next) {
+  // Only hash the password if it has been modified (or is new)
+  if (!this.isModified('passwordHash')) return next();
+  
+  try {
+    // Hash password with cost of 12
+    const salt = await bcrypt.genSalt(12);
+    this.passwordHash = await bcrypt.hash(this.passwordHash, salt);
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Update passwordChangedAt before saving
+sellerSchema.pre('save', function(next) {
+  if (!this.isModified('passwordHash') || this.isNew) return next();
+  
+  this.passwordChangedAt = new Date(Date.now() - 1000);
+  next();
 });
 
 // Instance method to compare password
 sellerSchema.methods.comparePassword = async function(candidatePassword) {
-  return bcrypt.compare(candidatePassword, this.passwordHash);
+  try {
+    return await bcrypt.compare(candidatePassword, this.passwordHash);
+  } catch (error) {
+    throw new Error('Password comparison failed');
+  }
 };
 
-// Instance method to check if password was changed after JWT was issued
+// Instance method to check if password changed after JWT was issued
 sellerSchema.methods.changedPasswordAfter = function(JWTTimestamp) {
   if (this.passwordChangedAt) {
     const changedTimestamp = parseInt(
@@ -231,161 +292,57 @@ sellerSchema.methods.changedPasswordAfter = function(JWTTimestamp) {
   return false;
 };
 
-// Instance method to check onboarding completion
-sellerSchema.methods.isOnboardingComplete = function() {
-  if (!this.businessDetails) return false;
-  
-  const requiredFields = [
-    this.businessName,
-    this.businessDetails.ownerName,
-    this.address?.street,
-    this.phone,
-    this.businessDetails.banking?.accountNumber,
-    this.businessDetails.documents?.ownerIdProof,
-    this.businessDetails.documents?.businessProof
-  ];
-  
-  return requiredFields.every(field => field && field.toString().trim() !== '');
-};
-
-// Instance method to get onboarding progress
-sellerSchema.methods.getOnboardingProgress = function() {
-  const steps = {
-    1: !!(this.businessName && this.businessDetails?.ownerName), // Business Profile
-    2: !!(this.address?.street && this.phone), // Location & Contact
-    3: !!(this.businessDetails?.dishes?.length > 0), // Menu Setup
-    4: !!(this.businessDetails?.banking?.accountNumber), // Payments & Finance
-    5: !!(this.businessDetails?.documents?.ownerIdProof && this.businessDetails?.documents?.businessProof) // Verification
-  };
-  
-  const completedSteps = Object.values(steps).filter(Boolean).length;
-  const totalSteps = Object.keys(steps).length;
-  
-  return {
-    completedSteps,
-    totalSteps,
-    percentage: Math.round((completedSteps / totalSteps) * 100),
-    steps
-  };
-};
-
-// Pre-save middleware for password hashing
-sellerSchema.pre('save', async function(next) {
-  // Only run if password was modified
-  if (!this.isModified('passwordHash')) return next();
-     
-  // Don't hash if already hashed
-  if (this.passwordHash.startsWith('$2b$')) return next();
-     
-  try {
-    // Hash password with cost of 12
-    this.passwordHash = await bcrypt.hash(this.passwordHash, 12);
-    next();
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Pre-save middleware to set passwordChangedAt
-sellerSchema.pre('save', function(next) {
-  if (!this.isModified('passwordHash') || this.isNew) return next();
-     
-  this.passwordChangedAt = Date.now() - 1000;
-  next();
-});
-
-// Pre-save middleware to update onboarding completion
-sellerSchema.pre('save', function(next) {
-  // Check if onboarding is complete and update accordingly
-  if (this.isOnboardingComplete() && !this.onboardingCompleted) {
-    this.onboardingCompleted = true;
-    this.onboardingCompletedAt = new Date();
-    this.verificationStatus = 'under_review';
-  }
-  
-  next();
-});
-
-// Transform JSON output to hide sensitive fields
-sellerSchema.methods.toJSON = function() {
-  const sellerObject = this.toObject({ virtuals: true });
-  delete sellerObject.passwordHash;
-  delete sellerObject.passwordResetToken;
-  delete sellerObject.passwordResetExpires;
-  delete sellerObject.__v;
-  
-  // Hide sensitive banking details in general responses
-  if (sellerObject.businessDetails?.banking) {
-    const banking = sellerObject.businessDetails.banking;
-    if (banking.accountNumber) {
-      banking.accountNumber = `***${banking.accountNumber.slice(-4)}`;
-    }
-    if (banking.panNumber) {
-      banking.panNumber = `***${banking.panNumber.slice(-4)}`;
-    }
-  }
-  
-  return sellerObject;
-};
-
-// Transform for admin view (shows all data)
-sellerSchema.methods.toAdminJSON = function() {
-  const sellerObject = this.toObject({ virtuals: true });
-  delete sellerObject.passwordHash;
-  delete sellerObject.__v;
-  return sellerObject;
-};
-
-// Static method to find seller by email
+// Static method to find by email
 sellerSchema.statics.findByEmail = function(email) {
-  return this.findOne({ email: email.toLowerCase().trim() });
+  return this.findOne({ email: email.toLowerCase() }).select('-passwordHash');
 };
 
-// Static method to find seller with password (for authentication)
+// Static method to find by email with password (for login)
 sellerSchema.statics.findByEmailWithPassword = function(email) {
-  return this.findOne({ email: email.toLowerCase().trim() }).select('+passwordHash');
+  return this.findOne({ email: email.toLowerCase() });
 };
 
-// Static method to find verified sellers
-sellerSchema.statics.findVerified = function() {
-  return this.find({ isVerified: true, isActive: true });
+// Static method to find active sellers
+sellerSchema.statics.findActive = function() {
+  return this.find({ isActive: true, isVerified: true });
 };
 
-// Static method to find sellers by location
-sellerSchema.statics.findByLocation = function(zipCode, radius = 10) {
-  return this.find({ 
-    'address.zipCode': zipCode,
-    isVerified: true,
-    isActive: true,
-    onboardingCompleted: true
-  });
-};
-
-// Static method for admin dashboard stats
-sellerSchema.statics.getAdminStats = async function() {
-  const [
-    totalSellers,
-    verifiedSellers,
-    pendingVerification,
-    completedOnboarding,
-    pendingOnboarding
-  ] = await Promise.all([
-    this.countDocuments(),
-    this.countDocuments({ isVerified: true }),
-    this.countDocuments({ verificationStatus: 'under_review' }),
-    this.countDocuments({ onboardingCompleted: true }),
-    this.countDocuments({ onboardingCompleted: false })
-  ]);
+// Method to check if seller is open now
+sellerSchema.methods.isOpenNow = function() {
+  if (!this.businessDetails.openingHours) return false;
   
-  return {
-    totalSellers,
-    verifiedSellers,
-    pendingVerification,
-    completedOnboarding,
-    pendingOnboarding,
-    verificationRate: totalSellers > 0 ? Math.round((verifiedSellers / totalSellers) * 100) : 0
-  };
+  const now = new Date();
+  const day = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][now.getDay()];
+  const todayHours = this.businessDetails.openingHours[day];
+  
+  if (!todayHours || todayHours.closed) return false;
+  
+  const currentTime = now.toTimeString().slice(0, 5); // HH:MM format
+  return currentTime >= todayHours.open && currentTime <= todayHours.close;
 };
+
+// Method to calculate completion percentage
+sellerSchema.methods.getCompletionPercentage = function() {
+  let completed = 0;
+  const total = 10;
+  
+  if (this.businessName) completed++;
+  if (this.phone) completed++;
+  if (this.address.street) completed++;
+  if (this.address.city) completed++;
+  if (this.businessDetails.ownerName) completed++;
+  if (this.businessDetails.description) completed++;
+  if (this.businessDetails.cuisine && this.businessDetails.cuisine.length > 0) completed++;
+  if (this.businessDetails.documents.logo) completed++;
+  if (this.businessDetails.documents.bannerImage) completed++;
+  if (this.isVerified) completed++;
+  
+  return Math.round((completed / total) * 100);
+};
+
+// Ensure virtual fields are serialized
+sellerSchema.set('toJSON', { virtuals: true });
+sellerSchema.set('toObject', { virtuals: true });
 
 const Seller = mongoose.model('Seller', sellerSchema);
 export default Seller;

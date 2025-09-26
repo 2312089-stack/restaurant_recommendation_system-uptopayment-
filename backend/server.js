@@ -1,56 +1,24 @@
-// server.js - COMPLETE UPDATED VERSION with seller profile and customer discovery
+// server.js - FIXED VERSION with Cart Routes Integration
 import dotenv from 'dotenv';
 
-// Load environment variables FIRST - before any other imports
+// Load environment variables FIRST
 dotenv.config();
-
-console.log('Environment check:');
-console.log('RAZORPAY_KEY_ID:', process.env.RAZORPAY_KEY_ID ? 'Found' : 'Missing');
-console.log('RAZORPAY_KEY_SECRET:', process.env.RAZORPAY_KEY_SECRET ? 'Found' : 'Missing');
-console.log('EMAIL_USER:', process.env.EMAIL_USER ? 'Found' : 'Missing');
-console.log('TWILIO_ACCOUNT_SID:', process.env.TWILIO_ACCOUNT_SID ? 'Found' : 'Missing');
-console.log('TWILIO_WHATSAPP_NUMBER:', process.env.TWILIO_WHATSAPP_NUMBER ? 'Found' : 'Missing');
 
 // Validate critical environment variables
 const validateEnv = () => {
-  const required = [
-    'MONGODB_URI',
-    'JWT_SECRET'
-  ];
-
-  const optional = [
-    'RAZORPAY_KEY_ID',
-    'RAZORPAY_KEY_SECRET',
-    'EMAIL_USER',
-    'EMAIL_PASS',
-    'TWILIO_ACCOUNT_SID',
-    'TWILIO_AUTH_TOKEN'
-  ];
-
+  const required = ['MONGODB_URI', 'JWT_SECRET'];
   const missing = required.filter(key => !process.env[key]);
   
   if (missing.length > 0) {
     console.error('❌ Missing critical environment variables:');
-    missing.forEach(key => {
-      console.error(`   - ${key}`);
-    });
+    missing.forEach(key => console.error(`   - ${key}`));
     console.log('\n💡 Please check your .env file and make sure all required variables are set.');
     process.exit(1);
-  }
-
-  const missingOptional = optional.filter(key => !process.env[key]);
-  if (missingOptional.length > 0) {
-    console.log('⚠️ Optional environment variables not set:');
-    missingOptional.forEach(key => {
-      console.log(`   - ${key}`);
-    });
-    console.log('Some features may not work without these variables.');
   }
   
   console.log('✅ All critical environment variables are loaded');
 };
 
-// Validate environment before proceeding
 validateEnv();
 
 // Now import everything else
@@ -61,7 +29,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import connectDB from './connectDB.js';
 
-// Import routes AFTER environment validation
+// Import customer routes
 import userRouter from './routes/userRouter.js';
 import otpRouter from './routes/otpRouter.js';
 import uploadRoutes from './routes/uploadRoutes.js';
@@ -69,17 +37,20 @@ import authRouter from './routes/auth.js';
 import settingsAuthRoutes from './routes/settingsAuth.js';
 import addressRoutes from './routes/addressRoutes.js';
 import paymentRoutes from './routes/payment.js';
+import cartRoutes from './routes/cartRoutes.js'; // Cart routes import
+import dishRoutes from './routes/dishRoutes.js';
 
 // Import seller routes
 import sellerAuthRoutes from './routes/sellerAuth.js';
 import sellerOtpRoutes from './routes/sellerOtp.js';
 import sellerOnboardingRoutes from './routes/sellerOnboarding.js';
 import sellerProfileRoutes from './routes/sellerProfile.js';
+import sellerMenuRoutes from './routes/sellerMenu.js';
+import reviewRoutes from './routes/reviewRoutes.js';
 
 // Import customer discovery routes
 import customerDiscoveryRoutes from './routes/customerDiscovery.js';
 
-// Get current directory for ES modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -103,15 +74,11 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Create uploads directories if they don't exist
 const uploadsDir = path.join(__dirname, 'uploads');
 const sellersDir = path.join(uploadsDir, 'sellers');
-
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-  console.log('📁 Created uploads directory');
-}
-if (!fs.existsSync(sellersDir)) {
-  fs.mkdirSync(sellersDir, { recursive: true });
-  console.log('📁 Created sellers uploads directory');
-}
+[uploadsDir, sellersDir].forEach(dir => {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o755 });
+  }
+});
 
 // Serve static files from uploads directory
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -131,7 +98,7 @@ app.get('/', (req, res) => {
   });
 });
 
-// Extended health check with services
+// Extended health check
 app.get('/health', (req, res) => {
   res.json({
     success: true,
@@ -144,10 +111,6 @@ app.get('/health', (req, res) => {
       razorpay: process.env.RAZORPAY_KEY_ID ? 'configured' : 'not configured',
       email: process.env.EMAIL_USER ? 'configured' : 'not configured',
       twilio: process.env.TWILIO_ACCOUNT_SID ? 'configured' : 'not configured'
-    },
-    environment: {
-      node_env: process.env.NODE_ENV || 'development',
-      port: process.env.PORT || 5000
     }
   });
 });
@@ -166,6 +129,7 @@ app.get('/api', (req, res) => {
       settings: '/api/settings-auth',
       addresses: '/api/addresses',
       payment: '/api/payment',
+      cart: '/api/cart', // Added cart route
       discovery: '/api/discovery',
       
       // Seller routes
@@ -173,10 +137,10 @@ app.get('/api', (req, res) => {
         auth: '/api/seller/auth',
         otp: '/api/seller/otp',
         onboarding: '/api/seller/onboarding',
-        profile: '/api/seller/profile'
+        profile: '/api/seller/profile',
+        menu: '/api/seller/menu'
       }
-    },
-    timestamp: new Date().toISOString()
+    }
   });
 });
 
@@ -199,16 +163,16 @@ app.use('/api/discovery', (req, res, next) => {
   next();
 });
 
-// Debug middleware for payment routes
-app.use('/api/payment', (req, res, next) => {
-  console.log(`💳 Payment API: ${req.method} ${req.path}`, {
+// Debug middleware for cart routes
+app.use('/api/cart', (req, res, next) => {
+  console.log(`🛒 Cart API: ${req.method} ${req.path}`, {
     hasBody: ['POST', 'PATCH', 'PUT'].includes(req.method),
-    headers: Object.keys(req.headers)
+    hasAuth: req.headers.authorization ? 'Yes' : 'No'
   });
   next();
 });
 
-// Mount all routes
+// Mount all routes in the correct order
 // Customer routes
 app.use('/api/auth', authRouter);
 app.use('/api/users', userRouter);
@@ -217,26 +181,38 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/settings-auth', settingsAuthRoutes);
 app.use('/api/addresses', addressRoutes);
 app.use('/api/payment', paymentRoutes);
+app.use('/api/cart', cartRoutes); // Mount cart routes
 app.use('/api/discovery', customerDiscoveryRoutes);
+app.use('/api/dishes', dishRoutes);
+app.use('/api/reviews', reviewRoutes);
 
-// Seller routes
+// Seller routes - MOUNT SPECIFIC ROUTES FIRST
 app.use('/api/seller/auth', sellerAuthRoutes);
 app.use('/api/seller/otp', sellerOtpRoutes);
 app.use('/api/seller/onboarding', sellerOnboardingRoutes);
-app.use('/api/seller', sellerProfileRoutes); // This handles /api/seller/profile/*
+app.use('/api/seller/menu', sellerMenuRoutes);        // Menu routes FIRST
+app.use('/api/seller/profile', sellerProfileRoutes);   // Profile routes SECOND
 
-// 404 handler
-app.use((req, res) => {
+// SAFE 404 handler - using standard middleware signature instead of catch-all route
+app.use((req, res, next) => {
   console.log('404 Not Found:', req.originalUrl);
   res.status(404).json({ 
     success: false, 
     error: `Route ${req.originalUrl} not found`,
+    message: 'The requested endpoint does not exist',
     availableRoutes: {
-      auth: '/api/auth/*',
-      users: '/api/users/*',
-      discovery: '/api/discovery/*',
-      seller: '/api/seller/*',
-      payment: '/api/payment/*'
+      customer: {
+        auth: '/api/auth/*',
+        users: '/api/users/*',
+        cart: '/api/cart/*', // Added to available routes
+        discovery: '/api/discovery/*',
+        payment: '/api/payment/*'
+      },
+      seller: {
+        auth: '/api/seller/auth/*',
+        profile: '/api/seller/profile/*',
+        menu: '/api/seller/menu/*'
+      }
     }
   });
 });
@@ -295,45 +271,49 @@ const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log('🚀=================================🚀');
-  console.log(`🌟 TasteSphere Server Started Successfully`);
+  console.log('🌟 TasteSphere Server Started Successfully');
   console.log('🚀=================================🚀');
   console.log(`📡 Server URL: http://localhost:${PORT}`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`📊 Database: ${process.env.MONGODB_URI ? 'Configured' : 'Not configured'}`);
-  console.log(`💳 Razorpay: ${process.env.RAZORPAY_KEY_ID ? 'Configured' : 'Not configured'}`);
-  console.log(`📧 Email: ${process.env.EMAIL_USER ? 'configured' : 'not configured'}`);
-  console.log(`📱 WhatsApp: ${process.env.TWILIO_ACCOUNT_SID ? 'Configured' : 'Not configured'}`);
   console.log('🚀=================================🚀');
   console.log('📋 Available API Endpoints:');
   
   // Customer endpoints
   console.log('   👤 Customer Routes:');
   console.log('     🔐 POST /api/auth/login');
-  console.log('     🔐 POST /api/auth/forgot-password');
   console.log('     👤 POST /api/users (signup)');
+  console.log('     🛒 GET  /api/cart (get cart)');
+  console.log('     🛒 POST /api/cart/add (add to cart)');
+  console.log('     🛒 PUT  /api/cart/item/:dishId (update quantity)');
+  console.log('     🛒 DELETE /api/cart/item/:dishId (remove item)');
+  console.log('     🛒 DELETE /api/cart/clear (clear cart)');
+  console.log('     🛒 GET  /api/cart/summary (cart summary)');
+  console.log('     🔍 GET  /api/discovery/dishes/popular');
+  console.log('     🔍 GET  /api/discovery/dishes/recommended');
+  console.log('     🔍 GET  /api/discovery/dishes/featured');
   console.log('     🔍 GET  /api/discovery/restaurants');
   console.log('     🔍 GET  /api/discovery/restaurant/:id');
-  console.log('     🔍 GET  /api/discovery/restaurant/:id/menu');
-  console.log('     🔍 GET  /api/discovery/featured');
-  console.log('     🔍 GET  /api/discovery/nearby');
+  console.log('     🔍 GET  /api/discovery/search');
   console.log('     📍 GET  /api/addresses');
   console.log('     💳 POST /api/payment/create-order');
-  console.log('     ✅ POST /api/payment/verify-payment');
   
   // Seller endpoints
   console.log('   🏪 Seller Routes:');
   console.log('     🔐 POST /api/seller/auth/signup');
   console.log('     🔐 POST /api/seller/auth/login');
-  console.log('     🔐 POST /api/seller/auth/forgot-password');
   console.log('     👤 GET  /api/seller/profile');
   console.log('     👤 PATCH /api/seller/profile');
+  
+  // Menu management endpoints
+  console.log('   🍽️  Seller Menu Routes:');
   console.log('     🍽️  POST /api/seller/menu/dish');
   console.log('     🍽️  GET  /api/seller/menu/dishes');
+  console.log('     🍽️  GET  /api/seller/menu/dish/:id');
   console.log('     🍽️  PATCH /api/seller/menu/dish/:id');
   console.log('     🍽️  DELETE /api/seller/menu/dish/:id');
-  console.log('     📊 GET  /api/seller/stats');
-  console.log('     🏪 PATCH /api/seller/closure-toggle');
-  console.log('     📋 POST /api/seller/onboarding/complete');
+  console.log('     🔄 PATCH /api/seller/menu/dish/:id/toggle');
+  console.log('     📊 GET  /api/seller/menu/analytics');
+  console.log('     📊 GET  /api/seller/menu/stats');
   
   // System endpoints
   console.log('   🔧 System Routes:');
@@ -342,9 +322,17 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log('     📋 GET  /api (API overview)');
   
   console.log('🚀=================================🚀');
-  console.log('💡 Notes:');
-  console.log('   - Make sure to create uploads/sellers directory');
-  console.log('   - Set JWT_SECRET in your .env file');
-  console.log('   - Configure optional services for full functionality');
+  console.log('💡 Key Features Ready:');
+  console.log('   ✅ Complete cart management system');
+  console.log('   ✅ Add to cart from discovery page');
+  console.log('   ✅ Professional cart page with quantity controls');
+  console.log('   ✅ Cart persistence across sessions');
+  console.log('   ✅ Real-time cart updates');
+  console.log('   ✅ One restaurant per cart validation');
+  console.log('   ✅ Seller can add/manage dishes');
+  console.log('   ✅ Dishes appear immediately in customer discovery');
+  console.log('   ✅ Real-time popularity tracking');
+  console.log('   ✅ Location-based dish discovery');
+  console.log('   ✅ Search and filter capabilities');
   console.log('🚀=================================🚀');
 });

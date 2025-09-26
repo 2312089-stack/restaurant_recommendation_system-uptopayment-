@@ -1,7 +1,7 @@
 // models/User.js - Fixed with proper ES6 export
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
-
+import crypto from 'crypto';
 const userSchema = new mongoose.Schema({
   emailId: {
     type: String,

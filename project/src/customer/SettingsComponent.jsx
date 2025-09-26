@@ -1,33 +1,49 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowLeft, User, Mail, Lock, MapPin, Camera, Bell, FileText, Plus, Edit3, Trash2, Eye, EyeOff, Upload, Save } from 'lucide-react';
 
-// Helper function to check auth token
-const checkAuthToken = () => {
+// API Configuration
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+
+// API Helper Functions
+const apiRequest = async (endpoint, options = {}) => {
   const token = localStorage.getItem('token');
-  if (!token) {
-    return { valid: false, message: 'Please log in to access settings' };
-  }
+  
+  const config = {
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token && { 'Authorization': `Bearer ${token}` }),
+      ...options.headers,
+    },
+    ...options,
+  };
+
   try {
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    const currentTime = Date.now() / 1000;
-    
-    if (payload.exp && payload.exp < currentTime) {
-      return { valid: false, message: 'Session expired. Please log in again' };
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.message || data.error || 'Request failed');
     }
-    
-    return { valid: true, token };
+
+    return data;
   } catch (error) {
-    return { valid: false, message: 'Invalid session. Please log in again' };
+    console.error('API Request Error:', error);
+    throw error;
   }
 };
 
-// Mock customer data - in real app, this would come from your user API
-const customer = {
-  name: "John Doe",
-  email: "john@example.com",
-  phone: "+91 98765 43210",
-  profilePhoto: "/api/placeholder/100/100",
-  address: "123 Main St, Mumbai, Maharashtra 400001"
+// Get current user info from token
+const getCurrentUser = () => {
+  try {
+    const token = localStorage.getItem('token');
+    if (!token) return null;
+    
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return payload;
+  } catch (error) {
+    console.error('Error parsing token:', error);
+    return null;
+  }
 };
 
 // Address Form Component
@@ -57,7 +73,6 @@ const AddressForm = ({ address, onSave, onCancel, isEdit }) => {
       [name]: type === 'checkbox' ? checked : value
     }));
     
-    // Clear error when user starts typing
     if (errors[name]) {
       setErrors(prev => ({ ...prev, [name]: '' }));
     }
@@ -304,52 +319,26 @@ const AddressForm = ({ address, onSave, onCancel, isEdit }) => {
 
 // Main Settings Component
 const Settings = ({ onClose }) => {
-  // Auth and debugging
-  useEffect(() => {
-    const debugAuth = () => {
-      const token = localStorage.getItem('token');
-      console.log('=== AUTH DEBUG ===');
-      console.log('Token exists:', !!token);
-      
-      if (token) {
-        try {
-          const payload = JSON.parse(atob(token.split('.')[1]));
-          console.log('Token payload:', payload);
-          console.log('Token expires:', new Date(payload.exp * 1000));
-          console.log('Current time:', new Date());
-          console.log('Token expired:', payload.exp * 1000 < Date.now());
-        } catch (e) {
-          console.log('Token parsing error:', e);
-        }
-      } else {
-        console.log('No token found - user needs to login');
-      }
-      console.log('==================');
-    };
-    
-    debugAuth();
-  }, []);
-
   // State management
   const [activeSection, setActiveSection] = useState('main');
   const [isDarkMode] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [apiMessage, setApiMessage] = useState({ type: '', text: '' });
+  const [currentUser, setCurrentUser] = useState(null);
 
   // Address management states
   const [addresses, setAddresses] = useState([]);
   const [editingAddress, setEditingAddress] = useState(null);
-  const [addressesLoading, setAddressesLoading] = useState(false);
 
-  // Form states for credentials - Improved from second code
+  // Form states for credentials
+  const [currentEmail, setCurrentEmail] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [newEmailInput, setNewEmailInput] = useState('');
-  const [resetEmailInput, setResetEmailInput] = useState('');
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState('');
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
-  const [profilePhoto] = useState('/api/placeholder/100/100');
 
   // Notification States
   const [notifications, setNotifications] = useState({
@@ -360,77 +349,73 @@ const Settings = ({ onClose }) => {
     smartReminders: true
   });
 
-  // API helper function
-  const makeAuthenticatedRequest = async (url, options = {}) => {
-    const { valid, token } = checkAuthToken();
-    
-    if (!valid) {
-      throw new Error('Authentication required');
-    }
-
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-        ...options.headers
+  // Load user profile on component mount
+  useEffect(() => {
+    const loadUserProfile = async () => {
+      try {
+        const user = getCurrentUser();
+        if (user) {
+          setCurrentUser(user);
+          setCurrentEmail(user.email || '');
+          await loadAddresses();
+        }
+      } catch (error) {
+        console.error('Error loading user profile:', error);
       }
-    });
+    };
 
-    if (response.status === 401) {
-      localStorage.removeItem('token');
-      throw new Error('Session expired. Please log in again.');
-    }
+    loadUserProfile();
+  }, []);
 
-    return response;
-  };
-
-  // Address API functions (kept exactly from first code)
-  const fetchAddresses = async () => {
-    setAddressesLoading(true);
+  // Load addresses from API
+  const loadAddresses = async () => {
     try {
-      const response = await makeAuthenticatedRequest('http://localhost:5000/api/addresses');
-      const data = await response.json();
-      
-      if (data.success) {
-        setAddresses(data.data);
-      } else {
-        setApiMessage({ type: 'error', text: data.message });
-      }
+      setIsLoading(true);
+      const response = await apiRequest('/addresses');
+      setAddresses(response.data || []);
     } catch (error) {
-      console.error('Fetch addresses error:', error);
-      setApiMessage({ type: 'error', text: error.message });
+      console.error('Error loading addresses:', error);
+      setApiMessage({ 
+        type: 'error', 
+        text: 'Failed to load addresses. Please refresh the page.' 
+      });
     } finally {
-      setAddressesLoading(false);
+      setIsLoading(false);
     }
   };
 
+  // Save address (create or update)
   const handleSaveAddress = async (addressData) => {
     try {
-      const url = editingAddress 
-        ? `http://localhost:5000/api/addresses/${editingAddress._id}`
-        : 'http://localhost:5000/api/addresses';
+      setIsLoading(true);
       
-      const method = editingAddress ? 'PUT' : 'POST';
-      
-      const response = await makeAuthenticatedRequest(url, {
-        method,
-        body: JSON.stringify(addressData)
-      });
-
-      const data = await response.json();
-      
-      if (data.success) {
-        setApiMessage({ type: 'success', text: data.message });
-        await fetchAddresses();
-        setEditingAddress(null);
-        setActiveSection('addresses');
+      if (editingAddress) {
+        // Update existing address
+        await apiRequest(`/addresses/${editingAddress._id}`, {
+          method: 'PUT',
+          body: JSON.stringify(addressData),
+        });
+        setApiMessage({ type: 'success', text: 'Address updated successfully!' });
       } else {
-        setApiMessage({ type: 'error', text: data.message });
+        // Create new address
+        await apiRequest('/addresses', {
+          method: 'POST',
+          body: JSON.stringify(addressData),
+        });
+        setApiMessage({ type: 'success', text: 'Address added successfully!' });
       }
+      
+      await loadAddresses(); // Reload addresses
+      setEditingAddress(null);
+      setActiveSection('addresses');
     } catch (error) {
       console.error('Save address error:', error);
-      setApiMessage({ type: 'error', text: error.message });
+      setApiMessage({ 
+        type: 'error', 
+        text: error.message || 'Failed to save address. Please try again.' 
+      });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -443,45 +428,41 @@ const Settings = ({ onClose }) => {
     if (!window.confirm('Are you sure you want to delete this address?')) {
       return;
     }
-
+    
     try {
-      const response = await makeAuthenticatedRequest(
-        `http://localhost:5000/api/addresses/${addressId}`,
-        { method: 'DELETE' }
-      );
-
-      const data = await response.json();
-      
-      if (data.success) {
-        setApiMessage({ type: 'success', text: data.message });
-        await fetchAddresses();
-      } else {
-        setApiMessage({ type: 'error', text: data.message });
-      }
+      setIsLoading(true);
+      await apiRequest(`/addresses/${addressId}`, {
+        method: 'DELETE',
+      });
+      setApiMessage({ type: 'success', text: 'Address deleted successfully!' });
+      await loadAddresses(); // Reload addresses
     } catch (error) {
       console.error('Delete address error:', error);
-      setApiMessage({ type: 'error', text: error.message });
+      setApiMessage({ 
+        type: 'error', 
+        text: error.message || 'Failed to delete address. Please try again.' 
+      });
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleSetDefaultAddress = async (addressId) => {
     try {
-      const response = await makeAuthenticatedRequest(
-        `http://localhost:5000/api/addresses/${addressId}/set-default`,
-        { method: 'PUT' }
-      );
-
-      const data = await response.json();
-      
-      if (data.success) {
-        setApiMessage({ type: 'success', text: data.message });
-        await fetchAddresses();
-      } else {
-        setApiMessage({ type: 'error', text: data.message });
-      }
+      setIsLoading(true);
+      await apiRequest(`/addresses/${addressId}/set-default`, {
+        method: 'PUT',
+      });
+      setApiMessage({ type: 'success', text: 'Default address updated!' });
+      await loadAddresses(); // Reload addresses
     } catch (error) {
       console.error('Set default address error:', error);
-      setApiMessage({ type: 'error', text: error.message });
+      setApiMessage({ 
+        type: 'error', 
+        text: error.message || 'Failed to set default address. Please try again.' 
+      });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -490,197 +471,131 @@ const Settings = ({ onClose }) => {
     setActiveSection('address-form');
   };
 
-  // Load addresses when addresses section is accessed
-  useEffect(() => {
-    if (activeSection === 'addresses') {
-      fetchAddresses();
-    }
-  }, [activeSection]);
-
-  // Improved email change function from second code
-  const handleChangeEmail = async (newEmail, currentPassword) => {
-    if (!newEmail || !currentPassword) {
-      setApiMessage({ type: 'error', text: 'Please fill in all required fields' });
+  // Change email request
+  const handleChangeEmailRequest = async () => {
+    if (!currentEmail || !newEmailInput || !currentPassword) {
+      setApiMessage({ type: 'error', text: 'Please fill in all fields' });
       return;
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(newEmail)) {
-      setApiMessage({ type: 'error', text: 'Please enter a valid email address' });
+    if (!emailRegex.test(newEmailInput)) {
+      setApiMessage({ type: 'error', text: 'Please enter a valid new email address' });
       return;
     }
 
-    setIsLoading(true);
-    setApiMessage({ type: '', text: '' });
-    
+    if (currentEmail.toLowerCase() === newEmailInput.toLowerCase()) {
+      setApiMessage({ type: 'error', text: 'New email must be different from current email' });
+      return;
+    }
+
     try {
-      const response = await fetch('http://localhost:5000/api/settings-auth/change-email', {
+      setIsLoading(true);
+      await apiRequest('/settings-auth/change-email', {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
         body: JSON.stringify({
-          newEmail,
-          currentPassword
-        })
+          newEmail: newEmailInput,
+          currentPassword: currentPassword,
+        }),
       });
-
-      const data = await response.json();
-
-      if (response.status === 401) {
-        localStorage.removeItem('token');
-        setApiMessage({ 
-          type: 'error', 
-          text: 'Your session has expired. Please log in again.' 
-        });
-        setTimeout(() => {
-          window.location.href = '/login';
-        }, 2000);
-        return;
-      }
-
-      if (data.success) {
-        setApiMessage({ 
-          type: 'success', 
-          text: `Verification email sent to ${newEmail}. Please check your email and click the verification link. You will be redirected to login.` 
-        });
-        setNewEmailInput('');
-        setCurrentPassword('');
-        
-        // Redirect to login after 3 seconds
-        setTimeout(() => {
-          setApiMessage({ 
-            type: 'success', 
-            text: 'Redirecting to login page...' 
-          });
-          // In a real app, you would navigate to login page
-          console.log('Redirecting to login page...');
-        }, 3000);
-      } else {
-        setApiMessage({ 
-          type: 'error', 
-          text: data.message 
-        });
-      }
+      
+      setApiMessage({ 
+        type: 'success', 
+        text: `Verification email sent to ${newEmailInput}. Please check your inbox and click the verification link to complete the email change.` 
+      });
+      
+      // Clear form
+      setNewEmailInput('');
+      setCurrentPassword('');
     } catch (error) {
       console.error('Change email error:', error);
       setApiMessage({ 
         type: 'error', 
-        text: 'Network error. Please try again.' 
+        text: error.message || 'Failed to send verification email. Please try again.' 
       });
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Improved password change function from second code
-  const handleChangePassword = async (currentPassword, newPassword) => {
+  // Change password
+  const handleChangePassword = async () => {
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setApiMessage({ type: 'error', text: 'Please fill in all password fields' });
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setApiMessage({ type: 'error', text: 'New passwords do not match' });
+      return;
+    }
+
     if (newPassword.length < 6) {
-      setApiMessage({ type: 'error', text: 'New password must be at least 6 characters long' });
+      setApiMessage({ type: 'error', text: 'Password must be at least 6 characters long' });
       return;
     }
 
-    const token = localStorage.getItem('token');
-    
-    if (!token) {
-      setApiMessage({ 
-        type: 'error', 
-        text: 'Please log in to change your password' 
-      });
-      return;
-    }
-
-    setIsLoading(true);
-    setApiMessage({ type: '', text: '' });
-    
     try {
-      const response = await fetch('http://localhost:5000/api/settings-auth/change-password', {
+      setIsLoading(true);
+      await apiRequest('/settings-auth/change-password', {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
         body: JSON.stringify({
-          currentPassword,
-          newPassword
-        })
+          currentPassword: currentPassword,
+          newPassword: newPassword,
+        }),
       });
-
-      const data = await response.json();
-
-      if (response.status === 401) {
-        localStorage.removeItem('token');
-        setApiMessage({ 
-          type: 'error', 
-          text: 'Your session has expired. Please log in again.' 
-        });
-        setTimeout(() => {
-          window.location.href = '/login';
-        }, 2000);
-        return;
-      }
-
-      if (data.success) {
-        setApiMessage({ 
-          type: 'success', 
-          text: data.message 
-        });
-        setCurrentPassword('');
-        setNewPassword('');
-        setConfirmPassword('');
-      } else {
-        setApiMessage({ 
-          type: 'error', 
-          text: data.message 
-        });
-      }
+      
+      setApiMessage({ type: 'success', text: 'Password changed successfully!' });
+      
+      // Clear form
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
     } catch (error) {
       console.error('Change password error:', error);
       setApiMessage({ 
         type: 'error', 
-        text: 'Network error. Please try again.' 
+        text: error.message || 'Failed to change password. Please try again.' 
       });
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Improved reset password function from second code
-  const handleResetPasswordRequest = async (email) => {
-    if (!email) {
+  // Forgot password request
+  const handleForgotPasswordRequest = async () => {
+    if (!forgotPasswordEmail) {
       setApiMessage({ type: 'error', text: 'Please enter your email address' });
       return;
     }
 
-    setIsLoading(true);
-    setApiMessage({ type: '', text: '' });
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(forgotPasswordEmail)) {
+      setApiMessage({ type: 'error', text: 'Please enter a valid email address' });
+      return;
+    }
+
     try {
-      const response = await fetch('http://localhost:5000/api/settings-auth/reset-password-request', {
+      setIsLoading(true);
+      await apiRequest('/settings-auth/reset-password-request', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ email })
+        body: JSON.stringify({
+          email: forgotPasswordEmail,
+        }),
       });
-      const data = await response.json();
-      if (data.success) {
-        setApiMessage({ 
-          type: 'success', 
-          text: data.message 
-        });
-        setResetEmailInput('');
-      } else {
-        setApiMessage({ 
-          type: 'error', 
-          text: data.message 
-        });
-      }
+      
+      setApiMessage({ 
+        type: 'success', 
+        text: 'If an account with that email exists, you will receive a password reset link shortly.' 
+      });
+      
+      // Clear form
+      setForgotPasswordEmail('');
     } catch (error) {
-      console.error('Reset password request error:', error);
+      console.error('Forgot password error:', error);
       setApiMessage({ 
         type: 'error', 
-        text: 'Network error. Please check your connection and try again.' 
+        text: 'An error occurred. Please try again later.' 
       });
     } finally {
       setIsLoading(false);
@@ -703,39 +618,12 @@ const Settings = ({ onClose }) => {
 
   const handleBackToMain = () => {
     if (activeSection === 'main') {
-      onClose();
+      onClose && onClose();
     } else {
       setActiveSection('main');
       setApiMessage({ type: '', text: '' });
     }
   };
-
-  const renderProfileSection = () => (
-    <div className="flex items-center space-x-6 mb-8 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-      <div className="relative group cursor-pointer">
-        <div className="w-20 h-20 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white text-2xl font-bold shadow-lg">
-          JD
-        </div>
-        <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 rounded-full transition-all duration-200 flex items-center justify-center">
-          <span className="text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-            Click to change
-          </span>
-        </div>
-      </div>
-      <div className="flex-1">
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">{customer.name}</h2>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">{customer.email}</p>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">{customer.phone}</p>
-        <div className="flex items-center text-sm text-gray-500 dark:text-gray-500">
-          <span className="mr-1">📍</span>
-          <p>{customer.address}</p>
-        </div>
-      </div>
-      <button className="px-6 py-2 bg-orange-500 text-white rounded-full hover:bg-orange-600 transition-all duration-200 shadow-md hover:shadow-lg transform hover:-translate-y-0.5">
-        Edit Profile
-      </button>
-    </div>
-  );
 
   const renderMainSettings = () => (
     <div className="space-y-6">
@@ -780,22 +668,12 @@ const Settings = ({ onClose }) => {
             <span className="text-gray-400">→</span>
           </button>
           <button
-            onClick={() => setActiveSection('reset-password')}
+            onClick={() => setActiveSection('forgot-password')}
             className="w-full flex items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors"
           >
             <div className="flex items-center">
               <Lock className="w-4 h-4 mr-3 text-gray-600 dark:text-gray-400" />
-              <span className="text-gray-900 dark:text-white">Forgot / Reset Password</span>
-            </div>
-            <span className="text-gray-400">→</span>
-          </button>
-          <button
-            onClick={() => setActiveSection('profile-photo')}
-            className="w-full flex items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors"
-          >
-            <div className="flex items-center">
-              <Camera className="w-4 h-4 mr-3 text-gray-600 dark:text-gray-400" />
-              <span className="text-gray-900 dark:text-white">Change Profile Photo</span>
+              <span className="text-gray-900 dark:text-white">Reset Password (Forgot Password)</span>
             </div>
             <span className="text-gray-400">→</span>
           </button>
@@ -868,79 +746,80 @@ const Settings = ({ onClose }) => {
         <span className="text-orange-500 font-medium">Add New Address</span>
       </button>
 
-      {addressesLoading ? (
+      {isLoading && addresses.length === 0 ? (
         <div className="flex justify-center py-8">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
         </div>
       ) : (
         <div className="space-y-4">
-          {addresses.length === 0 ? (
-            <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-              No addresses found. Add your first address to get started.
-            </div>
-          ) : (
-            addresses.map(address => (
-              <div key={address._id} className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-2 mb-2">
-                      <span className="px-2 py-1 bg-orange-100 dark:bg-orange-900 text-orange-800 dark:text-orange-200 text-xs font-medium rounded">
-                        {address.type.charAt(0).toUpperCase() + address.type.slice(1)}
+          {addresses.map(address => (
+            <div key={address._id} className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <div className="flex items-center space-x-2 mb-2">
+                    <span className="px-2 py-1 bg-orange-100 dark:bg-orange-900 text-orange-800 dark:text-orange-200 text-xs font-medium rounded">
+                      {address.type.charAt(0).toUpperCase() + address.type.slice(1)}
+                    </span>
+                    {address.isDefault && (
+                      <span className="px-2 py-1 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 text-xs font-medium rounded">
+                        Default
                       </span>
-                      {address.isDefault && (
-                        <span className="px-2 py-1 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 text-xs font-medium rounded">
-                          Default
-                        </span>
-                      )}
-                    </div>
-                    <div className="space-y-1">
-                      <p className="font-medium text-gray-900 dark:text-white">{address.fullName}</p>
-                      <p className="text-gray-700 dark:text-gray-300">{address.houseNo}, {address.roadArea}</p>
-                      <p className="text-gray-700 dark:text-gray-300">{address.city}, {address.state} - {address.pincode}</p>
-                      {address.landmark && (
-                        <p className="text-sm text-gray-500 dark:text-gray-400">Landmark: {address.landmark}</p>
-                      )}
-                      <p className="text-sm text-gray-600 dark:text-gray-400">
-                        Phone: {address.phoneNumber}
-                        {address.alternatePhone && `, ${address.alternatePhone}`}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center space-x-2 ml-4">
-                    {!address.isDefault && (
-                      <button
-                        onClick={() => handleSetDefaultAddress(address._id)}
-                        className="px-3 py-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-orange-100 hover:text-orange-600 rounded transition-colors"
-                        title="Set as default"
-                      >
-                        Set Default
-                      </button>
                     )}
-                    <button
-                      onClick={() => handleEditAddress(address)}
-                      className="p-2 text-gray-600 dark:text-gray-400 hover:text-orange-500 transition-colors"
-                      title="Edit address"
-                    >
-                      <Edit3 className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteAddress(address._id)}
-                      className="p-2 text-gray-600 dark:text-gray-400 hover:text-red-500 transition-colors"
-                      title="Delete address"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="font-medium text-gray-900 dark:text-white">{address.fullName}</p>
+                    <p className="text-gray-700 dark:text-gray-300">{address.houseNo}, {address.roadArea}</p>
+                    <p className="text-gray-700 dark:text-gray-300">{address.city}, {address.state} - {address.pincode}</p>
+                    {address.landmark && (
+                      <p className="text-sm text-gray-500 dark:text-gray-400">Landmark: {address.landmark}</p>
+                    )}
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      Phone: {address.phoneNumber}
+                      {address.alternatePhone && `, ${address.alternatePhone}`}
+                    </p>
                   </div>
                 </div>
+                <div className="flex items-center space-x-2 ml-4">
+                  {!address.isDefault && (
+                    <button
+                      onClick={() => handleSetDefaultAddress(address._id)}
+                      className="px-3 py-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-orange-100 hover:text-orange-600 rounded transition-colors"
+                      title="Set as default"
+                    >
+                      Set Default
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleEditAddress(address)}
+                    className="p-2 text-gray-600 dark:text-gray-400 hover:text-orange-500 transition-colors"
+                    title="Edit address"
+                  >
+                    <Edit3 className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => handleDeleteAddress(address._id)}
+                    className="p-2 text-gray-600 dark:text-gray-400 hover:text-red-500 transition-colors"
+                    title="Delete address"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
-            ))
+            </div>
+          ))}
+          
+          {addresses.length === 0 && !isLoading && (
+            <div className="text-center py-8">
+              <MapPin className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+              <p className="text-gray-500 dark:text-gray-400">No addresses found</p>
+              <p className="text-sm text-gray-400 dark:text-gray-500">Add your first address to get started</p>
+            </div>
           )}
         </div>
       )}
     </div>
   );
 
-  // Improved renderCredentials from second code
   const renderCredentials = () => (
     <div className="space-y-6">
       <div className="flex items-center space-x-4">
@@ -960,55 +839,95 @@ const Settings = ({ onClose }) => {
       {/* Update Email Section */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-          Update Email
+          Update Email Address
         </h3>
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Current Email
+              Current Email Address
             </label>
             <input
               type="email"
-              value={customer.email}
+              value={currentEmail}
               disabled
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-500 dark:text-gray-400"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-400 cursor-not-allowed"
             />
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              This is your current registered email address
+            </p>
           </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              New Email *
+              New Email Address *
             </label>
             <input
               type="email"
               value={newEmailInput}
               onChange={(e) => setNewEmailInput(e.target.value)}
-              placeholder="Enter new email address"
+              placeholder="Enter your new email address"
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
             />
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              This will be your new email address for login
+            </p>
           </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Current Password *
             </label>
-            <input
-              type="password"
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-              placeholder="Enter current password to confirm"
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-            />
+            <div className="relative">
+              <input
+                type={showCurrentPassword ? "text" : "password"}
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                placeholder="Enter your current password"
+                className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+              />
+              <button
+                type="button"
+                onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                {showCurrentPassword ? 
+                  <EyeOff className="w-4 h-4" /> : 
+                  <Eye className="w-4 h-4" />
+                }
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              Enter your current password to confirm this change
+            </p>
           </div>
+
           <button
-            onClick={() => handleChangeEmail(newEmailInput, currentPassword)}
+            onClick={handleChangeEmailRequest}
             disabled={isLoading || !newEmailInput || !currentPassword}
             className="px-6 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
           >
             {isLoading && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>}
-            <span>{isLoading ? 'Sending Verification...' : 'Update Email'}</span>
+            <span>{isLoading ? 'Sending Verification Email...' : 'Send Verification Email'}</span>
           </button>
-          <p className="text-sm text-gray-600 dark:text-gray-400">
-            A verification email will be sent to your new email address. You'll need to verify it before the change takes effect.
-          </p>
+
+          <div className="bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
+            <div className="flex items-start">
+              <Mail className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5 mr-3 flex-shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-blue-800 dark:text-blue-200 mb-1">
+                  Email Change Process:
+                </p>
+                <ul className="text-xs text-blue-700 dark:text-blue-300 space-y-1">
+                  <li>1. Your current email is automatically filled</li>
+                  <li>2. Enter your desired new email address</li>
+                  <li>3. Enter your current password for verification</li>
+                  <li>4. A verification email will be sent to your new email</li>
+                  <li>5. Click the link in the email to complete the change</li>
+                  <li>6. You can then login with your new email address</li>
+                </ul>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1079,13 +998,7 @@ const Settings = ({ onClose }) => {
             />
           </div>
           <button
-            onClick={() => {
-              if (newPassword !== confirmPassword) {
-                setApiMessage({ type: 'error', text: 'Passwords do not match' });
-                return;
-              }
-              handleChangePassword(currentPassword, newPassword);
-            }}
+            onClick={handleChangePassword}
             disabled={isLoading || !currentPassword || !newPassword || !confirmPassword}
             className="px-6 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
           >
@@ -1097,8 +1010,7 @@ const Settings = ({ onClose }) => {
     </div>
   );
 
-  // Improved renderResetPassword from second code
-  const renderResetPassword = () => (
+  const renderForgotPassword = () => (
     <div className="space-y-6">
       <div className="flex items-center space-x-4">
         <button
@@ -1108,22 +1020,16 @@ const Settings = ({ onClose }) => {
           <ArrowLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" />
         </button>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-          Reset Password
+          Reset Password (Forgot Password)
         </h1>
       </div>
 
       <MessageAlert type={apiMessage.type} text={apiMessage.text} />
 
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-        <div className="text-center mb-6">
-          <Lock className="w-12 h-12 text-orange-500 mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-            Forgot Your Password?
-          </h3>
-          <p className="text-gray-600 dark:text-gray-400">
-            Enter your email address and we'll send you a link to reset your password.
-          </p>
-        </div>
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+          Password Reset Request
+        </h3>
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -1131,58 +1037,41 @@ const Settings = ({ onClose }) => {
             </label>
             <input
               type="email"
-              value={resetEmailInput}
-              onChange={(e) => setResetEmailInput(e.target.value)}
-              placeholder="Enter your email address"
+              value={forgotPasswordEmail}
+              onChange={(e) => setForgotPasswordEmail(e.target.value)}
+              placeholder="Enter your registered email address"
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
             />
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              Enter the email address associated with your account
+            </p>
           </div>
+
           <button
-            onClick={() => handleResetPasswordRequest(resetEmailInput)}
-            disabled={isLoading || !resetEmailInput}
-            className="w-full px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+            onClick={handleForgotPasswordRequest}
+            disabled={isLoading || !forgotPasswordEmail}
+            className="px-6 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
           >
             {isLoading && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>}
-            <span>{isLoading ? 'Sending...' : 'Send Reset Link'}</span>
+            <span>{isLoading ? 'Sending Reset Link...' : 'Send Password Reset Link'}</span>
           </button>
-        </div>
-      </div>
-    </div>
-  );
 
-  const renderProfilePhoto = () => (
-    <div className="space-y-6">
-      <div className="flex items-center space-x-4">
-        <button
-          onClick={() => setActiveSection('main')}
-          className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-        >
-          <ArrowLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-        </button>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Change Profile Photo</h1>
-      </div>
-
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-        <div className="text-center">
-          <div className="relative inline-block mb-6">
-            <img
-              src={profilePhoto}
-              alt="Profile"
-              className="w-32 h-32 rounded-full object-cover border-4 border-gray-200 dark:border-gray-600"
-            />
-            <button className="absolute bottom-0 right-0 p-2 bg-orange-500 text-white rounded-full hover:bg-orange-600 transition-colors">
-              <Camera className="w-4 h-4" />
-            </button>
-          </div>
-          <div className="space-y-4">
-            <button className="flex items-center justify-center space-x-2 w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-              <Upload className="w-4 h-4" />
-              <span className="text-gray-900 dark:text-white">Upload New Photo</span>
-            </button>
-            <button className="flex items-center justify-center space-x-2 w-full px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors">
-              <Save className="w-4 h-4" />
-              <span>Save Changes</span>
-            </button>
+          <div className="bg-amber-50 dark:bg-amber-900 border border-amber-200 dark:border-amber-700 rounded-lg p-4">
+            <div className="flex items-start">
+              <Lock className="w-5 h-5 text-amber-600 dark:text-amber-400 mt-0.5 mr-3 flex-shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-amber-800 dark:text-amber-200 mb-1">
+                  Password Reset Process:
+                </p>
+                <ul className="text-xs text-amber-700 dark:text-amber-300 space-y-1">
+                  <li>1. Enter your registered email address above</li>
+                  <li>2. Click "Send Password Reset Link"</li>
+                  <li>3. Check your email inbox for the reset link</li>
+                  <li>4. Click the link in the email to reset your password</li>
+                  <li>5. Create a new password and login again</li>
+                </ul>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1201,8 +1090,10 @@ const Settings = ({ onClose }) => {
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Notification Preferences</h1>
       </div>
 
+      <MessageAlert type={apiMessage.type} text={apiMessage.text} />
+
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-        <div className="p-6">
+        <div className="p-6 space-y-6">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Push Notifications</h3>
@@ -1218,11 +1109,48 @@ const Settings = ({ onClose }) => {
               <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-orange-300 dark:peer-focus:ring-orange-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-orange-600"></div>
             </label>
           </div>
+
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="font-medium text-gray-900 dark:text-white">Order Updates</h4>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Get notified about order status changes</p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={notifications.orderUpdates}
+                onChange={(e) => setNotifications({ ...notifications, orderUpdates: e.target.checked })}
+                className="sr-only peer"
+                disabled={!notifications.pushEnabled}
+              />
+              <div className={`w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-orange-300 dark:peer-focus:ring-orange-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-orange-600 ${!notifications.pushEnabled ? 'opacity-50' : ''}`}></div>
+            </label>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="font-medium text-gray-900 dark:text-white">Special Offers</h4>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Receive notifications about deals and promotions</p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={notifications.offers}
+                onChange={(e) => setNotifications({ ...notifications, offers: e.target.checked })}
+                className="sr-only peer"
+                disabled={!notifications.pushEnabled}
+              />
+              <div className={`w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-orange-300 dark:peer-focus:ring-orange-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-orange-600 ${!notifications.pushEnabled ? 'opacity-50' : ''}`}></div>
+            </label>
+          </div>
         </div>
       </div>
 
       <div className="flex justify-end">
-        <button className="px-6 py-3 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors shadow-md hover:shadow-lg transform hover:-translate-y-0.5 flex items-center space-x-2">
+        <button 
+          onClick={() => setApiMessage({ type: 'success', text: 'Notification preferences saved successfully!' })}
+          className="px-6 py-3 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors shadow-md hover:shadow-lg transform hover:-translate-y-0.5 flex items-center space-x-2"
+        >
           <Save className="w-4 h-4" />
           <span>Save Preferences</span>
         </button>
@@ -1286,10 +1214,8 @@ const Settings = ({ onClose }) => {
         return renderAddresses();
       case 'credentials':
         return renderCredentials();
-      case 'reset-password':
-        return renderResetPassword();
-      case 'profile-photo':
-        return renderProfilePhoto();
+      case 'forgot-password':
+        return renderForgotPassword();
       case 'notifications':
         return renderNotifications();
       case 'terms':
@@ -1303,7 +1229,6 @@ const Settings = ({ onClose }) => {
     <div className={isDarkMode ? 'dark' : ''}>
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-200">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          {renderProfileSection()}
           {renderContent()}
         </div>
       </div>

@@ -1,10 +1,11 @@
-// routes/sellerProfile.js - Complete seller profile management
+// routes/sellerProfile.js - FIXED VERSION - Path Format Fix
 import express from 'express';
 import multer from 'multer';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import Seller from '../models/Seller.js';
-import { authenticateSellerToken } from '../middleware/sellerAuthMiddleware.js';
+import { authenticateSellerToken } from '../middleware/sellerAuth.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,7 +15,13 @@ const router = express.Router();
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const uploadPath = path.join(__dirname, '../uploads/sellers');
+    const sellerId = req.seller.id;
+    const uploadPath = path.join(__dirname, '../uploads/sellers', sellerId);
+    
+    // Create seller-specific directory
+    if (!fs.existsSync(uploadPath)) {
+      fs.mkdirSync(uploadPath, { recursive: true });
+    }
     cb(null, uploadPath);
   },
   filename: (req, file, cb) => {
@@ -25,20 +32,17 @@ const storage = multer.diskStorage({
 });
 
 const fileFilter = (req, file, cb) => {
-  const allowedTypes = /jpeg|jpg|png|pdf/;
-  const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-  const mimetype = allowedTypes.test(file.mimetype);
-
-  if (mimetype && extname) {
+  // Allow any type of image file
+  if (file.mimetype.startsWith('image/')) {
     return cb(null, true);
   } else {
-    cb(new Error('Invalid file type. Only JPEG, JPG, PNG, and PDF files are allowed.'));
+    cb(new Error('Only image files are allowed.'));
   }
 };
 
 const upload = multer({
   storage: storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
   fileFilter: fileFilter
 });
 
@@ -46,15 +50,16 @@ const upload = multer({
 const uploadFields = upload.fields([
   { name: 'logo', maxCount: 1 },
   { name: 'bannerImage', maxCount: 1 },
-  { name: 'ownerIdProof', maxCount: 1 },
-  { name: 'businessProof', maxCount: 1 },
-  { name: 'dishImages', maxCount: 10 }
+  { name: 'businessLicense', maxCount: 1 },
+  { name: 'fssaiLicense', maxCount: 1 },
+  { name: 'gstCertificate', maxCount: 1 },
+  { name: 'ownerIdProof', maxCount: 1 }
 ]);
 
 // GET seller profile
-router.get('/profile', authenticateSellerToken, async (req, res) => {
+router.get('/', authenticateSellerToken, async (req, res) => {
   try {
-    console.log('🏪 Getting seller profile for:', req.seller.email);
+    console.log('Getting seller profile for:', req.seller.email);
 
     const seller = await Seller.findById(req.seller.id);
     if (!seller) {
@@ -68,7 +73,7 @@ router.get('/profile', authenticateSellerToken, async (req, res) => {
       success: true,
       message: 'Profile retrieved successfully',
       seller: seller.toJSON(),
-      onboardingProgress: seller.getOnboardingProgress()
+      onboardingProgress: seller.getCompletionPercentage()
     });
 
   } catch (error) {
@@ -80,12 +85,10 @@ router.get('/profile', authenticateSellerToken, async (req, res) => {
   }
 });
 
-// UPDATE seller profile (basic details)
-router.patch('/profile', authenticateSellerToken, uploadFields, async (req, res) => {
+// UPDATE seller profile (comprehensive) - FIXED PATH ISSUE
+router.patch('/', authenticateSellerToken, uploadFields, async (req, res) => {
   try {
-    console.log('🏪 Updating seller profile for:', req.seller.email);
-    console.log('📝 Update data:', req.body);
-    console.log('📁 Files uploaded:', req.files ? Object.keys(req.files) : 'none');
+    console.log('Updating seller profile for:', req.seller.email);
 
     const seller = await Seller.findById(req.seller.id);
     if (!seller) {
@@ -95,59 +98,68 @@ router.patch('/profile', authenticateSellerToken, uploadFields, async (req, res)
       });
     }
 
-    // Update basic profile fields
     const {
+      // Basic business info
       businessName,
       businessType,
       phone,
+      
+      // Owner details
       ownerName,
+      
+      // Business details
       description,
       cuisine,
       priceRange,
-      features,
-      // Address fields
+      seatingCapacity,
+      servicesOffered,
+      
+      // Address
       street,
       city,
       state,
       zipCode,
       latitude,
       longitude,
+      
       // Operating hours
       openingHours
     } = req.body;
 
-    // Update business details
-    if (businessName) seller.businessName = businessName;
+    // Update basic fields
+    if (businessName) seller.businessName = businessName.trim();
     if (businessType) seller.businessType = businessType;
-    if (phone) seller.phone = phone;
+    if (phone) seller.phone = phone.trim();
 
     // Initialize businessDetails if not exists
     if (!seller.businessDetails) seller.businessDetails = {};
 
-    if (ownerName) seller.businessDetails.ownerName = ownerName;
-    if (description) seller.businessDetails.description = description;
+    // Update business details
+    if (ownerName) seller.businessDetails.ownerName = ownerName.trim();
+    if (description) seller.businessDetails.description = description.trim();
     if (priceRange) seller.businessDetails.priceRange = priceRange;
+    if (seatingCapacity) seller.businessDetails.seatingCapacity = parseInt(seatingCapacity);
 
     // Handle cuisine array
     if (cuisine) {
       seller.businessDetails.cuisine = Array.isArray(cuisine) 
-        ? cuisine 
-        : cuisine.split(',').map(c => c.trim());
+        ? cuisine.map(c => c.trim())
+        : cuisine.split(',').map(c => c.trim()).filter(c => c);
     }
 
-    // Handle features array
-    if (features) {
-      seller.businessDetails.features = Array.isArray(features) 
-        ? features 
-        : features.split(',').map(f => f.trim());
+    // Handle services offered
+    if (servicesOffered) {
+      seller.businessDetails.servicesOffered = Array.isArray(servicesOffered)
+        ? servicesOffered
+        : servicesOffered.split(',').map(s => s.trim()).filter(s => s);
     }
 
     // Update address
     if (!seller.address) seller.address = {};
-    if (street) seller.address.street = street;
-    if (city) seller.address.city = city;
-    if (state) seller.address.state = state;
-    if (zipCode) seller.address.zipCode = zipCode;
+    if (street) seller.address.street = street.trim();
+    if (city) seller.address.city = city.trim();
+    if (state) seller.address.state = state.trim();
+    if (zipCode) seller.address.zipCode = zipCode.trim();
     
     // Update coordinates
     if (latitude && longitude) {
@@ -157,7 +169,7 @@ router.patch('/profile', authenticateSellerToken, uploadFields, async (req, res)
       };
     }
 
-    // Update opening hours if provided
+    // Update opening hours
     if (openingHours) {
       try {
         const hours = typeof openingHours === 'string' 
@@ -169,35 +181,40 @@ router.patch('/profile', authenticateSellerToken, uploadFields, async (req, res)
       }
     }
 
-    // Handle file uploads
+    // Handle file uploads - FIXED: Remove leading slash from paths
     if (!seller.businessDetails.documents) {
       seller.businessDetails.documents = {};
     }
 
     if (req.files) {
-      if (req.files.logo) {
-        seller.businessDetails.documents.logo = `/uploads/sellers/${req.files.logo[0].filename}`;
-      }
-      if (req.files.bannerImage) {
-        seller.businessDetails.documents.bannerImage = `/uploads/sellers/${req.files.bannerImage[0].filename}`;
-      }
-      if (req.files.ownerIdProof) {
-        seller.businessDetails.documents.ownerIdProof = `/uploads/sellers/${req.files.ownerIdProof[0].filename}`;
-      }
-      if (req.files.businessProof) {
-        seller.businessDetails.documents.businessProof = `/uploads/sellers/${req.files.businessProof[0].filename}`;
-      }
+      Object.keys(req.files).forEach(fieldName => {
+        if (req.files[fieldName] && req.files[fieldName].length > 0) {
+          const file = req.files[fieldName][0];
+          // CRITICAL FIX: Store path without leading slash
+          seller.businessDetails.documents[fieldName] = 
+            `uploads/sellers/${req.seller.id}/${file.filename}`;
+        }
+      });
+    }
+
+    // Mark onboarding as completed if basic info is filled
+    const hasBasicInfo = seller.businessName && 
+                        seller.phone && 
+                        seller.address?.city && 
+                        seller.businessDetails?.ownerName;
+    
+    if (hasBasicInfo && !seller.onboardingCompleted) {
+      seller.onboardingCompleted = true;
+      console.log('Onboarding completed for:', seller.email);
     }
 
     await seller.save();
-
-    console.log('✅ Seller profile updated successfully');
 
     res.json({
       success: true,
       message: 'Profile updated successfully',
       seller: seller.toJSON(),
-      onboardingProgress: seller.getOnboardingProgress()
+      onboardingProgress: seller.getCompletionPercentage()
     });
 
   } catch (error) {
@@ -210,17 +227,15 @@ router.patch('/profile', authenticateSellerToken, uploadFields, async (req, res)
   }
 });
 
-// ADD dish to menu
-router.post('/menu/dish', authenticateSellerToken, uploadFields, async (req, res) => {
+// UPDATE operating hours specifically
+router.patch('/hours', authenticateSellerToken, async (req, res) => {
   try {
-    console.log('🍽️ Adding dish to menu for:', req.seller.email);
-
-    const { name, price, category, type, description, availability } = req.body;
-
-    if (!name || !price || !category) {
+    const { openingHours } = req.body;
+    
+    if (!openingHours) {
       return res.status(400).json({
         success: false,
-        error: 'Name, price, and category are required'
+        error: 'Opening hours data is required'
       });
     }
 
@@ -232,221 +247,105 @@ router.post('/menu/dish', authenticateSellerToken, uploadFields, async (req, res
       });
     }
 
-    // Initialize dishes array if not exists
     if (!seller.businessDetails) seller.businessDetails = {};
-    if (!seller.businessDetails.dishes) seller.businessDetails.dishes = [];
-
-    const newDish = {
-      name: name.trim(),
-      price: price.toString(),
-      category,
-      type: type || 'veg',
-      description: description?.trim() || '',
-      availability: availability !== 'false' // Default to true unless explicitly false
-    };
-
-    // Handle dish image
-    if (req.files && req.files.dishImages) {
-      newDish.image = `/uploads/sellers/${req.files.dishImages[0].filename}`;
-    }
-
-    seller.businessDetails.dishes.push(newDish);
-    await seller.save();
-
-    console.log('✅ Dish added successfully:', newDish.name);
-
-    res.json({
-      success: true,
-      message: 'Dish added successfully',
-      dish: newDish,
-      totalDishes: seller.businessDetails.dishes.length
-    });
-
-  } catch (error) {
-    console.error('Add dish error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to add dish'
-    });
-  }
-});
-
-// GET all dishes
-router.get('/menu/dishes', authenticateSellerToken, async (req, res) => {
-  try {
-    const seller = await Seller.findById(req.seller.id);
-    if (!seller) {
-      return res.status(404).json({
-        success: false,
-        error: 'Seller not found'
-      });
-    }
-
-    const dishes = seller.businessDetails?.dishes || [];
-    const { category, search } = req.query;
-
-    let filteredDishes = dishes;
-
-    // Filter by category
-    if (category && category !== 'all') {
-      filteredDishes = filteredDishes.filter(dish => 
-        dish.category.toLowerCase() === category.toLowerCase()
-      );
-    }
-
-    // Search in dish names and descriptions
-    if (search) {
-      const searchTerm = search.toLowerCase();
-      filteredDishes = filteredDishes.filter(dish => 
-        dish.name.toLowerCase().includes(searchTerm) ||
-        dish.description?.toLowerCase().includes(searchTerm)
-      );
-    }
-
-    res.json({
-      success: true,
-      message: 'Dishes retrieved successfully',
-      dishes: filteredDishes,
-      totalDishes: dishes.length,
-      filteredCount: filteredDishes.length
-    });
-
-  } catch (error) {
-    console.error('Get dishes error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to retrieve dishes'
-    });
-  }
-});
-
-// UPDATE dish
-router.patch('/menu/dish/:dishId', authenticateSellerToken, uploadFields, async (req, res) => {
-  try {
-    const { dishId } = req.params;
-    const { name, price, category, type, description, availability } = req.body;
-
-    const seller = await Seller.findById(req.seller.id);
-    if (!seller) {
-      return res.status(404).json({
-        success: false,
-        error: 'Seller not found'
-      });
-    }
-
-    const dishes = seller.businessDetails?.dishes || [];
-    const dishIndex = dishes.findIndex(dish => dish._id.toString() === dishId);
-
-    if (dishIndex === -1) {
-      return res.status(404).json({
-        success: false,
-        error: 'Dish not found'
-      });
-    }
-
-    // Update dish fields
-    if (name) dishes[dishIndex].name = name.trim();
-    if (price) dishes[dishIndex].price = price.toString();
-    if (category) dishes[dishIndex].category = category;
-    if (type) dishes[dishIndex].type = type;
-    if (description !== undefined) dishes[dishIndex].description = description.trim();
-    if (availability !== undefined) dishes[dishIndex].availability = availability !== 'false';
-
-    // Handle image update
-    if (req.files && req.files.dishImages) {
-      dishes[dishIndex].image = `/uploads/sellers/${req.files.dishImages[0].filename}`;
-    }
+    seller.businessDetails.openingHours = openingHours;
 
     await seller.save();
 
     res.json({
       success: true,
-      message: 'Dish updated successfully',
-      dish: dishes[dishIndex]
+      message: 'Operating hours updated successfully',
+      openingHours: seller.businessDetails.openingHours
     });
 
   } catch (error) {
-    console.error('Update dish error:', error);
+    console.error('Update hours error:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to update dish'
+      error: 'Failed to update operating hours'
     });
   }
 });
 
-// DELETE dish
-router.delete('/menu/dish/:dishId', authenticateSellerToken, async (req, res) => {
+// UPLOAD document
+router.post('/upload-document', authenticateSellerToken, upload.single('document'), async (req, res) => {
   try {
-    const { dishId } = req.params;
-
-    const seller = await Seller.findById(req.seller.id);
-    if (!seller) {
-      return res.status(404).json({
-        success: false,
-        error: 'Seller not found'
-      });
-    }
-
-    const dishes = seller.businessDetails?.dishes || [];
-    const dishIndex = dishes.findIndex(dish => dish._id.toString() === dishId);
-
-    if (dishIndex === -1) {
-      return res.status(404).json({
-        success: false,
-        error: 'Dish not found'
-      });
-    }
-
-    const deletedDish = dishes[dishIndex];
-    seller.businessDetails.dishes.splice(dishIndex, 1);
-    await seller.save();
-
-    res.json({
-      success: true,
-      message: 'Dish deleted successfully',
-      deletedDish: deletedDish.name
-    });
-
-  } catch (error) {
-    console.error('Delete dish error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to delete dish'
-    });
-  }
-});
-
-// TOGGLE restaurant closure status
-router.patch('/closure-toggle', authenticateSellerToken, async (req, res) => {
-  try {
-    const { isClosed, reason } = req.body;
-
-    const seller = await Seller.findById(req.seller.id);
-    if (!seller) {
-      return res.status(404).json({
-        success: false,
-        error: 'Seller not found'
-      });
-    }
-
-    seller.isActive = !isClosed;
+    const { documentType } = req.body;
     
-    // Add closure reason if provided
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: 'No file uploaded'
+      });
+    }
+
+    if (!['businessLicense', 'fssaiLicense', 'gstCertificate', 'ownerIdProof'].includes(documentType)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid document type'
+      });
+    }
+
+    const seller = await Seller.findById(req.seller.id);
+    if (!seller) {
+      return res.status(404).json({
+        success: false,
+        error: 'Seller not found'
+      });
+    }
+
     if (!seller.businessDetails) seller.businessDetails = {};
-    seller.businessDetails.closureReason = reason || '';
+    if (!seller.businessDetails.documents) seller.businessDetails.documents = {};
+
+    // FIXED: Store path without leading slash
+    seller.businessDetails.documents[documentType] = 
+      `uploads/sellers/${req.seller.id}/${req.file.filename}`;
 
     await seller.save();
 
-    console.log(`🏪 Restaurant ${isClosed ? 'closed' : 'opened'} for:`, seller.businessName);
+    res.json({
+      success: true,
+      message: 'Document uploaded successfully',
+      documentUrl: seller.businessDetails.documents[documentType]
+    });
+
+  } catch (error) {
+    console.error('Upload document error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to upload document'
+    });
+  }
+});
+
+// TOGGLE restaurant status (open/closed)
+router.patch('/status', authenticateSellerToken, async (req, res) => {
+  try {
+    const { isActive, closureReason } = req.body;
+
+    const seller = await Seller.findById(req.seller.id);
+    if (!seller) {
+      return res.status(404).json({
+        success: false,
+        error: 'Seller not found'
+      });
+    }
+
+    seller.isActive = isActive !== false;
+    
+    if (!seller.businessDetails) seller.businessDetails = {};
+    seller.businessDetails.closureReason = closureReason || '';
+
+    await seller.save();
 
     res.json({
       success: true,
-      message: `Restaurant ${isClosed ? 'closed' : 'opened'} successfully`,
+      message: `Restaurant ${seller.isActive ? 'opened' : 'closed'} successfully`,
       isActive: seller.isActive
     });
 
   } catch (error) {
-    console.error('Toggle closure error:', error);
+    console.error('Toggle status error:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to update restaurant status'
@@ -454,8 +353,8 @@ router.patch('/closure-toggle', authenticateSellerToken, async (req, res) => {
   }
 });
 
-// GET seller stats for dashboard
-router.get('/stats', authenticateSellerToken, async (req, res) => {
+// GET business analytics
+router.get('/analytics', authenticateSellerToken, async (req, res) => {
   try {
     const seller = await Seller.findById(req.seller.id);
     if (!seller) {
@@ -465,28 +364,55 @@ router.get('/stats', authenticateSellerToken, async (req, res) => {
       });
     }
 
-    // Mock stats - in production, you'd query actual orders
-    const stats = {
-      todayRevenue: 0,
-      activeOrders: 0,
-      totalReservations: 0,
-      averageRating: 0.0,
-      totalDishes: seller.businessDetails?.dishes?.length || 0,
-      verificationStatus: seller.displayVerificationStatus,
-      isActive: seller.isActive
+    // Get dish analytics
+    const Dish = (await import('../models/Dish.js')).default;
+    const dishStats = await Dish.aggregate([
+      { $match: { seller: seller._id } },
+      {
+        $group: {
+          _id: null,
+          totalDishes: { $sum: 1 },
+          activeDishes: { $sum: { $cond: ['$availability', 1, 0] } },
+          totalViews: { $sum: '$viewCount' },
+          totalOrders: { $sum: '$orderCount' },
+          avgRating: { $avg: '$rating.average' }
+        }
+      }
+    ]);
+
+    const analytics = {
+      profile: {
+        completionPercentage: seller.getCompletionPercentage(),
+        isVerified: seller.isVerified,
+        isActive: seller.isActive,
+        onboardingCompleted: seller.onboardingCompleted
+      },
+      menu: dishStats[0] || {
+        totalDishes: 0,
+        activeDishes: 0,
+        totalViews: 0,
+        totalOrders: 0,
+        avgRating: 0
+      },
+      business: {
+        joinedDate: seller.createdAt,
+        lastLogin: seller.lastLogin,
+        businessType: seller.businessType,
+        servicesOffered: seller.businessDetails?.servicesOffered || []
+      }
     };
 
     res.json({
       success: true,
-      message: 'Stats retrieved successfully',
-      stats
+      message: 'Analytics retrieved successfully',
+      analytics
     });
 
   } catch (error) {
-    console.error('Get stats error:', error);
+    console.error('Get analytics error:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to retrieve stats'
+      error: 'Failed to retrieve analytics'
     });
   }
 });
