@@ -1,7 +1,8 @@
-// models/User.js - Fixed with proper ES6 export
+// models/User.js - Updated with Wishlist functionality
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
+
 const userSchema = new mongoose.Schema({
   emailId: {
     type: String,
@@ -28,6 +29,23 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  
+  // WISHLIST FUNCTIONALITY
+  wishlist: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Dish'
+  }],
+  wishlistAddedAt: [{
+    dishId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Dish'
+    },
+    addedAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
+  
   // Email change functionality
   pendingEmailChange: {
     newEmail: {
@@ -72,6 +90,8 @@ const userSchema = new mongoose.Schema({
 userSchema.index({ emailId: 1 });
 userSchema.index({ passwordResetToken: 1 });
 userSchema.index({ 'pendingEmailChange.token': 1 });
+userSchema.index({ wishlist: 1 }); // Index for wishlist queries
+userSchema.index({ 'wishlistAddedAt.dishId': 1 }); // Index for wishlist metadata
 
 // TTL index for pending email changes (expires after 24 hours)
 userSchema.index(
@@ -110,6 +130,72 @@ userSchema.methods.clearPendingEmailChange = function() {
   return this.save();
 };
 
+// WISHLIST METHODS
+// Instance method to add dish to wishlist
+userSchema.methods.addToWishlist = function(dishId) {
+  if (!this.wishlist) this.wishlist = [];
+  if (!this.wishlistAddedAt) this.wishlistAddedAt = [];
+  
+  const dishObjectId = new mongoose.Types.ObjectId(dishId);
+  
+  // Check if already in wishlist
+  const isAlreadyInWishlist = this.wishlist.some(id => 
+    id.toString() === dishObjectId.toString()
+  );
+  
+  if (!isAlreadyInWishlist) {
+    this.wishlist.push(dishObjectId);
+    this.wishlistAddedAt.push({
+      dishId: dishObjectId,
+      addedAt: new Date()
+    });
+  }
+  
+  return this.save();
+};
+
+// Instance method to remove dish from wishlist
+userSchema.methods.removeFromWishlist = function(dishId) {
+  if (!this.wishlist) this.wishlist = [];
+  if (!this.wishlistAddedAt) this.wishlistAddedAt = [];
+  
+  const dishObjectId = new mongoose.Types.ObjectId(dishId);
+  
+  // Remove from wishlist array
+  this.wishlist = this.wishlist.filter(id => 
+    id.toString() !== dishObjectId.toString()
+  );
+  
+  // Remove from wishlistAddedAt array
+  this.wishlistAddedAt = this.wishlistAddedAt.filter(item =>
+    item.dishId?.toString() !== dishObjectId.toString()
+  );
+  
+  return this.save();
+};
+
+// Instance method to check if dish is in wishlist
+userSchema.methods.isInWishlist = function(dishId) {
+  if (!this.wishlist) return false;
+  
+  const dishObjectId = new mongoose.Types.ObjectId(dishId);
+  return this.wishlist.some(id => 
+    id.toString() === dishObjectId.toString()
+  );
+};
+
+// Instance method to clear wishlist
+userSchema.methods.clearWishlist = function() {
+  this.wishlist = [];
+  this.wishlistAddedAt = [];
+  return this.save();
+};
+
+// Virtual for wishlist count
+userSchema.virtual('wishlistCount').get(function() {
+  return this.wishlist ? this.wishlist.length : 0;
+});
+
 // Virtual for display
 userSchema.virtual('displayEmail').get(function() {
   return this.emailId;
@@ -140,6 +226,13 @@ userSchema.pre('save', function(next) {
   next();
 });
 
+// Pre-save middleware to initialize wishlist arrays
+userSchema.pre('save', function(next) {
+  if (!this.wishlist) this.wishlist = [];
+  if (!this.wishlistAddedAt) this.wishlistAddedAt = [];
+  next();
+});
+
 // Transform JSON output to hide sensitive fields
 userSchema.methods.toJSON = function() {
   const userObject = this.toObject();
@@ -159,6 +252,10 @@ userSchema.statics.findByEmail = function(email) {
 userSchema.statics.findByEmailWithPassword = function(email) {
   return this.findOne({ emailId: email.toLowerCase().trim() }).select('+passwordHash');
 };
+
+// Ensure virtual fields are serialized
+userSchema.set('toJSON', { virtuals: true });
+userSchema.set('toObject', { virtuals: true });
 
 const User = mongoose.model('User', userSchema);
 

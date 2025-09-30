@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingCart, Plus, Minus, Trash2, Store, Clock, ArrowRight, AlertCircle, ArrowLeft } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, Trash2, Store, Clock, ArrowRight, AlertCircle, ArrowLeft, Info } from 'lucide-react';
 import { useCart } from '../contexts/CartContext';
+import { useNavigate } from 'react-router-dom'; // ADD THIS IMPORT
 
 const CartSection = ({ onBack }) => {
+    const navigate = useNavigate(); // ADD THIS LINE
+
   const { 
     items, 
     totalAmount, 
@@ -12,7 +15,7 @@ const CartSection = ({ onBack }) => {
     updateQuantity, 
     removeFromCart, 
     clearCart, 
-    loadCart 
+    loadCart
   } = useCart();
 
   const [message, setMessage] = useState('');
@@ -33,15 +36,90 @@ const CartSection = ({ onBack }) => {
     setTimeout(() => setMessage(''), 3000);
   };
 
+  // Navigate to dish details page when clicking on a dish
+  
+// In CartSection.jsx, replace the existing handleDishClick
+
+// Navigate to dish details page when clicking on image/info for viewing only
+const handleDishClick = (item) => {
+  const dishId = item.dishId?._id || item.dishId;
+  console.log('Cart item clicked, navigating to dish details:', dishId);
+  
+  // Navigate to dish details page for viewing
+  navigate(`/dish/${dishId}`);
+};
+
+// NEW FUNCTION: Handle ordering directly from cart
+const handleOrderFromCart = async (item) => {
+  try {
+    // Extract clean price
+    let cleanPrice = 0;
+    if (typeof item.price === 'string') {
+      cleanPrice = parseInt(item.price.replace(/[^\d]/g, '')) || 0;
+    } else if (typeof item.price === 'number') {
+      cleanPrice = item.price;
+    }
+
+    // Prepare order item data matching AddressPage expectations
+    const orderItem = {
+      id: item.dishId?._id || item.dishId,
+      dishId: item.dishId?._id || item.dishId,
+      name: item.dishName,
+      restaurant: item.restaurantName || 'Restaurant',
+      restaurantId: item.restaurantId,
+      price: `₹${cleanPrice}`,
+      originalPrice: cleanPrice,
+      currentPrice: `₹${cleanPrice}`,
+      image: item.dishImage ? `http://localhost:5000${item.dishImage}` : 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg?auto=compress&cs=tinysrgb&w=400&h=250&dpr=1',
+      rating: item.rating || '4.2',
+      deliveryTime: '25-30 min',
+      distance: '1.2 km',
+      category: item.category,
+      type: item.type || 'veg',
+      description: `Delicious ${item.dishName} from ${item.restaurantName || 'our kitchen'}`,
+      quantity: item.quantity,
+      itemTotal: cleanPrice * item.quantity,
+      isVeg: item.type === 'veg',
+      specialInstructions: item.specialInstructions,
+      // Order flow metadata
+      orderType: 'cart',
+      fromCart: true,
+      basePrice: cleanPrice,
+      totalItemPrice: cleanPrice * item.quantity
+    };
+
+    console.log('Proceeding to order from cart:', orderItem);
+
+    // Navigate to address page
+    navigate('/address', {
+      state: {
+        item: orderItem,
+        orderType: 'cart',
+        fromCart: true,
+        quantity: item.quantity,
+        restaurantId: item.restaurantId,
+        restaurantName: item.restaurantName,
+        previousPage: 'cart',
+        dishId: item.dishId?._id || item.dishId
+      }
+    });
+
+  } catch (error) {
+    console.error('Order from cart error:', error);
+    alert(`Failed to process order: ${error.message || 'Unknown error'}`);
+  }
+};
   const handleQuantityChange = async (dishId, newQuantity) => {
-    const result = await updateQuantity(dishId, newQuantity);
+    const id = dishId?._id || dishId;
+    const result = await updateQuantity(id, newQuantity);
     if (result.success) {
       showMessage(result.message);
     }
   };
 
   const handleRemoveItem = async (dishId, dishName) => {
-    const result = await removeFromCart(dishId);
+    const id = dishId?._id || dishId;
+    const result = await removeFromCart(id);
     if (result.success) {
       showMessage(`${dishName} removed from cart`);
     }
@@ -61,15 +139,13 @@ const CartSection = ({ onBack }) => {
   };
 
   const handleLogin = () => {
-    // Navigate to login - you can customize this based on your app structure
-    window.location.reload(); // This will trigger the login flow in your app
+    window.location.reload();
   };
 
   // If not authenticated, show login prompt
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-        {/* Header */}
         <div className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 sticky top-0 z-40">
           <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
             <div className="flex items-center justify-between">
@@ -80,15 +156,12 @@ const CartSection = ({ onBack }) => {
                 <ArrowLeft className="w-5 h-5" />
                 <span>Back</span>
               </button>
-              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-                My Cart
-              </h1>
-              <div className="w-20"></div> {/* Spacer for centering */}
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">My Cart</h1>
+              <div className="w-20"></div>
             </div>
           </div>
         </div>
 
-        {/* Login Required Content */}
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden">
             <div className="p-8 text-center">
@@ -96,12 +169,9 @@ const CartSection = ({ onBack }) => {
                 <ShoppingCart className="w-10 h-10 text-orange-600 dark:text-orange-400" />
               </div>
               
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
-                Login Required
-              </h2>
-              
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">Login Required</h2>
               <p className="text-gray-600 dark:text-gray-400 mb-8 max-w-md mx-auto">
-                Please log in to view your cart and manage your orders. Your cart items will be saved for your next visit.
+                Please log in to view your cart and manage your orders.
               </p>
 
               <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -118,33 +188,6 @@ const CartSection = ({ onBack }) => {
                   Browse Dishes
                 </button>
               </div>
-
-              {/* Features Preview */}
-              <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6 text-left">
-                <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                  <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center mb-3">
-                    <ShoppingCart className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                  </div>
-                  <h3 className="font-semibold text-gray-900 dark:text-white mb-1">Save Your Cart</h3>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Your items stay saved across sessions</p>
-                </div>
-                
-                <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                  <div className="w-8 h-8 bg-green-100 dark:bg-green-900 rounded-lg flex items-center justify-center mb-3">
-                    <Clock className="w-4 h-4 text-green-600 dark:text-green-400" />
-                  </div>
-                  <h3 className="font-semibold text-gray-900 dark:text-white mb-1">Quick Checkout</h3>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Fast and secure ordering process</p>
-                </div>
-                
-                <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                  <div className="w-8 h-8 bg-purple-100 dark:bg-purple-900 rounded-lg flex items-center justify-center mb-3">
-                    <Store className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                  </div>
-                  <h3 className="font-semibold text-gray-900 dark:text-white mb-1">Order Tracking</h3>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Track your orders in real-time</p>
-                </div>
-              </div>
             </div>
           </div>
         </div>
@@ -155,7 +198,6 @@ const CartSection = ({ onBack }) => {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-        {/* Header */}
         <div className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 sticky top-0 z-40">
           <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
             <div className="flex items-center justify-between">
@@ -166,9 +208,7 @@ const CartSection = ({ onBack }) => {
                 <ArrowLeft className="w-5 h-5" />
                 <span>Back</span>
               </button>
-              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-                My Cart
-              </h1>
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">My Cart</h1>
               <div className="w-20"></div>
             </div>
           </div>
@@ -197,10 +237,8 @@ const CartSection = ({ onBack }) => {
               <ArrowLeft className="w-5 h-5" />
               <span>Back</span>
             </button>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-              My Cart
-            </h1>
-            <div className="w-20"></div> {/* Spacer for centering */}
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">My Cart</h1>
+            <div className="w-20"></div>
           </div>
         </div>
       </div>
@@ -286,83 +324,110 @@ const CartSection = ({ onBack }) => {
                 )}
 
                 {/* Cart Items */}
-                <div className="space-y-4">
-                  {items.map((item) => (
-                    <div key={item.dishId._id || item.dishId} className="flex items-center space-x-4 p-6 border border-gray-200 dark:border-gray-600 rounded-xl hover:border-orange-200 dark:hover:border-orange-700 transition-colors">
-                      {/* Dish Image */}
-                      <div className="w-20 h-20 bg-gray-200 dark:bg-gray-600 rounded-xl overflow-hidden flex-shrink-0">
-                        {item.dishImage ? (
-                          <img
-                            src={`http://localhost:5000${item.dishImage}`}
-                            alt={item.dishName}
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              e.target.src = 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg?auto=compress&cs=tinysrgb&w=400&h=250&dpr=1';
-                            }}
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <ShoppingCart className="w-8 h-8 text-gray-400" />
-                          </div>
-                        )}
-                      </div>
+<div className="space-y-4">
+  {items.map((item) => (
+    <div 
+      key={item.dishId._id || item.dishId} 
+      className="flex items-center space-x-4 p-6 border border-gray-200 dark:border-gray-600 rounded-xl hover:border-orange-200 dark:hover:border-orange-700 transition-colors"
+    >
+      {/* Dish Image - Clickable for details */}
+      <div 
+        onClick={() => handleDishClick(item)}
+        className="w-20 h-20 bg-gray-200 dark:bg-gray-600 rounded-xl overflow-hidden flex-shrink-0 cursor-pointer hover:ring-2 hover:ring-orange-500 transition-all relative group"
+      >
+        {item.dishImage ? (
+          <img
+            src={`http://localhost:5000${item.dishImage}`}
+            alt={item.dishName}
+            className="w-full h-full object-cover"
+            onError={(e) => {
+              e.target.src = 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg?auto=compress&cs=tinysrgb&w=400&h=250&dpr=1';
+            }}
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center">
+            <ShoppingCart className="w-8 h-8 text-gray-400" />
+          </div>
+        )}
+        <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 flex items-center justify-center transition-all">
+          <Info className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+        </div>
+      </div>
 
-                      {/* Dish Info */}
-                      <div className="flex-1">
-                        <h4 className="text-lg font-semibold text-gray-900 dark:text-white">
-                          {item.dishName}
-                        </h4>
-                        <p className="text-gray-500 dark:text-gray-400">
-                          ₹{item.price} each
-                        </p>
-                        {item.specialInstructions && (
-                          <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">
-                            Special instructions: {item.specialInstructions}
-                          </p>
-                        )}
-                      </div>
+      {/* Dish Info - Clickable for details */}
+      <div 
+        onClick={() => handleDishClick(item)}
+        className="flex-1 cursor-pointer"
+      >
+        <h4 className="text-lg font-semibold text-gray-900 dark:text-white hover:text-orange-600 transition-colors">
+          {item.dishName}
+        </h4>
+        <p className="text-gray-500 dark:text-gray-400">
+          ₹{item.price} each
+        </p>
+        {item.specialInstructions && (
+          <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">
+            Special instructions: {item.specialInstructions}
+          </p>
+        )}
+        <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
+          Click to view details
+        </p>
+      </div>
 
-                      {/* Quantity Controls */}
-                      <div className="flex items-center space-x-3 bg-gray-50 dark:bg-gray-700 rounded-lg p-2">
-                        <button
-                          onClick={() => handleQuantityChange(item.dishId._id || item.dishId, item.quantity - 1)}
-                          className="w-10 h-10 flex items-center justify-center rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-white dark:hover:bg-gray-600 transition-colors"
-                          disabled={loading}
-                        >
-                          <Minus className="w-4 h-4" />
-                        </button>
-                        
-                        <span className="w-12 text-center text-lg font-semibold text-gray-900 dark:text-white">
-                          {item.quantity}
-                        </span>
-                        
-                        <button
-                          onClick={() => handleQuantityChange(item.dishId._id || item.dishId, item.quantity + 1)}
-                          className="w-10 h-10 flex items-center justify-center rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-white dark:hover:bg-gray-600 transition-colors"
-                          disabled={loading}
-                        >
-                          <Plus className="w-4 h-4" />
-                        </button>
-                      </div>
+      {/* Quantity Controls */}
+      <div className="flex items-center space-x-3 bg-gray-50 dark:bg-gray-700 rounded-lg p-2">
+        <button
+          onClick={() => handleQuantityChange(item.dishId, item.quantity - 1)}
+          className="w-10 h-10 flex items-center justify-center rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-white dark:hover:bg-gray-600 transition-colors"
+          disabled={loading}
+        >
+          <Minus className="w-4 h-4" />
+        </button>
+        
+        <span className="w-12 text-center text-lg font-semibold text-gray-900 dark:text-white">
+          {item.quantity}
+        </span>
+        
+        <button
+          onClick={() => handleQuantityChange(item.dishId, item.quantity + 1)}
+          className="w-10 h-10 flex items-center justify-center rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-white dark:hover:bg-gray-600 transition-colors"
+          disabled={loading}
+        >
+          <Plus className="w-4 h-4" />
+        </button>
+      </div>
 
-                      {/* Item Total */}
-                      <div className="text-right">
-                        <p className="text-xl font-bold text-gray-900 dark:text-white">
-                          ₹{item.price * item.quantity}
-                        </p>
-                      </div>
+      {/* Item Total and Actions */}
+      <div className="flex flex-col items-end space-y-2">
+        <p className="text-xl font-bold text-gray-900 dark:text-white">
+          ₹{item.price * item.quantity}
+        </p>
+        
+        {/* Order Now Button */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            handleOrderFromCart(item);
+          }}
+          className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors text-sm font-medium"
+          disabled={loading}
+        >
+          Order Now
+        </button>
+      </div>
 
-                      {/* Remove Button */}
-                      <button
-                        onClick={() => handleRemoveItem(item.dishId._id || item.dishId, item.dishName)}
-                        className="p-3 text-red-600 hover:text-red-800 hover:bg-red-50 dark:hover:bg-red-900 rounded-lg transition-colors"
-                        disabled={loading}
-                      >
-                        <Trash2 className="w-5 h-5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
+      {/* Remove Button */}
+      <button
+        onClick={() => handleRemoveItem(item.dishId, item.dishName)}
+        className="p-3 text-red-600 hover:text-red-800 hover:bg-red-50 dark:hover:bg-red-900 rounded-lg transition-colors"
+        disabled={loading}
+      >
+        <Trash2 className="w-5 h-5" />
+      </button>
+    </div>
+  ))}
+</div>
 
                 {/* Cart Summary */}
                 <div className="border-t border-gray-200 dark:border-gray-600 pt-8">

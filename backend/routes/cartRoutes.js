@@ -1,4 +1,4 @@
-// cartRoutes.js - ENHANCED DEBUG VERSION
+// routes/cartRoutes.js - ENHANCED DEBUG VERSION
 import express from 'express';
 import { 
   getCart, 

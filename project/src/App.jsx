@@ -25,6 +25,7 @@ import PaymentSuccessPage from './customer/PaymentSuccessPage';
 import DishDetailsPage from "./customer/DishDetailsPage";
 import DiscoveryPage from "./customer/DiscoveryPage";
 import CartSection from "./customer/CartSection";
+import WishlistPage from "./customer/WishlistPage";
 
 // Customer Order flow page components
 import AddressPage from "./customer/AddressPage";
@@ -32,8 +33,10 @@ import OrderSummaryPage from "./customer/OrderSummaryPage";
 import PaymentPage from "./customer/PaymentPage";
 import ConfirmationPage from "./customer/ConfirmationPage";
 
-// Cart Context - SINGLE IMPORT ONLY
+// Context Providers
 import { CartProvider } from "./contexts/CartContext";
+import { WishlistProvider } from "./contexts/WishlistContext";
+import { LocationProvider } from "./contexts/LocationContext";
 
 // Seller components
 import SellerLogin from "./components/seller/auth/SellerLogin";
@@ -41,49 +44,6 @@ import SellerSignup from "./components/seller/auth/SellerSignup";
 import SellerForgotPassword from "./components/seller/auth/SellerForgotPassword";
 import SellerResetPassword from "./components/seller/auth/SellerResetPassword";
 import SellerDashboard from "./components/seller/SellerDashboard";
-
-// Fallback components for seller auth
-const SellerLoginFallback = () => (
-  <div style={{
-    minHeight: '100vh',
-    backgroundColor: '#f9fafb',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontFamily: 'system-ui, -apple-system, sans-serif'
-  }}>
-    <div style={{
-      backgroundColor: 'white',
-      padding: '48px',
-      borderRadius: '12px',
-      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-      textAlign: 'center',
-      maxWidth: '400px',
-      width: '100%'
-    }}>
-      <h1 style={{fontSize: '24px', fontWeight: '700', color: '#111827', marginBottom: '32px'}}>
-        Seller Login
-      </h1>
-      <p style={{color: '#6b7280', marginBottom: '32px'}}>
-        Component loading...
-      </p>
-      <a 
-        href="/seller/signup" 
-        style={{
-          display: 'inline-block',
-          backgroundColor: '#f97316',
-          color: 'white',
-          padding: '12px 24px',
-          borderRadius: '8px',
-          textDecoration: 'none',
-          fontWeight: '500'
-        }}
-      >
-        Sign Up Instead
-      </a>
-    </div>
-  </div>
-);
 
 // Error Boundary Component
 class ErrorBoundary extends React.Component {
@@ -208,7 +168,11 @@ function App() {
     console.log("handleCloseSettings called");
     setCurrentView("main");
   };
-
+{/* Dish Details Route */}
+<Route 
+  path="/dish/:dishId" 
+  element={<DishDetailsPage />} 
+/>
   const handleOpenDiscovery = () => {
     console.log("handleOpenDiscovery called");
     setCurrentView("discovery");
@@ -219,7 +183,7 @@ function App() {
     setCurrentView("main");
   };
 
-  // NEW: Cart page handlers
+  // Cart page handlers
   const handleOpenCart = () => {
     console.log("handleOpenCart called");
     setCurrentView("cart");
@@ -227,6 +191,17 @@ function App() {
 
   const handleCloseCart = () => {
     console.log("handleCloseCart called");
+    setCurrentView("main");
+  };
+
+  // Wishlist page handlers
+  const handleOpenWishlist = () => {
+    console.log("handleOpenWishlist called");
+    setCurrentView("wishlist");
+  };
+
+  const handleCloseWishlist = () => {
+    console.log("handleCloseWishlist called");
     setCurrentView("main");
   };
 
@@ -249,6 +224,7 @@ function App() {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       localStorage.removeItem('sellerToken');
+      localStorage.removeItem('wishlist');
     } catch (error) {
       console.warn('Error clearing localStorage:', error);
     }
@@ -295,7 +271,21 @@ function App() {
               onSignupComplete={handleSignupComplete}
             />
           );
-          
+
+        case "wishlist":
+          return (
+            <WishlistPage 
+              onBack={handleCloseWishlist}
+              onNavigateBack={handleCloseWishlist}
+              onAddToCart={(item) => {
+                console.log('Item added to cart from wishlist:', item);
+              }}
+              onShareWishlist={() => {
+                console.log('Share wishlist functionality');
+              }}
+            />
+          );
+
         case "main":
           console.log("Rendering main home page with all components");
           return (
@@ -304,13 +294,14 @@ function App() {
                 onOpenSettings={handleOpenSettings} 
                 onOpenDiscovery={handleOpenDiscovery} 
                 onOpenCart={handleOpenCart}
+                onOpenWishlist={handleOpenWishlist}
                 onLogout={handleLogout} 
               />
               <main>
                 <HeroSection onOpenDiscovery={handleOpenDiscovery} />
                 <ReorderFavorites />
                 <PopularNearYou />
-                <RecommendedForYou />
+                <RecommendedForYou onNavigateToCart={handleOpenCart} />
                 <TrendingInCity />
                 <SpecialOffers />
               </main>
@@ -337,7 +328,6 @@ function App() {
             />
           );
 
-        // NEW: Cart page case
         case "cart":
           return (
             <CartSection onBack={handleCloseCart} />
@@ -359,114 +349,121 @@ function App() {
     }
   };
 
+  // Create a component wrapper for the main view
+  const MainViewComponent = () => renderMainView();
+
   return (
     <ErrorBoundary>
       <Router>
-        <CartProvider>
-          <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-            <React.Suspense 
-              fallback={
-                <div style={{
-                  minHeight: '100vh',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundColor: '#f9fafb'
-                }}>
-                  <div style={{ textAlign: 'center' }}>
+        <LocationProvider>
+          <CartProvider>
+            <WishlistProvider>
+              <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+                <React.Suspense 
+                  fallback={
                     <div style={{
-                      width: '40px',
-                      height: '40px',
-                      border: '4px solid #f3f4f6',
-                      borderTop: '4px solid #f97316',
-                      borderRadius: '50%',
-                      animation: 'spin 1s linear infinite',
-                      margin: '0 auto 16px'
-                    }}></div>
-                    <p style={{ color: '#6b7280' }}>Loading...</p>
-                  </div>
-                </div>
-              }
-            >
-              <Routes>
-                {/* Customer reset password routes */}
-                <Route path="/reset-password/:token" element={<ResetPasswordScreen />} />
-                <Route path="/reset-password-settings/:token" element={<ResetPasswordFromSettings />} />
-                
-                {/* Customer email verification route */}
-                <Route path="/verify-email-change" element={<VerifyEmailChange />} />
-                
-                {/* Customer order flow routes */}
-                <Route path="/address" element={<AddressPage />} />
-                <Route path="/order-summary" element={<OrderSummaryPage />} />
-                <Route path="/payment" element={<PaymentPage />} />
-                <Route path="/confirmation" element={<ConfirmationPage />} />
-                <Route path="/payment-success" element={<PaymentSuccessPage />} />
+                      minHeight: '100vh',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: '#f9fafb'
+                    }}>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{
+                          width: '40px',
+                          height: '40px',
+                          border: '4px solid #f3f4f6',
+                          borderTop: '4px solid #f97316',
+                          borderRadius: '50%',
+                          animation: 'spin 1s linear infinite',
+                          margin: '0 auto 16px'
+                        }}></div>
+                        <p style={{ color: '#6b7280' }}>Loading...</p>
+                      </div>
+                    </div>
+                  }
+                >
+                  <Routes>
+                    {/* Customer reset password routes */}
+                    <Route path="/reset-password/:token" element={<ResetPasswordScreen />} />
+                    <Route path="/reset-password-settings/:token" element={<ResetPasswordFromSettings />} />
+                    
+                    {/* Customer email verification route */}
+                    <Route path="/verify-email-change" element={<VerifyEmailChange />} />
+                    
+                    {/* Customer order flow routes */}
+                    <Route path="/address" element={<AddressPage />} />
+                    <Route path="/order-summary" element={<OrderSummaryPage />} />
+                    <Route path="/payment" element={<PaymentPage />} />
+                    <Route path="/confirmation" element={<ConfirmationPage />} />
+                    <Route path="/payment-success" element={<PaymentSuccessPage />} />
 
-                {/* Seller routes */}
-                <Route 
-                  path="/seller/login" 
-                  element={
-                    <SellerLogin 
-                      onLoginComplete={() => {
-                        console.log('Login successful, redirecting to dashboard');
-                        window.location.href = '/seller/dashboard';
-                      }}
-                      onForgotPassword={() => {
-                        console.log('Navigating to forgot password');
-                        window.location.href = '/seller/forgot-password';
-                      }}
-                      onCreateAccount={() => {
-                        console.log('Navigating to signup');
-                        window.location.href = '/seller/signup';
-                      }}
+                    {/* Seller routes */}
+                    <Route 
+                      path="/seller/login" 
+                      element={
+                        <SellerLogin 
+                          onLoginComplete={() => {
+                            console.log('Login successful, redirecting to dashboard');
+                            window.location.href = '/seller/dashboard';
+                          }}
+                          onForgotPassword={() => {
+                            console.log('Navigating to forgot password');
+                            window.location.href = '/seller/forgot-password';
+                          }}
+                          onCreateAccount={() => {
+                            console.log('Navigating to signup');
+                            window.location.href = '/seller/signup';
+                          }}
+                        />
+                      } 
                     />
-                  } 
-                />
-                <Route 
-                  path="/seller/signup" 
-                  element={
-                    <SellerSignup 
-                      onBackToLogin={() => {
-                        console.log('Navigating back to login');
-                        window.location.href = '/seller/login';
-                      }}
-                      onSignupComplete={() => {
-                        console.log('Signup complete, redirecting to dashboard');
-                        window.location.href = '/seller/dashboard';
-                      }}
+                    <Route 
+                      path="/seller/signup" 
+                      element={
+                        <SellerSignup 
+                          onBackToLogin={() => {
+                            console.log('Navigating back to login');
+                            window.location.href = '/seller/login';
+                          }}
+                          onSignupComplete={() => {
+                            console.log('Signup complete, redirecting to dashboard');
+                            window.location.href = '/seller/dashboard';
+                          }}
+                        />
+                      } 
                     />
-                  } 
-                />
-                <Route 
-                  path="/seller/forgot-password" 
-                  element={
-                    <SellerForgotPassword 
-                      onBackToLogin={() => {
-                        console.log('Navigating back to login');
-                        window.location.href = '/seller/login';
-                      }}
+                    <Route 
+                      path="/seller/forgot-password" 
+                      element={
+                        <SellerForgotPassword 
+                          onBackToLogin={() => {
+                            console.log('Navigating back to login');
+                            window.location.href = '/seller/login';
+                          }}
+                        />
+                      } 
                     />
-                  } 
-                />
-                <Route path="/seller/reset-password/:token" element={<SellerResetPassword />} />
+                    <Route path="/seller/reset-password/:token" element={<SellerResetPassword />} />
 
-                {/* Protected seller dashboard route */}
-                <Route 
-                  path="/seller/dashboard" 
-                  element={
-                    <ProtectedSellerRoute>
-                      <SellerDashboard />
-                    </ProtectedSellerRoute>
-                  } 
-                />
+                    {/* Protected seller dashboard route */}
+                    <Route 
+                      path="/seller/dashboard" 
+                      element={
+                        <ProtectedSellerRoute>
+                          <SellerDashboard />
+                        </ProtectedSellerRoute>
+                      } 
+                    />
 
-                {/* Main app route - This catches all other routes */}
-                <Route path="*" element={renderMainView()} />
-              </Routes>
-            </React.Suspense>
-          </div>
-        </CartProvider>
+                    {/* Main app route - FIXED: Wrap in component */}
+                    <Route path="*" element={<MainViewComponent />} />
+                  </Routes>
+                </React.Suspense>
+              </div>
+            </WishlistProvider>
+          </CartProvider>
+        </LocationProvider>
       </Router>
     </ErrorBoundary>
   );

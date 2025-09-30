@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { MapPin, Star, Clock, Truck, ArrowRight, Plus, Loader2, AlertCircle } from 'lucide-react';
+import { MapPin, Star, Clock, Truck, ArrowRight, Plus, Loader2, AlertCircle, Check } from 'lucide-react';
+import { useLocation } from '../contexts/LocationContext';
+import { useCart } from '../contexts/CartContext';
 
 const API_BASE = 'http://localhost:5000/api';
 
@@ -7,38 +9,17 @@ const PopularNearYou = () => {
   const [dishes, setDishes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [userCity, setUserCity] = useState('');
+  const [addingToCart, setAddingToCart] = useState(null); // Track which dish is being added
+  const [successMessage, setSuccessMessage] = useState('');
+  
+  // USE LOCATION CONTEXT
+  const { location: userLocation } = useLocation();
+  const userCity = userLocation.city || '';
 
-  // Get user's location
-  useEffect(() => {
-    const getUserLocation = () => {
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          async (position) => {
-            try {
-              const { latitude, longitude } = position.coords;
-              const response = await fetch(
-                `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`
-              );
-              const data = await response.json();
-              const city = data.locality || data.city || '';
-              setUserCity(city);
-            } catch (err) {
-              console.error('Error getting location:', err);
-              setUserCity(''); // Will fetch all dishes
-            }
-          },
-          (error) => {
-            console.error('Geolocation error:', error);
-            setUserCity(''); // Will fetch all dishes
-          }
-        );
-      }
-    };
-    getUserLocation();
-  }, []);
+  // USE CART CONTEXT
+  const { addToCart, isAuthenticated } = useCart();
 
-  // Fetch popular dishes
+  // Fetch popular dishes - this runs when userCity changes
   useEffect(() => {
     const fetchPopularDishes = async () => {
       try {
@@ -69,15 +50,58 @@ const PopularNearYou = () => {
       }
     };
 
-    // Only fetch when we have determined the city (or decided to fetch all)
-    if (userCity !== undefined) {
-      fetchPopularDishes();
-    }
+    fetchPopularDishes();
   }, [userCity]);
+
+  const handleAddToCart = async (dish) => {
+    // Check if user is authenticated
+    if (!isAuthenticated) {
+      setSuccessMessage('Please log in to add items to cart');
+      setTimeout(() => setSuccessMessage(''), 3000);
+      return;
+    }
+
+    try {
+      setAddingToCart(dish.id);
+      
+      // Call addToCart from CartContext
+      const result = await addToCart(dish.id, 1, '');
+      
+      if (result.success) {
+        setSuccessMessage(`${dish.name} added to cart!`);
+        setTimeout(() => setSuccessMessage(''), 3000);
+      } else {
+        // Handle different error scenarios
+        if (result.action === 'clear_cart_required') {
+          const shouldClear = window.confirm(
+            `Your cart contains items from ${result.error}. Would you like to clear your cart and add this item?`
+          );
+          
+          if (shouldClear) {
+            // You might need to import clearCart from useCart
+            // await clearCart();
+            // await addToCart(dish.id, 1, '');
+            setSuccessMessage('Please clear your cart first');
+          }
+        } else if (result.requiresAuth) {
+          setSuccessMessage('Please log in to continue');
+        } else {
+          setSuccessMessage(result.error || 'Failed to add item');
+        }
+        setTimeout(() => setSuccessMessage(''), 3000);
+      }
+    } catch (err) {
+      console.error('Add to cart error:', err);
+      setSuccessMessage('Failed to add item to cart');
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } finally {
+      setAddingToCart(null);
+    }
+  };
 
   const handleDishClick = (dish) => {
     console.log('Dish clicked:', dish.name);
-    // TODO: Navigate to restaurant page or add to cart
+    // TODO: Navigate to restaurant page or show dish details
   };
 
   if (loading) {
@@ -118,7 +142,15 @@ const PopularNearYou = () => {
   }
 
   return (
-    <section className="py-8 bg-gray-50 dark:bg-gray-800">
+    <section className="py-8 bg-gray-50 dark:bg-gray-800 relative">
+      {/* Success Message Toast */}
+      {successMessage && (
+        <div className="fixed top-20 right-4 z-50 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center space-x-2 animate-slide-in">
+          <Check className="w-5 h-5" />
+          <span>{successMessage}</span>
+        </div>
+      )}
+
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between mb-6">
           <div>
@@ -156,83 +188,102 @@ const PopularNearYou = () => {
             {dishes.map(dish => (
               <div 
                 key={dish.id}
-                onClick={() => handleDishClick(dish)}
-                className="bg-white dark:bg-gray-900 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 overflow-hidden border border-gray-100 dark:border-gray-700 group cursor-pointer hover:scale-105"
+                className="bg-white dark:bg-gray-900 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 overflow-hidden border border-gray-100 dark:border-gray-700 group"
               >
-                <div className="relative">
-                  <img
-                    src={dish.image ? `http://localhost:5000${dish.image}` : 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg?auto=compress&cs=tinysrgb&w=400&h=250&dpr=1'}
-                    alt={dish.name}
-                    className="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-300"
-                    onError={(e) => {
-                      e.target.src = 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg?auto=compress&cs=tinysrgb&w=400&h=250&dpr=1';
-                    }}
-                  />
-                  {dish.isPromoted && (
-                    <div className="absolute top-2 left-2 bg-orange-500 text-white px-2 py-1 rounded text-xs font-semibold">
-                      Promoted
+                <div 
+                  onClick={() => handleDishClick(dish)}
+                  className="cursor-pointer"
+                >
+                  <div className="relative">
+                    <img
+                      src={dish.image ? `http://localhost:5000${dish.image}` : 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg?auto=compress&cs=tinysrgb&w=400&h=250&dpr=1'}
+                      alt={dish.name}
+                      className="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-300"
+                      onError={(e) => {
+                        e.target.src = 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg?auto=compress&cs=tinysrgb&w=400&h=250&dpr=1';
+                      }}
+                    />
+                    {dish.isPromoted && (
+                      <div className="absolute top-2 left-2 bg-orange-500 text-white px-2 py-1 rounded text-xs font-semibold">
+                        Promoted
+                      </div>
+                    )}
+                    <div className="absolute bottom-2 left-2 bg-white bg-opacity-90 backdrop-blur-sm px-2 py-1 rounded text-xs font-semibold text-orange-600">
+                      {dish.offer || 'Free Delivery'}
                     </div>
-                  )}
-                  <div className="absolute bottom-2 left-2 bg-white bg-opacity-90 backdrop-blur-sm px-2 py-1 rounded text-xs font-semibold text-orange-600">
-                    {dish.offer || 'Free Delivery'}
+                    <div className={`absolute top-2 right-2 w-4 h-4 rounded-sm border-2 ${
+                      dish.type === 'veg' 
+                        ? 'border-green-500 bg-white' 
+                        : 'border-red-500 bg-white'
+                    } flex items-center justify-center`}>
+                      <div className={`w-2 h-2 rounded-full ${
+                        dish.type === 'veg' ? 'bg-green-500' : 'bg-red-500'
+                      }`}></div>
+                    </div>
                   </div>
-                  <div className={`absolute top-2 right-2 w-4 h-4 rounded-sm border-2 ${
-                    dish.type === 'veg' 
-                      ? 'border-green-500 bg-white' 
-                      : 'border-red-500 bg-white'
-                  } flex items-center justify-center`}>
-                    <div className={`w-2 h-2 rounded-full ${
-                      dish.type === 'veg' ? 'bg-green-500' : 'bg-red-500'
-                    }`}></div>
+
+                  <div className="p-4">
+                    <h3 className="font-semibold text-lg text-gray-900 dark:text-white mb-1 truncate">
+                      {dish.name}
+                    </h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-2 truncate">
+                      {dish.restaurant}
+                    </p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500 mb-3 line-clamp-2">
+                      {dish.category}
+                    </p>
+
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="flex items-center space-x-2">
+                        <span className="font-bold text-gray-900 dark:text-white">
+                          {dish.currentPrice}
+                        </span>
+                        {dish.currentPrice !== dish.price && (
+                          <span className="text-gray-400 line-through text-xs">
+                            {dish.price}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center space-x-1 bg-green-100 dark:bg-green-900 px-2 py-1 rounded">
+                        <Star className="w-3 h-3 text-green-600 dark:text-green-400 fill-current" />
+                        <span className="font-semibold text-green-600 dark:text-green-400">
+                          {dish.rating}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+                      <div className="flex items-center space-x-1 text-gray-500 dark:text-gray-400">
+                        <Clock className="w-4 h-4" />
+                        <span className="text-sm">{dish.deliveryTime}</span>
+                      </div>
+                      <div className="flex items-center space-x-1 text-green-600 dark:text-green-400">
+                        <Truck className="w-4 h-4" />
+                        <span className="text-sm font-medium">
+                          {dish.distance}
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                <div className="p-4">
-                  <h3 className="font-semibold text-lg text-gray-900 dark:text-white mb-1 truncate">
-                    {dish.name}
-                  </h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-2 truncate">
-                    {dish.restaurant}
-                  </p>
-                  <p className="text-xs text-gray-400 dark:text-gray-500 mb-3 line-clamp-2">
-                    {dish.category}
-                  </p>
-
-                  <div className="flex items-center justify-between text-sm">
-                    <div className="flex items-center space-x-2">
-                      <span className="font-bold text-gray-900 dark:text-white">
-                        {dish.currentPrice}
-                      </span>
-                      {dish.currentPrice !== dish.price && (
-                        <span className="text-gray-400 line-through text-xs">
-                          {dish.price}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center space-x-1 bg-green-100 dark:bg-green-900 px-2 py-1 rounded">
-                      <Star className="w-3 h-3 text-green-600 dark:text-green-400 fill-current" />
-                      <span className="font-semibold text-green-600 dark:text-green-400">
-                        {dish.rating}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
-                    <div className="flex items-center space-x-1 text-gray-500 dark:text-gray-400">
-                      <Clock className="w-4 h-4" />
-                      <span className="text-sm">{dish.deliveryTime}</span>
-                    </div>
-                    <div className="flex items-center space-x-1 text-green-600 dark:text-green-400">
-                      <Truck className="w-4 h-4" />
-                      <span className="text-sm font-medium">
-                        {dish.distance}
-                      </span>
-                    </div>
-                  </div>
-
-                  <button className="w-full mt-3 flex items-center justify-center space-x-2 bg-orange-500 hover:bg-orange-600 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200">
-                    <Plus className="w-4 h-4" />
-                    <span>Add to Cart</span>
+                <div className="px-4 pb-4">
+                  <button 
+                    onClick={() => handleAddToCart(dish)}
+                    disabled={addingToCart === dish.id}
+                    className="w-full flex items-center justify-center space-x-2 bg-orange-500 hover:bg-orange-600 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {addingToCart === dish.id ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Adding...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="w-4 h-4" />
+                        <span>Add to Cart</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </div>

@@ -1,30 +1,30 @@
+// DiscoveryPage.jsx - Updated with Dynamic Wishlist Integration
 import React, { useState, useEffect } from 'react';
 import { 
   Search, 
-  Filter, 
   MapPin, 
   Star, 
   Clock, 
   Truck, 
-  Plus, 
   Loader2, 
   AlertCircle,
   ArrowLeft,
   Grid3X3,
   List,
   SlidersHorizontal,
-  X,
   ShoppingCart,
   Zap,
-  ChevronRight,
-  Heart,
-  CheckCircle
+  CheckCircle,
+  Heart
 } from 'lucide-react';
 import { useCart } from '../contexts/CartContext';
+import { useWishlist } from '../contexts/WishlistContext'; // Import WishlistContext
+import { useNavigate } from 'react-router-dom';
 
 const API_BASE = 'http://localhost:5000/api';
 
 const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('dishes');
   const [viewMode, setViewMode] = useState('grid');
   const [searchQuery, setSearchQuery] = useState('');
@@ -37,10 +37,6 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
   });
   const [showFilters, setShowFilters] = useState(false);
   
-  // Modal state for dish details
-  const [selectedDish, setSelectedDish] = useState(null);
-  const [showDishModal, setShowDishModal] = useState(false);
-  
   // Data states
   const [dishes, setDishes] = useState([]);
   const [restaurants, setRestaurants] = useState([]);
@@ -52,11 +48,24 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
   const [page, setPage] = useState(1);
 
   // Cart integration
-const { addToCart, loading: cartLoading, itemCount, totalAmount, clearCart } = useCart();
+  const { addToCart, loading: cartLoading, itemCount, totalAmount, clearCart } = useCart();
 
-  // Success message state
+  // Wishlist integration
+  const { 
+    addToWishlist, 
+    removeFromWishlist, 
+    isInWishlist, 
+    toggleWishlist,
+    loading: wishlistLoading 
+  } = useWishlist();
+
+  // Success message states
   const [successMessage, setSuccessMessage] = useState('');
-  const [addingToCart, setAddingToCart] = useState(null); // Track which item is being added
+  const [addingToCart, setAddingToCart] = useState(null);
+  const [wishlistMessage, setWishlistMessage] = useState('');
+
+  // Animation states
+  const [animatingHeart, setAnimatingHeart] = useState(null);
 
   // Categories for filter dropdown
   const categories = [
@@ -70,6 +79,55 @@ const { addToCart, loading: cartLoading, itemCount, totalAmount, clearCart } = u
     'Continental',
     'South Indian'
   ];
+
+  // Enhanced like functionality with API integration
+  const handleLikeClick = async (dish, e) => {
+    e.stopPropagation(); // Prevent triggering dish details
+    
+    const dishId = dish._id || dish.id;
+    const isCurrentlyLiked = isInWishlist(dishId);
+    
+    // Optimistic UI update - show animation immediately
+    if (!isCurrentlyLiked) {
+      setAnimatingHeart(dishId);
+      setTimeout(() => {
+        setAnimatingHeart(null);
+      }, 600);
+    }
+
+    try {
+      const result = await toggleWishlist(dish);
+      
+      if (result.success) {
+        // Show success message
+        const message = isCurrentlyLiked 
+          ? `${dish.name} removed from wishlist` 
+          : `${dish.name} added to wishlist`;
+        
+        setWishlistMessage(message);
+        setTimeout(() => setWishlistMessage(''), 3000);
+
+        // Trigger global wishlist update event
+        window.dispatchEvent(new CustomEvent('wishlistUpdated', { 
+          detail: { 
+            action: isCurrentlyLiked ? 'remove' : 'add',
+            dish: dish,
+            dishId: dishId
+          } 
+        }));
+
+        console.log('Wishlist updated successfully:', message);
+      } else {
+        // Show error message
+        setWishlistMessage(result.error || 'Failed to update wishlist');
+        setTimeout(() => setWishlistMessage(''), 3000);
+      }
+    } catch (error) {
+      console.error('Wishlist toggle error:', error);
+      setWishlistMessage('Failed to update wishlist');
+      setTimeout(() => setWishlistMessage(''), 3000);
+    }
+  };
 
   // Fetch data based on active tab and filters
   useEffect(() => {
@@ -208,186 +266,146 @@ const { addToCart, loading: cartLoading, itemCount, totalAmount, clearCart } = u
   };
 
   // Enhanced add to cart with visual feedback
-const handleAddToCart = async (dish) => {
-  if (!dish || (!dish._id && !dish.id)) {
-    console.error('Invalid dish object:', dish);
-    alert('Error: Invalid dish data');
-    return;
-  }
+  const handleAddToCart = async (dish) => {
+    if (!dish || (!dish._id && !dish.id)) {
+      console.error('Invalid dish object:', dish);
+      alert('Error: Invalid dish data');
+      return;
+    }
 
-  const dishId = dish._id || dish.id;
-  
-  try {
-    setAddingToCart(dishId);
-    console.log('Adding to cart from discovery page:', {
-      dishId,
-      dishName: dish.name,
-      price: dish.price
-    });
+    const dishId = dish._id || dish.id;
     
-    // Clear any previous cart errors
-    clearError && clearError();
-    
-    const result = await addToCart(dishId, 1);
-    
-    if (result.success) {
-      // Show success message
-      setSuccessMessage(`${dish.name} added to cart!`);
-      setTimeout(() => setSuccessMessage(''), 3000);
+    try {
+      setAddingToCart(dishId);
+      console.log('Adding to cart from discovery page:', {
+        dishId,
+        dishName: dish.name,
+        price: dish.price
+      });
       
-      console.log('Cart updated successfully, triggering header refresh');
+      const result = await addToCart(dishId, 1);
       
-      // Trigger header update event with detailed information
-      window.dispatchEvent(new CustomEvent('cartUpdated', { 
-        detail: { 
-          action: 'add',
-          dishId: dishId,
-          dishName: dish.name,
-          itemCount: itemCount + 1,
-          totalAmount: totalAmount + dish.price,
-          timestamp: Date.now()
+      if (result.success) {
+        setSuccessMessage(`${dish.name} added to cart!`);
+        setTimeout(() => setSuccessMessage(''), 3000);
+        
+        console.log('Cart updated successfully, triggering header refresh');
+        
+        window.dispatchEvent(new CustomEvent('cartUpdated', { 
+          detail: { 
+            action: 'add',
+            dishId: dishId,
+            dishName: dish.name,
+            itemCount: itemCount + 1,
+            totalAmount: totalAmount + dish.price,
+            timestamp: Date.now()
+          } 
+        }));
+        
+      } else {
+        if (result.action === 'clear_cart_required') {
+          const shouldClear = window.confirm(
+            `${result.error}\n\nWould you like to clear your current cart and add this item instead?`
+          );
+          
+          if (shouldClear) {
+            try {
+              const clearResult = await clearCart();
+              if (clearResult.success) {
+                const addResult = await addToCart(dishId, 1);
+                if (addResult.success) {
+                  setSuccessMessage(`Cart cleared and ${dish.name} added!`);
+                  setTimeout(() => setSuccessMessage(''), 3000);
+                  
+                  window.dispatchEvent(new CustomEvent('cartUpdated', { 
+                    detail: { 
+                      action: 'replace',
+                      dishId: dishId,
+                      dishName: dish.name,
+                      itemCount: 1,
+                      totalAmount: dish.price,
+                      timestamp: Date.now()
+                    } 
+                  }));
+                } else {
+                  throw new Error(addResult.error || 'Failed to add item after clearing cart');
+                }
+              } else {
+                throw new Error(clearResult.error || 'Failed to clear cart');
+              }
+            } catch (clearError) {
+              console.error('Error during cart clear and add:', clearError);
+              alert(`Failed to clear cart and add item: ${clearError.message}`);
+            }
+          }
+        } else if (result.requiresAuth) {
+          const shouldLogin = window.confirm(
+            `${result.error}\n\nWould you like to log in now?`
+          );
+          if (shouldLogin) {
+            window.location.reload();
+          }
+        } else {
+          alert(result.error || 'Failed to add to cart');
+        }
+      }
+    } catch (error) {
+      console.error('Add to cart error:', error);
+      alert(`Failed to add to cart: ${error.message || 'Unknown error'}`);
+    } finally {
+      setAddingToCart(null);
+    }
+  };
+
+  // Handle order now - navigate to address page with dish data
+  const handleOrderNow = async (dish) => {
+    if (!dish || (!dish._id && !dish.id)) {
+      console.error('Invalid dish object:', dish);
+      alert('Error: Invalid dish data');
+      return;
+    }
+
+    console.log('Order now clicked for dish:', dish.name);
+    
+    try {
+      const dishData = {
+        id: dish._id || dish.id,
+        name: dish.name,
+        restaurant: dish.restaurant || dish.restaurantName || 'Restaurant',
+        price: dish.currentPrice || `₹${dish.price}`,
+        image: dish.image ? `http://localhost:5000${dish.image}` : 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg?auto=compress&cs=tinysrgb&w=400&h=250&dpr=1',
+        rating: dish.rating || '4.2',
+        deliveryTime: dish.deliveryTime || '25-30 min',
+        category: dish.category,
+        type: dish.type,
+        description: dish.description || `Delicious ${dish.name} from ${dish.restaurant || dish.restaurantName || 'our kitchen'}`
+      };
+
+      console.log('Navigating to address page with dish data:', dishData);
+      
+      navigate('/address', { 
+        state: { 
+          item: dishData,
+          fromDiscovery: true
         } 
-      }));
+      });
       
-    } else {
-      // Handle different error scenarios
-      if (result.action === 'clear_cart_required') {
-        const shouldClear = window.confirm(
-          `${result.error}\n\nWould you like to clear your current cart and add this item instead?`
-        );
-        
-        if (shouldClear) {
-          try {
-            // Clear cart first, then add item
-            const clearResult = await clearCart();
-            if (clearResult.success) {
-              const addResult = await addToCart(dishId, 1);
-              if (addResult.success) {
-                setSuccessMessage(`Cart cleared and ${dish.name} added!`);
-                setTimeout(() => setSuccessMessage(''), 3000);
-                
-                window.dispatchEvent(new CustomEvent('cartUpdated', { 
-                  detail: { 
-                    action: 'replace',
-                    dishId: dishId,
-                    dishName: dish.name,
-                    itemCount: 1,
-                    totalAmount: dish.price,
-                    timestamp: Date.now()
-                  } 
-                }));
-              } else {
-                throw new Error(addResult.error || 'Failed to add item after clearing cart');
-              }
-            } else {
-              throw new Error(clearResult.error || 'Failed to clear cart');
-            }
-          } catch (clearError) {
-            console.error('Error during cart clear and add:', clearError);
-            alert(`Failed to clear cart and add item: ${clearError.message}`);
-          }
-        }
-      } else if (result.requiresAuth) {
-        // Handle authentication required
-        const shouldLogin = window.confirm(
-          `${result.error}\n\nWould you like to log in now?`
-        );
-        if (shouldLogin) {
-          // Redirect to login or trigger login modal
-          window.location.reload(); // This will trigger the login flow
-        }
-      } else {
-        // Show generic error
-        alert(result.error || 'Failed to add to cart');
-      }
+    } catch (error) {
+      console.error('Order now error:', error);
+      alert(`Failed to process order: ${error.message || 'Unknown error'}`);
     }
-  } catch (error) {
-    console.error('Add to cart error:', error);
-    alert(`Failed to add to cart: ${error.message || 'Unknown error'}`);
-  } finally {
-    setAddingToCart(null);
-  }
-};
-
-  // Handle order now
- const handleOrderNow = async (dish) => {
-  if (!dish || (!dish._id && !dish.id)) {
-    console.error('Invalid dish object:', dish);
-    alert('Error: Invalid dish data');
-    return;
-  }
-
-  const dishId = dish._id || dish.id;
-  
-  try {
-    setAddingToCart(dishId);
-    
-    // Clear any previous cart errors
-    clearError && clearError();
-    
-    const result = await addToCart(dishId, 1);
-    
-    if (result.success) {
-      // Navigate to order flow immediately
-      console.log('Item added, navigating to order summary');
-      window.location.href = '/order-summary';
-    } else {
-      // If cart has different restaurant items, offer to clear
-      if (result.action === 'clear_cart_required') {
-        const shouldClear = window.confirm(
-          `${result.error}\n\nWould you like to clear your cart and order this item?`
-        );
-        
-        if (shouldClear) {
-          try {
-            const clearResult = await clearCart();
-            if (clearResult.success) {
-              const addResult = await addToCart(dishId, 1);
-              if (addResult.success) {
-                window.location.href = '/order-summary';
-              } else {
-                throw new Error(addResult.error || 'Failed to add item after clearing cart');
-              }
-            } else {
-              throw new Error(clearResult.error || 'Failed to clear cart');
-            }
-          } catch (clearError) {
-            console.error('Error during clear and order:', clearError);
-            alert(`Failed to process order: ${clearError.message}`);
-          }
-        }
-      } else if (result.requiresAuth) {
-        // Handle authentication required
-        const shouldLogin = window.confirm(
-          `${result.error}\n\nWould you like to log in to place your order?`
-        );
-        if (shouldLogin) {
-          // Redirect to login
-          window.location.reload();
-        }
-      } else {
-        alert(result.error || 'Failed to process order');
-      }
-    }
-  } catch (error) {
-    console.error('Order now error:', error);
-    // Show error but allow fallback navigation for better UX
-    if (window.confirm(`Error adding to cart: ${error.message}\n\nWould you like to continue to order page anyway?`)) {
-      window.location.href = '/order-summary';
-    }
-  } finally {
-    setAddingToCart(null);
-  }
-};
+  };
 
   // Handle dish image click to show details
   const handleDishClick = (dish) => {
-    // Navigate to dish details page instead of showing modal
     onShowDishDetails(dish._id || dish.id);
   };
 
   const DishCard = ({ dish }) => {
     const isBeingAdded = addingToCart === (dish._id || dish.id);
+    const dishId = dish._id || dish.id;
+    const isLiked = isInWishlist(dishId);
+    const isAnimating = animatingHeart === dishId;
     
     return (
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 overflow-hidden border border-gray-100 dark:border-gray-700 group relative">
@@ -433,9 +451,41 @@ const handleAddToCart = async (dish) => {
         </div>
 
         <div className="p-4">
-          <h3 className="font-semibold text-lg text-gray-900 dark:text-white mb-1 truncate">
-            {dish.name}
-          </h3>
+          {/* Dish name and heart button */}
+          <div className="flex items-center justify-between mb-1">
+            <h3 className="font-semibold text-lg text-gray-900 dark:text-white truncate flex-1 mr-2">
+              {dish.name}
+            </h3>
+            {/* Enhanced Heart Like Button with Wishlist Integration */}
+            <button
+              onClick={(e) => handleLikeClick(dish, e)}
+              disabled={wishlistLoading}
+              className={`relative flex items-center justify-center w-8 h-8 rounded-full transition-all duration-200 ${
+                isLiked 
+                  ? 'bg-red-50 hover:bg-red-100 dark:bg-red-900/30 dark:hover:bg-red-900/50' 
+                  : 'bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600'
+              } disabled:opacity-50`}
+              title={isLiked ? 'Remove from wishlist' : 'Add to wishlist'}
+            >
+              <Heart 
+                className={`w-5 h-5 transition-all duration-200 ${
+                  isLiked 
+                    ? 'text-red-500 fill-red-500' 
+                    : 'text-gray-400 hover:text-red-400 dark:text-gray-500 dark:hover:text-red-400'
+                } ${isAnimating ? 'animate-heart-pop' : ''} ${wishlistLoading ? 'animate-pulse' : ''}`}
+              />
+              
+              {/* Pop-up animation hearts */}
+              {isAnimating && (
+                <>
+                  <Heart className="absolute w-4 h-4 text-red-500 fill-red-500 animate-heart-float-1" />
+                  <Heart className="absolute w-3 h-3 text-red-500 fill-red-500 animate-heart-float-2" />
+                  <Heart className="absolute w-3 h-3 text-red-500 fill-red-500 animate-heart-float-3" />
+                </>
+              )}
+            </button>
+          </div>
+          
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-2 truncate">
             {dish.restaurant || dish.restaurantName}
           </p>
@@ -475,7 +525,7 @@ const handleAddToCart = async (dish) => {
             </div>
           </div>
 
-          {/* Enhanced Split Button with Loading States */}
+          {/* Split Button with Order Now functionality */}
           <div className="mt-3 flex">
             <button 
               onClick={(e) => {
@@ -483,7 +533,7 @@ const handleAddToCart = async (dish) => {
                 handleAddToCart(dish);
               }}
               disabled={cartLoading || isBeingAdded}
-              className="flex-1 flex items-center justify-center space-x-2 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white font-medium py-2 px-4 rounded-l-lg transition-colors duration-200 relative overflow-hidden"
+              className="flex-1 flex items-center justify-center space-x-2 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white font-medium py-2 px-4 rounded-l-lg transition-colors duration-200"
             >
               {isBeingAdded ? (
                 <>
@@ -504,6 +554,7 @@ const handleAddToCart = async (dish) => {
               }}
               disabled={isBeingAdded}
               className="flex items-center justify-center bg-orange-600 hover:bg-orange-700 disabled:bg-orange-400 text-white font-medium py-2 px-3 rounded-r-lg border-l border-orange-400 transition-colors duration-200"
+              title="Order Now - Skip to checkout"
             >
               <Zap className="w-4 h-4" />
             </button>
@@ -580,11 +631,19 @@ const handleAddToCart = async (dish) => {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      {/* Success Message */}
+      {/* Success Messages */}
       {successMessage && (
         <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center space-x-2 animate-slide-down">
           <CheckCircle className="w-5 h-5" />
           <span className="font-medium">{successMessage}</span>
+        </div>
+      )}
+
+      {/* Wishlist Messages */}
+      {wishlistMessage && (
+        <div className="fixed top-32 left-1/2 transform -translate-x-1/2 z-50 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center space-x-2 animate-slide-down">
+          <Heart className="w-5 h-5" />
+          <span className="font-medium">{wishlistMessage}</span>
         </div>
       )}
 
@@ -697,52 +756,6 @@ const handleAddToCart = async (dish) => {
                     ))}
                   </select>
                 </div>
-
-                {activeTab === 'dishes' && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Type
-                    </label>
-                    <select
-                      value={filters.type}
-                      onChange={(e) => handleFilterChange('type', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-                    >
-                      <option value="">All Types</option>
-                      <option value="veg">Vegetarian</option>
-                      <option value="non-veg">Non-Vegetarian</option>
-                    </select>
-                  </div>
-                )}
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    City
-                  </label>
-                  <input
-                    type="text"
-                    value={filters.city}
-                    onChange={(e) => handleFilterChange('city', e.target.value)}
-                    placeholder="Enter city"
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Sort By
-                  </label>
-                  <select
-                    value={filters.sortBy}
-                    onChange={(e) => handleFilterChange('sortBy', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-                  >
-                    <option value="rating">Rating</option>
-                    <option value="price">Price</option>
-                    <option value="deliveryTime">Delivery Time</option>
-                    <option value="distance">Distance</option>
-                  </select>
-                </div>
               </div>
             </div>
           )}
@@ -779,7 +792,7 @@ const handleAddToCart = async (dish) => {
                   : 'grid-cols-1'
               }`}>
                 {dishes.map(dish => (
-                  <DishCard key={dish.id} dish={dish} />
+                  <DishCard key={dish.id || dish._id} dish={dish} />
                 ))}
               </div>
             ) : (
@@ -789,7 +802,7 @@ const handleAddToCart = async (dish) => {
                   : 'grid-cols-1'
               }`}>
                 {restaurants.map(restaurant => (
-                  <RestaurantCard key={restaurant.id} restaurant={restaurant} />
+                  <RestaurantCard key={restaurant.id || restaurant._id} restaurant={restaurant} />
                 ))}
               </div>
             )}
@@ -834,7 +847,7 @@ const handleAddToCart = async (dish) => {
         )}
       </div>
 
-      {/* Custom Styles for Animations */}
+      {/* Custom CSS for animations */}
       <style jsx>{`
         @keyframes slide-down {
           from {
@@ -849,6 +862,50 @@ const handleAddToCart = async (dish) => {
         
         .animate-slide-down {
           animation: slide-down 0.3s ease-out;
+        }
+
+        @keyframes heart-pop {
+          0% { transform: scale(1); }
+          50% { transform: scale(1.3); }
+          100% { transform: scale(1); }
+        }
+
+        .animate-heart-pop {
+          animation: heart-pop 0.6s ease-out;
+        }
+
+        @keyframes heart-float-1 {
+          0% { transform: translate(0, 0) scale(1); opacity: 1; }
+          100% { transform: translate(-20px, -30px) scale(0.5); opacity: 0; }
+        }
+
+        @keyframes heart-float-2 {
+          0% { transform: translate(0, 0) scale(1); opacity: 1; }
+          100% { transform: translate(20px, -25px) scale(0.3); opacity: 0; }
+        }
+
+        @keyframes heart-float-3 {
+          0% { transform: translate(0, 0) scale(1); opacity: 1; }
+          100% { transform: translate(0, -35px) scale(0.4); opacity: 0; }
+        }
+
+        .animate-heart-float-1 {
+          animation: heart-float-1 0.8s ease-out;
+        }
+
+        .animate-heart-float-2 {
+          animation: heart-float-2 0.9s ease-out;
+        }
+
+        .animate-heart-float-3 {
+          animation: heart-float-3 0.7s ease-out;
+        }
+
+        .line-clamp-2 {
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
         }
       `}</style>
     </div>

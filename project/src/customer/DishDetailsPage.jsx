@@ -29,11 +29,15 @@ import {
   Award,
   Send
 } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useCart } from '../contexts/CartContext';
 
 const API_BASE = 'http://localhost:5000/api';
 
 const DishDetailsPage = ({ dishId, onBack }) => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  
   const [dish, setDish] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -57,7 +61,11 @@ const DishDetailsPage = ({ dishId, onBack }) => {
   });
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
 
-  const { addToCart, loading: cartLoading } = useCart();
+  // Success message state
+  const [successMessage, setSuccessMessage] = useState('');
+  const [addingToCart, setAddingToCart] = useState(false);
+
+  const { addToCart, loading: cartLoading, itemCount, totalAmount, clearCart } = useCart();
 
   // Get user token for authenticated requests
   const getUserToken = () => {
@@ -237,26 +245,221 @@ const DishDetailsPage = ({ dishId, onBack }) => {
     }
   };
 
+  // Enhanced add to cart with visual feedback
   const handleAddToCart = async () => {
+    if (!dish || (!dish._id && !dish.id)) {
+      console.error('Invalid dish object:', dish);
+      alert('Error: Invalid dish data');
+      return;
+    }
+
+    const dishId = dish._id || dish.id;
+    
     try {
-      const result = await addToCart(dish._id || dish.id, quantity);
+      setAddingToCart(true);
+      console.log('Adding to cart from dish details:', {
+        dishId,
+        dishName: dish.name,
+        price: dish.price,
+        quantity
+      });
+      
+      const result = await addToCart(dishId, quantity);
+      
       if (result.success) {
-        alert('Added to cart successfully!');
+        // Show success message
+        setSuccessMessage(`${dish.name} (${quantity}x) added to cart!`);
+        setTimeout(() => setSuccessMessage(''), 3000);
+        
+        console.log('Cart updated successfully');
+        
+        // Dispatch cart update event for header refresh
+        window.dispatchEvent(new CustomEvent('cartUpdated', { 
+          detail: { 
+            action: 'add',
+            dishId: dishId,
+            dishName: dish.name,
+            quantity: quantity,
+            itemCount: itemCount + quantity,
+            totalAmount: totalAmount + (dish.price * quantity),
+            timestamp: Date.now()
+          } 
+        }));
+        
       } else {
-        alert(result.error || 'Failed to add to cart');
+        if (result.action === 'clear_cart_required') {
+          const shouldClear = window.confirm(
+            `${result.error}\n\nWould you like to clear your current cart and add this item instead?`
+          );
+          
+          if (shouldClear) {
+            try {
+              const clearResult = await clearCart();
+              if (clearResult.success) {
+                const addResult = await addToCart(dishId, quantity);
+                if (addResult.success) {
+                  setSuccessMessage(`Cart cleared and ${dish.name} (${quantity}x) added!`);
+                  setTimeout(() => setSuccessMessage(''), 3000);
+                  
+                  window.dispatchEvent(new CustomEvent('cartUpdated', { 
+                    detail: { 
+                      action: 'replace',
+                      dishId: dishId,
+                      dishName: dish.name,
+                      quantity: quantity,
+                      itemCount: quantity,
+                      totalAmount: dish.price * quantity,
+                      timestamp: Date.now()
+                    } 
+                  }));
+                } else {
+                  throw new Error(addResult.error || 'Failed to add item after clearing cart');
+                }
+              } else {
+                throw new Error(clearResult.error || 'Failed to clear cart');
+              }
+            } catch (clearError) {
+              console.error('Error during cart clear and add:', clearError);
+              alert(`Failed to clear cart and add item: ${clearError.message}`);
+            }
+          }
+        } else if (result.requiresAuth) {
+          const shouldLogin = window.confirm(
+            `${result.error}\n\nWould you like to log in now?`
+          );
+          if (shouldLogin) {
+            navigate('/login', { state: { from: location } });
+          }
+        } else {
+          alert(result.error || 'Failed to add to cart');
+        }
       }
     } catch (error) {
       console.error('Add to cart error:', error);
-      alert('Failed to add to cart');
+      alert(`Failed to add to cart: ${error.message || 'Unknown error'}`);
+    } finally {
+      setAddingToCart(false);
     }
   };
 
-  const handleOrderNow = async () => {
-    try {
-      await addToCart(dish._id || dish.id, quantity);
-      window.location.href = '/order-summary';
-    } catch (error) {
-      window.location.href = '/order-summary';
+  // Handle order now - navigate to address page with dish data
+  // Updated handleOrderNow function for DishDetailsPage.jsx
+// Updated handleOrderNow function for DishDetailsPage.jsx
+// Replace the existing handleOrderNow function with this corrected version
+
+const handleOrderNow = async () => {
+  if (!dish || (!dish._id && !dish.id)) {
+    console.error('Invalid dish object:', dish);
+    alert('Error: Invalid dish data');
+    return;
+  }
+
+  console.log('Order now clicked for dish:', dish.name, 'quantity:', quantity);
+  
+  try {
+    // Clean price conversion - handle different price formats
+    let cleanPrice = 0;
+    if (typeof dish.price === 'string') {
+      cleanPrice = parseInt(dish.price.replace(/[^\d]/g, '')) || 0;
+    } else if (typeof dish.price === 'number') {
+      cleanPrice = dish.price;
+    }
+
+    // Transform dish data to match AddressPage expectations
+    const orderItem = {
+      id: dish._id || dish.id,
+      dishId: dish._id || dish.id,
+      name: dish.name,
+      restaurant: dish.restaurant || dish.restaurantName || 'Restaurant',
+      restaurantId: dish.restaurantId || dish.restaurant_id,
+      price: `₹${cleanPrice}`, // Format as string for display
+      originalPrice: cleanPrice, // Keep numeric value for calculations
+      currentPrice: dish.currentPrice || `₹${cleanPrice}`,
+      image: dish.image ? `http://localhost:5000${dish.image}` : 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg?auto=compress&cs=tinysrgb&w=400&h=250&dpr=1',
+      rating: dish.rating?.average || reviewStats.average || '4.2',
+      deliveryTime: dish.deliveryTime || '25-30 min',
+      distance: dish.distance || '1.2 km',
+      category: dish.category,
+      type: dish.type,
+      description: dish.description || `Delicious ${dish.name} from ${dish.restaurant || dish.restaurantName || 'our kitchen'}`,
+      ingredients: dish.ingredients,
+      nutritionalInfo: dish.nutritionalInfo,
+      quantity: quantity,
+      itemTotal: cleanPrice * quantity,
+      isVeg: dish.type === 'veg',
+      // Additional metadata for order flow
+      orderType: 'direct',
+      fromDishDetails: true,
+      basePrice: cleanPrice,
+      totalItemPrice: cleanPrice * quantity
+    };
+
+    console.log('Navigating to address page with order data:', orderItem);
+    
+    // Navigate to address page with the properly formatted item data
+    navigate('/address', { 
+      state: { 
+        // Pass the single item that matches AddressPage expectations
+        item: orderItem,
+        
+        // Additional context for the order flow
+        orderType: 'direct',
+        fromDishDetails: true,
+        quantity: quantity,
+        
+        // Restaurant info
+        restaurantId: dish.restaurantId || dish.restaurant_id,
+        restaurantName: dish.restaurant || dish.restaurantName,
+        
+        // Navigation context
+        previousPage: 'dish-details',
+        dishId: dish._id || dish.id
+      } 
+    });
+    
+  } catch (error) {
+    console.error('Order now error:', error);
+    alert(`Failed to process order: ${error.message || 'Unknown error'}`);
+  }
+};
+
+// Also ensure the calculateOrderTotal function in AddressPage can handle the data structure
+// Add this helper function to AddressPage.jsx if it doesn't exist:
+
+const calculateOrderTotal = (item) => {
+  // Handle different price formats from dish details
+  let itemPrice = 0;
+  
+  if (item.originalPrice) {
+    // Use the numeric price if available
+    itemPrice = item.originalPrice;
+  } else if (typeof item.price === 'string') {
+    // Extract number from string format like "₹299"
+    itemPrice = parseInt(item.price.replace(/[^\d]/g, '')) || 0;
+  } else if (typeof item.price === 'number') {
+    itemPrice = item.price;
+  }
+  
+  const deliveryFee = 25;
+  const platformFee = 5;
+  const gst = Math.round(itemPrice * 0.05);
+  
+  return {
+    itemPrice,
+    deliveryFee,
+    platformFee,
+    gst,
+    total: itemPrice + deliveryFee + platformFee + gst
+  };
+};
+  // Handle back navigation
+  const handleBack = () => {
+    if (onBack) {
+      onBack();
+    } else if (location.state?.from) {
+      navigate(location.state.from);
+    } else {
+      navigate(-1); // Go back to previous page
     }
   };
 
@@ -338,7 +541,7 @@ const DishDetailsPage = ({ dishId, onBack }) => {
               Try Again
             </button>
             <button 
-              onClick={onBack}
+              onClick={handleBack}
               className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
             >
               Go Back
@@ -355,7 +558,7 @@ const DishDetailsPage = ({ dishId, onBack }) => {
         <div className="text-center">
           <p className="text-gray-600 dark:text-gray-400">Dish not found</p>
           <button 
-            onClick={onBack}
+            onClick={handleBack}
             className="mt-4 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
           >
             Go Back
@@ -367,12 +570,20 @@ const DishDetailsPage = ({ dishId, onBack }) => {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      {/* Success Message */}
+      {successMessage && (
+        <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center space-x-2 animate-slide-down">
+          <CheckCircle className="w-5 h-5" />
+          <span className="font-medium">{successMessage}</span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 sticky top-0 z-40">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             <button
-              onClick={onBack}
+              onClick={handleBack}
               className="flex items-center space-x-2 text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 transition-colors"
             >
               <ArrowLeft className="w-5 h-5" />
@@ -491,11 +702,11 @@ const DishDetailsPage = ({ dishId, onBack }) => {
                 <div className="flex items-center space-x-4">
                   <div>
                     <span className="text-3xl font-bold text-gray-900 dark:text-white">
-                      {dish.currentPrice}
+                      {dish.currentPrice || `₹${dish.price}`}
                     </span>
-                    {dish.currentPrice !== dish.formattedPrice && (
+                    {dish.currentPrice !== `₹${dish.price}` && dish.currentPrice && (
                       <span className="ml-2 text-xl text-gray-400 line-through">
-                        {dish.formattedPrice}
+                        ₹{dish.price}
                       </span>
                     )}
                   </div>
@@ -503,7 +714,7 @@ const DishDetailsPage = ({ dishId, onBack }) => {
                 <div className="flex items-center space-x-2 bg-green-100 dark:bg-green-900 px-4 py-2 rounded-lg">
                   <Star className="w-5 h-5 text-green-600 dark:text-green-400 fill-current" />
                   <span className="text-lg font-semibold text-green-600 dark:text-green-400">
-                    {reviewStats.average || dish.ratingDisplay || '0.0'}
+                    {reviewStats.average || dish.ratingDisplay || '4.2'}
                   </span>
                   <span className="text-sm text-gray-500">
                     ({reviewStats.total} reviews)
@@ -517,14 +728,14 @@ const DishDetailsPage = ({ dishId, onBack }) => {
                   <Clock className="w-5 h-5" />
                   <div>
                     <p className="text-sm text-gray-500 dark:text-gray-500">Delivery Time</p>
-                    <p className="font-semibold">{dish.deliveryTime}</p>
+                    <p className="font-semibold">{dish.deliveryTime || '25-30 min'}</p>
                   </div>
                 </div>
                 <div className="flex items-center space-x-2 text-green-600 dark:text-green-400">
                   <Truck className="w-5 h-5" />
                   <div>
                     <p className="text-sm text-gray-500 dark:text-gray-500">Distance</p>
-                    <p className="font-semibold">{dish.distance}</p>
+                    <p className="font-semibold">{dish.distance || '1.2 km'}</p>
                   </div>
                 </div>
                 <div className="text-center">
@@ -605,15 +816,25 @@ const DishDetailsPage = ({ dishId, onBack }) => {
                 <div className="flex space-x-4">
                   <button 
                     onClick={handleAddToCart}
-                    disabled={cartLoading}
+                    disabled={cartLoading || addingToCart}
                     className="flex-1 flex items-center justify-center space-x-3 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white font-semibold py-4 px-6 rounded-xl transition-colors duration-200 text-lg"
                   >
-                    <ShoppingCart className="w-6 h-6" />
-                    <span>Add to Cart</span>
+                    {addingToCart ? (
+                      <>
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
+                        <span>Adding...</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShoppingCart className="w-6 h-6" />
+                        <span>Add to Cart</span>
+                      </>
+                    )}
                   </button>
                   <button 
                     onClick={handleOrderNow}
-                    className="flex items-center justify-center space-x-3 bg-orange-600 hover:bg-orange-700 text-white font-semibold py-4 px-6 rounded-xl transition-colors duration-200 text-lg"
+                    disabled={addingToCart}
+                    className="flex items-center justify-center space-x-3 bg-orange-600 hover:bg-orange-700 disabled:bg-orange-400 text-white font-semibold py-4 px-6 rounded-xl transition-colors duration-200 text-lg"
                   >
                     <Zap className="w-6 h-6" />
                     <span>Order Now</span>
@@ -1022,6 +1243,24 @@ const DishDetailsPage = ({ dishId, onBack }) => {
           </div>
         </div>
       </div>
+
+      {/* Custom Styles for Animations */}
+      <style jsx>{`
+        @keyframes slide-down {
+          from {
+            transform: translate(-50%, -100%);
+            opacity: 0;
+          }
+          to {
+            transform: translate(-50%, 0);
+            opacity: 1;
+          }
+        }
+        
+        .animate-slide-down {
+          animation: slide-down 0.3s ease-out;
+        }
+      `}</style>
     </div>
   );
 };

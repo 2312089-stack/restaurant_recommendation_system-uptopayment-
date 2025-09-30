@@ -39,6 +39,8 @@ import addressRoutes from './routes/addressRoutes.js';
 import paymentRoutes from './routes/payment.js';
 import cartRoutes from './routes/cartRoutes.js'; // Cart routes import
 import dishRoutes from './routes/dishRoutes.js';
+import wishlistRoutes from './routes/wishlistRoutes.js'; // ADD THIS LINE
+import recommendationRoutes from './routes/recommendationRoutes.js';
 
 // Import seller routes
 import sellerAuthRoutes from './routes/sellerAuth.js';
@@ -82,6 +84,15 @@ const sellersDir = path.join(uploadsDir, 'sellers');
 
 // Serve static files from uploads directory
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/api/wishlist', (req, res, next) => {
+  console.log(`💝 Wishlist API: ${req.method} ${req.path}`, {
+    hasBody: ['POST', 'PATCH', 'PUT'].includes(req.method),
+    hasAuth: req.headers.authorization ? 'Yes' : 'No'
+  });
+  next();
+});
+app.use('/api/wishlist', wishlistRoutes); // ADD THIS LINE
+app.use('/api/recommendations', recommendationRoutes);
 
 // Request logging middleware
 app.use((req, res, next) => {
@@ -97,7 +108,35 @@ app.get('/', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
+app.get('/api', (req, res) => {
+  res.json({
+    success: true,
+    message: 'TasteSphere API Routes',
+    routes: {
+      // Customer routes
+      auth: '/api/auth',
+      users: '/api/users', 
+      otp: '/api/otp',
+      upload: '/api/upload',
+      settings: '/api/settings-auth',
+      addresses: '/api/addresses',
+      payment: '/api/payment',
+      cart: '/api/cart',
+      wishlist: '/api/wishlist', // ADD THIS LINE
+      discovery: '/api/discovery',
+       recommendations: '/api/recommendations', // NEW
 
+      // Seller routes
+      seller: {
+        auth: '/api/seller/auth',
+        otp: '/api/seller/otp',
+        onboarding: '/api/seller/onboarding',
+        profile: '/api/seller/profile',
+        menu: '/api/seller/menu'
+      }
+    }
+  });
+});
 // Extended health check
 app.get('/health', (req, res) => {
   res.json({
@@ -288,6 +327,12 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log('     🛒 DELETE /api/cart/item/:dishId (remove item)');
   console.log('     🛒 DELETE /api/cart/clear (clear cart)');
   console.log('     🛒 GET  /api/cart/summary (cart summary)');
+  console.log('     💝 GET  /api/wishlist (get wishlist)');           // ADD THESE LINES
+  console.log('     💝 POST /api/wishlist/add (add to wishlist)');    // ADD THESE LINES
+  console.log('     💝 DELETE /api/wishlist/remove/:dishId (remove from wishlist)'); // ADD THESE LINES
+  console.log('     💝 DELETE /api/wishlist/clear (clear wishlist)'); // ADD THESE LINES
+  console.log('     💝 GET  /api/wishlist/check/:dishId (check if in wishlist)'); // ADD THESE LINES
+  console.log('     💝 GET  /api/wishlist/stats (wishlist statistics)'); // ADD THESE LINES
   console.log('     🔍 GET  /api/discovery/dishes/popular');
   console.log('     🔍 GET  /api/discovery/dishes/recommended');
   console.log('     🔍 GET  /api/discovery/dishes/featured');
@@ -296,43 +341,33 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log('     🔍 GET  /api/discovery/search');
   console.log('     📍 GET  /api/addresses');
   console.log('     💳 POST /api/payment/create-order');
-  
-  // Seller endpoints
-  console.log('   🏪 Seller Routes:');
-  console.log('     🔐 POST /api/seller/auth/signup');
-  console.log('     🔐 POST /api/seller/auth/login');
-  console.log('     👤 GET  /api/seller/profile');
-  console.log('     👤 PATCH /api/seller/profile');
-  
-  // Menu management endpoints
-  console.log('   🍽️  Seller Menu Routes:');
-  console.log('     🍽️  POST /api/seller/menu/dish');
-  console.log('     🍽️  GET  /api/seller/menu/dishes');
-  console.log('     🍽️  GET  /api/seller/menu/dish/:id');
-  console.log('     🍽️  PATCH /api/seller/menu/dish/:id');
-  console.log('     🍽️  DELETE /api/seller/menu/dish/:id');
-  console.log('     🔄 PATCH /api/seller/menu/dish/:id/toggle');
-  console.log('     📊 GET  /api/seller/menu/analytics');
-  console.log('     📊 GET  /api/seller/menu/stats');
-  
-  // System endpoints
-  console.log('   🔧 System Routes:');
-  console.log('     🏠 GET  / (health check)');
-  console.log('     🔍 GET  /health (detailed health)');
-  console.log('     📋 GET  /api (API overview)');
-  
-  console.log('🚀=================================🚀');
+
+// Update your feature list:
   console.log('💡 Key Features Ready:');
   console.log('   ✅ Complete cart management system');
+  console.log('   ✅ Complete wishlist management system');        // ADD THIS LINE
   console.log('   ✅ Add to cart from discovery page');
+  console.log('   ✅ Add to wishlist with heart button');          // ADD THIS LINE
+  console.log('   ✅ Dynamic wishlist page with real data');       // ADD THIS LINE
   console.log('   ✅ Professional cart page with quantity controls');
   console.log('   ✅ Cart persistence across sessions');
+  console.log('   ✅ Wishlist persistence across sessions');       // ADD THIS LINE
   console.log('   ✅ Real-time cart updates');
+  console.log('   ✅ Real-time wishlist updates');                 // ADD THIS LINE
   console.log('   ✅ One restaurant per cart validation');
   console.log('   ✅ Seller can add/manage dishes');
   console.log('   ✅ Dishes appear immediately in customer discovery');
   console.log('   ✅ Real-time popularity tracking');
   console.log('   ✅ Location-based dish discovery');
   console.log('   ✅ Search and filter capabilities');
-  console.log('🚀=================================🚀');
+  console.log('     🎯 GET  /api/recommendations/personalized (get AI recommendations)');
+console.log('     🎯 POST /api/recommendations/behavior (track user behavior)');
+console.log('     🎯 GET  /api/recommendations/stats (recommendation statistics)');
+
+console.log('💡 Key Features Ready:');
+console.log('   ✅ AI-powered personalized recommendations');
+console.log('   ✅ Content-based filtering (user preferences)');
+console.log('   ✅ Collaborative filtering (similar users)');
+console.log('   ✅ Behavior tracking for better recommendations');
+console.log('   ✅ Onboarding questionnaire for preferences');
 });

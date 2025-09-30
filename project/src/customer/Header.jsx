@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from "react";
 import {
   Search,
@@ -23,7 +24,8 @@ import {
 } from "lucide-react";
 import { useCart } from "../contexts/CartContext";
 
-const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onLogout }) => {
+const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, onLogout }) => {
+  // Location state - Fixed: Added missing location state
   const [location, setLocation] = useState("Detecting location...");
   const [isLocationDropdownOpen, setIsLocationDropdownOpen] = useState(false);
   const [isNotificationDropdownOpen, setIsNotificationDropdownOpen] = useState(false);
@@ -47,35 +49,64 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onLogout }) => {
     clearError
   } = useCart();
 
+  // Fixed: Custom location detection function
+  const detectLocation = useCallback(() => {
+    if (navigator.geolocation) {
+      setLocation("Detecting location...");
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const { latitude, longitude } = position.coords;
+          try {
+            const response = await fetch(
+              `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`
+            );
+            const data = await response.json();
+            const locationString = `${data.locality || data.city || 'Unknown'}, ${data.principalSubdivision || ''}`;
+            setLocation(locationString);
+          } catch (error) {
+            console.error('Error fetching location:', error);
+            setLocation("Location unavailable");
+          }
+        },
+        (error) => {
+          console.error('Error getting location:', error);
+          setLocation("Enable location access");
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
+      );
+    } else {
+      setLocation("Location not supported");
+    }
+  }, []);
+
   // Load cart on component mount and set up real-time updates
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (token) {
-      loadCart();
+      if (!cartLoading) {
+        loadCart();
+      }
     }
-  }, [loadCart]);
+  }, []);
 
   // Listen for cart updates from other components with debouncing
   useEffect(() => {
     let timeoutId;
-    
+
     const handleCartUpdate = (event) => {
       console.log('Cart updated, refreshing header cart...', event.detail);
-      
-      // Clear any existing timeout
+
       if (timeoutId) {
         clearTimeout(timeoutId);
       }
-      
-      // Debounce cart refresh to avoid multiple rapid updates
+
       timeoutId = setTimeout(() => {
         loadCart();
       }, 100);
     };
 
-    // Listen for custom cart update events
     window.addEventListener('cartUpdated', handleCartUpdate);
-    
+
     return () => {
       window.removeEventListener('cartUpdated', handleCartUpdate);
       if (timeoutId) {
@@ -90,49 +121,20 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onLogout }) => {
     if (!token) return;
 
     const cartRefreshInterval = setInterval(() => {
-      // Only refresh if not currently loading to avoid race conditions
       if (!cartLoading) {
-        loadCart();
+        loadCart(true);
       }
-    }, 30000); // Refresh every 30 seconds
+    }, 30000);
 
     return () => clearInterval(cartRefreshInterval);
-  }, [loadCart, cartLoading]);
+  }, [cartLoading]);
 
-  // Real-time location detection
+  // Real-time location detection - Fixed: Uses local detectLocation function
   useEffect(() => {
-    const detectLocation = () => {
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          async (position) => {
-            const { latitude, longitude } = position.coords;
-            try {
-              const response = await fetch(
-                `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`
-              );
-              const data = await response.json();
-              const locationString = `${data.locality || data.city || 'Unknown'}, ${data.principalSubdivision || ''}`;
-              setLocation(locationString);
-            } catch (error) {
-              console.error('Error fetching location:', error);
-              setLocation("Location unavailable");
-            }
-          },
-          (error) => {
-            console.error('Error getting location:', error);
-            setLocation("Enable location access");
-          },
-          { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
-        );
-      } else {
-        setLocation("Location not supported");
-      }
-    };
-
     detectLocation();
     const locationInterval = setInterval(detectLocation, 300000);
     return () => clearInterval(locationInterval);
-  }, []);
+  }, [detectLocation]);
 
   // Dark mode persistence
   useEffect(() => {
@@ -150,6 +152,12 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onLogout }) => {
     setIsAccountDropdownOpen(false);
   };
 
+  const handleWishlistClick = (e) => {
+    e.preventDefault();
+    console.log('Wishlist clicked - navigating to wishlist page');
+    onOpenWishlist && onOpenWishlist();
+  };
+
   const handleLogout = () => {
     setUser(null);
     setIsAccountDropdownOpen(false);
@@ -157,7 +165,6 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onLogout }) => {
     console.log("User logged out");
   };
 
-  // Navigation handlers
   const handleDiscoverClick = (e) => {
     e.preventDefault();
     console.log('Discover clicked - navigating to discovery page');
@@ -175,22 +182,20 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onLogout }) => {
     if (onOpenCart) {
       onOpenCart();
     }
-    setIsCartDropdownOpen(false); // Close dropdown if open
+    setIsCartDropdownOpen(false);
   }, [itemCount, onOpenCart]);
 
   const handleQuantityChange = useCallback(async (dishId, newQuantity) => {
     console.log('Updating quantity for dish:', dishId, 'to:', newQuantity);
-    
-    // Clear any previous errors
+
     if (cartError) {
       clearError();
     }
-    
+
     try {
       const result = await updateQuantity(dishId, newQuantity);
       if (result.success) {
         console.log('Quantity updated successfully');
-        // The global event will be triggered from CartContext
       } else {
         console.error('Failed to update quantity:', result.error);
       }
@@ -201,17 +206,15 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onLogout }) => {
 
   const handleRemoveItem = useCallback(async (dishId, dishName = 'Item') => {
     console.log('Removing item from cart:', dishId);
-    
-    // Clear any previous errors
+
     if (cartError) {
       clearError();
     }
-    
+
     try {
       const result = await removeFromCart(dishId);
       if (result.success) {
         console.log(`${dishName} removed from cart successfully`);
-        // The global event will be triggered from CartContext
       } else {
         console.error('Failed to remove item:', result.error);
       }
@@ -223,18 +226,16 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onLogout }) => {
   const handleClearCart = useCallback(async () => {
     if (window.confirm('Are you sure you want to clear your cart?')) {
       console.log('Clearing entire cart');
-      
-      // Clear any previous errors
+
       if (cartError) {
         clearError();
       }
-      
+
       try {
         const result = await clearCart();
         if (result.success) {
           console.log('Cart cleared successfully');
           setIsCartDropdownOpen(false);
-          // The global event will be triggered from CartContext
         } else {
           console.error('Failed to clear cart:', result.error);
         }
@@ -297,10 +298,11 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onLogout }) => {
             {/* Search + Location */}
             <div className="flex-1 max-w-2xl mx-8">
               <div className="flex space-x-4">
+                {/* Fixed Location Dropdown - Removed nested button structure */}
                 <div className="relative dropdown-container">
                   <button
                     onClick={() => setIsLocationDropdownOpen(!isLocationDropdownOpen)}
-                    className="flex items-center space-x-2 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:border-orange-500 transition-colors bg-white dark:bg-gray-800"
+                    className="flex items-center space-x-2 px-3 py-2 bg-gray-50 dark:bg-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                   >
                     <MapPin className="w-4 h-4 text-orange-500" />
                     <div className="text-left">
@@ -311,29 +313,14 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onLogout }) => {
                     </div>
                     <ChevronDown className="w-4 h-4 text-gray-400" />
                   </button>
+
                   {isLocationDropdownOpen && (
                     <div className="absolute top-14 left-0 w-80 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-4 z-50">
                       <h3 className="font-semibold mb-3 text-gray-900 dark:text-white">Choose Location</h3>
                       <div className="mb-3">
                         <button
                           onClick={() => {
-                            setLocation("Detecting location...");
-                            navigator.geolocation.getCurrentPosition(
-                              async (position) => {
-                                const { latitude, longitude } = position.coords;
-                                try {
-                                  const response = await fetch(
-                                    `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`
-                                  );
-                                  const data = await response.json();
-                                  const locationString = `${data.locality || data.city || 'Unknown'}, ${data.principalSubdivision || ''}`;
-                                  setLocation(locationString);
-                                } catch (error) {
-                                  setLocation("Location unavailable");
-                                }
-                              },
-                              () => setLocation("Enable location access")
-                            );
+                            detectLocation();
                             setIsLocationDropdownOpen(false);
                           }}
                           className="flex items-center space-x-2 text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 text-sm font-medium"
@@ -423,14 +410,12 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onLogout }) => {
                       {itemCount > 99 ? '99+' : itemCount}
                     </span>
                   )}
-                  
-                  {/* Enhanced Hover tooltip with error state */}
+
                   <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
                     {cartError ? 'Error loading cart' : itemCount === 0 ? 'Your cart is empty' : `${itemCount} items • ₹${totalAmount}`}
                   </div>
                 </button>
 
-                {/* Cart Dropdown Toggle Button */}
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -531,7 +516,6 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onLogout }) => {
                           {items.slice(0, 3).map((item) => (
                             <div key={item.dishId._id || item.dishId} className="p-4 border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                               <div className="flex items-center space-x-3">
-                                {/* Dish Image */}
                                 <div className="w-12 h-12 bg-gray-200 dark:bg-gray-600 rounded-lg overflow-hidden flex-shrink-0">
                                   {item.dishImage ? (
                                     <img
@@ -549,7 +533,6 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onLogout }) => {
                                   )}
                                 </div>
 
-                                {/* Dish Info */}
                                 <div className="flex-1 min-w-0">
                                   <h4 className="text-sm font-medium text-gray-900 dark:text-white truncate">
                                     {item.dishName}
@@ -559,7 +542,6 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onLogout }) => {
                                   </p>
                                 </div>
 
-                                {/* Quantity Controls */}
                                 <div className="flex items-center space-x-2">
                                   <button
                                     onClick={() => handleQuantityChange(item.dishId._id || item.dishId, item.quantity - 1)}
@@ -580,7 +562,6 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onLogout }) => {
                                   </button>
                                 </div>
 
-                                {/* Item Total & Remove */}
                                 <div className="flex items-center space-x-2">
                                   <span className="text-sm font-semibold text-gray-900 dark:text-white">
                                     ₹{item.price * item.quantity}
@@ -722,8 +703,12 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onLogout }) => {
               >
                 <Package className="w-4 h-4" /><span>Orders</span>
               </button>
-              <button className="flex items-center space-x-2 px-3 py-3 text-gray-600 hover:text-orange-600 dark:text-gray-400 dark:hover:text-orange-600 transition-colors">
-                <Heart className="w-4 h-4" /><span>Wishlist</span>
+              <button 
+                onClick={handleWishlistClick}
+                className="flex items-center space-x-2 px-3 py-3 text-gray-600 hover:text-orange-600 dark:text-gray-400 dark:hover:text-orange-600 transition-colors"
+              >
+                <Heart className="w-4 h-4" />
+                <span>Wishlist</span>
               </button>
             </nav>
           </div>

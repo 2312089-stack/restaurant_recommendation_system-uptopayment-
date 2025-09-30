@@ -16,7 +16,32 @@ const AddressPage = () => {
 
   // API base URL - adjust according to your backend setup
   const API_BASE_URL = 'http://localhost:5000/api'; // Backend running on port 5000
-
+const calculateOrderTotal = (item) => {
+  // Handle different price formats from dish details
+  let itemPrice = 0;
+  
+  if (item.originalPrice) {
+    // Use the numeric price if available
+    itemPrice = item.originalPrice;
+  } else if (typeof item.price === 'string') {
+    // Extract number from string format like "₹299"
+    itemPrice = parseInt(item.price.replace(/[^\d]/g, '')) || 0;
+  } else if (typeof item.price === 'number') {
+    itemPrice = item.price;
+  }
+  
+  const deliveryFee = 25;
+  const platformFee = 5;
+  const gst = Math.round(itemPrice * 0.05);
+  
+  return {
+    itemPrice,
+    deliveryFee,
+    platformFee,
+    gst,
+    total: itemPrice + deliveryFee + platformFee + gst
+  };
+};
   // Helper function to check and get auth token
   const getAuthToken = () => {
     const token = localStorage.getItem('authToken') || localStorage.getItem('token');
@@ -239,28 +264,52 @@ const AddressPage = () => {
   }, []);
 
   // Redirect if no item selected - use useEffect to avoid navigation warnings
-  useEffect(() => {
-    if (!selectedItem) {
-      navigate('/');
-    }
-  }, [selectedItem, navigate]);
-
+ useEffect(() => {
+  if (!selectedItem) {
+    console.log('No item selected, redirecting to menu');
+    navigate('/menu');
+    return;
+  }
+  
+  // Log the received item for debugging
+  console.log('AddressPage received item:', selectedItem);
+}, [selectedItem, navigate]);
+  
+  // Log the received item for debugging
+  
   const handleAddressSelection = () => {
-    if (selectedAddress) {
-      const selectedAddressData = savedAddresses.find(addr => addr.id === selectedAddress);
-      console.log('Navigating to order summary with:', { selectedItem, selectedAddressData });
-      
-      // ✅ FIX: Pass addresses array and selected address ID correctly
-      navigate('/order-summary', { 
-        state: { 
-          item: selectedItem, 
-          selectedAddress: selectedAddress, // Pass the ID
-          addresses: savedAddresses, // Pass the full addresses array
-          selectedAddressData: selectedAddressData // Optional: also pass the data object for convenience
-        } 
-      });
+  if (selectedAddress) {
+    const selectedAddressData = savedAddresses.find(addr => addr.id === selectedAddress);
+    
+    if (!selectedAddressData) {
+      console.error('Selected address not found:', selectedAddress);
+      setError('Please select a valid address');
+      return;
     }
-  };
+    
+    console.log('Navigating to order summary with:', { 
+      item: selectedItem, 
+      selectedAddressId: selectedAddress,
+      selectedAddressData: selectedAddressData 
+    });
+    
+    // Calculate order total for the next page
+    const orderSummary = calculateOrderTotal(selectedItem);
+    
+    // Navigate to order summary with all required data
+    navigate('/order-summary', { 
+      state: { 
+        item: selectedItem, 
+        selectedAddress: selectedAddress, // Pass the ID
+        addresses: savedAddresses, // Pass the full addresses array
+        selectedAddressData: selectedAddressData, // Pass the address object for convenience
+        orderTotal: orderSummary // Add calculated totals
+      } 
+    });
+  } else {
+    setError('Please select a delivery address');
+  }
+};
 
   const handleAddAddress = async (newAddressData) => {
     try {
@@ -532,7 +581,50 @@ const AddressPage = () => {
         </div>
       </div>
     </div>
+
   );
 };
+// Update the Selected Item Display section to show better error handling
+const SelectedItemDisplay = () => {
+  if (!selectedItem) {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+        <div className="flex items-center">
+          <div className="text-red-600 mr-3">⚠️</div>
+          <div>
+            <h3 className="font-semibold text-red-800">No item selected</h3>
+            <p className="text-sm text-red-600">Please select an item from the menu first.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
+  return (
+    <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-6">
+      <div className="flex items-center space-x-3">
+        <img 
+          src={selectedItem.image || 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg?auto=compress&cs=tinysrgb&w=64&h=64&dpr=1'} 
+          alt={selectedItem.name} 
+          className="w-16 h-16 object-cover rounded-lg" 
+          onError={(e) => {
+            e.target.src = 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg?auto=compress&cs=tinysrgb&w=64&h=64&dpr=1';
+          }}
+        />
+        <div className="flex-1">
+          <h3 className="font-semibold text-gray-900">{selectedItem.name}</h3>
+          <p className="text-sm text-gray-600">{selectedItem.restaurant || 'Restaurant'}</p>
+          <div className="flex items-center space-x-2">
+            <span className="font-bold text-orange-600">
+              {selectedItem.price || `₹${selectedItem.originalPrice || 0}`}
+            </span>
+            {selectedItem.quantity && selectedItem.quantity > 1 && (
+              <span className="text-sm text-gray-500">× {selectedItem.quantity}</span>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 export default AddressPage;
