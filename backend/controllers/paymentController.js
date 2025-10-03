@@ -40,7 +40,7 @@ class PaymentController {
 
       // Initialize Email (OPTIONAL)
       if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-        this.emailTransporter = nodemailer.createTransporter({
+        this.emailTransporter = nodemailer.createTransport({
           service: 'gmail',
           auth: {
             user: process.env.EMAIL_USER.trim(),

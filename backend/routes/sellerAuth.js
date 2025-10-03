@@ -8,7 +8,7 @@ import Seller from '../models/Seller.js'; // Adjust path as needed
 const router = express.Router();
 
 // JWT Secret - use environment variable in production
-const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-for-sellers';
+const JWT_SECRET = process.env.JWT_SECRET || 'tastesphere-super-secret-jwt-key-2024-make-this-very-long-and-random-for-security';
 
 // Generate JWT token
 const generateToken = (sellerId) => {

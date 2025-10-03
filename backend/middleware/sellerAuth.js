@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 import Seller from '../models/Seller.js';
 import mongoose from 'mongoose';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-for-sellers';
+const JWT_SECRET = process.env.JWT_SECRET || 'tastesphere-super-secret-jwt-key-2024-make-this-very-long-and-random-for-security';
 
 export const authenticateSellerToken = async (req, res, next) => {
   try {

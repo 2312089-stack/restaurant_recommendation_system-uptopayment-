@@ -44,7 +44,9 @@ const DishDetailsPage = ({ dishId, onBack }) => {
   const [isFavorite, setIsFavorite] = useState(false);
   const [quantity, setQuantity] = useState(1);
   const [showRestaurantDetails, setShowRestaurantDetails] = useState(false);
-  
+  const [isSellerOnline, setIsSellerOnline] = useState(true);
+  const { socket, connected } = useSocket();
+
   // Review states
   const [reviews, setReviews] = useState([]);
   const [reviewsLoading, setReviewsLoading] = useState(false);
@@ -83,7 +85,21 @@ const DishDetailsPage = ({ dishId, onBack }) => {
       checkReviewEligibility();
     }
   }, [dishId]);
+useEffect(() => {
+    if (!socket || !connected || !dish) return;
 
+    const handleStatusChange = (data) => {
+      if (data.sellerId === dish.seller?._id) {
+        setIsSellerOnline(data.isOnline && data.dashboardStatus !== 'offline');
+      }
+    };
+
+    socket.on('seller-status-changed', handleStatusChange);
+
+    return () => {
+      socket.off('seller-status-changed', handleStatusChange);
+    };
+  }, [socket, connected, dish]);
   const fetchDishDetails = async () => {
     try {
       setLoading(true);
@@ -945,7 +961,59 @@ const calculateOrderTotal = (item) => {
                   {filteredAndSortedReviews.length} of {reviews.length} reviews
                 </div>
               </div>
+ <div className="min-h-screen bg-gray-50">
+      {/* Restaurant Status Banner */}
+      {!isSellerOnline && (
+        <div className="bg-red-50 border-b-2 border-red-200 px-4 py-3">
+          <div className="max-w-4xl mx-auto flex items-center space-x-2">
+            <AlertCircle className="w-5 h-5 text-red-600" />
+            <p className="text-red-800 font-medium">
+              This restaurant is currently closed. You cannot place orders at this time.
+            </p>
+          </div>
+        </div>
+      )}
 
+      {/* Dish Content */}
+      {dish && (
+        <div className="max-w-4xl mx-auto px-4 py-8">
+          {/* Action Buttons - Disabled when offline */}
+          <div className="flex space-x-4">
+            <button 
+              onClick={handleAddToCart}
+              disabled={!isSellerOnline}
+              className={`flex-1 flex items-center justify-center space-x-3 py-4 px-6 rounded-xl font-semibold text-lg transition-colors ${
+                !isSellerOnline
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  : 'bg-orange-500 hover:bg-orange-600 text-white'
+              }`}
+            >
+              <ShoppingCart className="w-6 h-6" />
+              <span>{isSellerOnline ? 'Add to Cart' : 'Restaurant Closed'}</span>
+            </button>
+            
+            <button 
+              onClick={handleOrderNow}
+              disabled={!isSellerOnline}
+              className={`flex items-center justify-center space-x-3 py-4 px-6 rounded-xl font-semibold text-lg transition-colors ${
+                !isSellerOnline
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  : 'bg-orange-600 hover:bg-orange-700 text-white'
+              }`}
+            >
+              <Zap className="w-6 h-6" />
+              <span>Order Now</span>
+            </button>
+          </div>
+
+          {!isSellerOnline && (
+            <p className="text-center text-sm text-red-600 mt-3">
+              The restaurant dashboard is currently offline. Orders will be available when they come back online.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
               {/* Review Form */}
               {showReviewForm && (
                 <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-6 mb-8">

@@ -68,6 +68,8 @@ const PaymentPage = () => {
   };
 
   // FIXED: Create order details object with proper data structure
+// FIXED: Create order details object with proper data structure INCLUDING dishId
+ // FIXED: Create order details object with proper data structure INCLUDING dishId
   const createOrderDetails = () => {
     // Validate email before proceeding
     if (!customerEmail || !validateEmail(customerEmail)) {
@@ -77,7 +79,14 @@ const PaymentPage = () => {
     // FIXED: Clean phone number properly
     const cleanPhone = selectedAddress.phoneNumber.replace(/\D/g, '');
     
-    console.log('Creating order details with:', {
+    // FIXED: Extract dishId from item
+    const dishId = item._id || item.id || item.dishId;
+    
+    if (!dishId) {
+      console.error('WARNING: No dishId found in item:', item);
+    }
+    
+    console.log('Creating order details with dishId:', dishId, {
       customerName: selectedAddress.fullName,
       customerEmail: customerEmail,
       customerPhone: cleanPhone,
@@ -86,12 +95,14 @@ const PaymentPage = () => {
 
     return {
       orderId: `ORDER_${Date.now()}`,
+      dishId: dishId, // CRITICAL: Include dishId for seller linkage
       item: {
         name: item.name,
         restaurant: item.restaurant || 'TasteSphere',
         price: typeof item.price === 'string' ? parseInt(item.price.replace(/[^\d]/g, '')) : item.price,
         image: item.image || '',
-        description: item.description || ''
+        description: item.description || '',
+        dishId: dishId // Also include in item object
       },
       totalAmount: orderTotal.total,
       customerName: selectedAddress.fullName,
@@ -203,17 +214,22 @@ const PaymentPage = () => {
       });
 
       const verifyData = await verifyResponse.json();
-
-      if (verifyData.success) {
-        console.log('✅ Payment verified, notifications:', verifyData.notifications);
-        // Payment successful
-        navigate('/payment-success', {
-          state: {
-            order: verifyData.order,
-            notifications: verifyData.notifications,
-          },
-        });
-      } else {
+if (verifyData.success) {
+  console.log('✅ Payment verified, order created:', verifyData.order);
+  navigate('/confirmation', {
+    state: {
+      item,
+      selectedAddress,
+      addresses,
+      orderTotal,
+      orderId: verifyData.order.orderId,
+      paymentMethod: 'razorpay',
+      customerEmail: customerEmail,
+      paymentId: razorpayResponse.razorpay_payment_id,
+      orderData: verifyData.order // CRITICAL: Full order with _id
+    },
+  });
+} else {
         throw new Error(verifyData.message || 'Payment verification failed');
       }
 
@@ -261,17 +277,22 @@ const PaymentPage = () => {
       });
 
       const data = await response.json();
-
       if (data.success) {
-        console.log('✅ COD order created, notifications:', data.notifications);
-        // COD order successful
-        navigate('/payment-success', {
-          state: {
-            order: data.order,
-            notifications: data.notifications,
-          },
-        });
-      } else {
+  console.log('✅ COD order created:', data.order);
+  navigate('/confirmation', {
+    state: {
+      item,
+      selectedAddress,
+      addresses,
+      orderTotal,
+      orderId: data.order.orderId,
+      paymentMethod: 'cod',
+      customerEmail: customerEmail,
+      orderData: data.order // CRITICAL: Full order with _id
+    },
+  });
+}
+ else {
         throw new Error(data.message || 'COD order creation failed');
       }
 

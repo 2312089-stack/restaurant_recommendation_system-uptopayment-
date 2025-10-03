@@ -87,7 +87,6 @@ const userSchema = new mongoose.Schema({
 });
 
 // Indexes for performance
-userSchema.index({ emailId: 1 });
 userSchema.index({ passwordResetToken: 1 });
 userSchema.index({ 'pendingEmailChange.token': 1 });
 userSchema.index({ wishlist: 1 }); // Index for wishlist queries

@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Search,
   MapPin,
@@ -21,10 +20,10 @@ import {
   Trash2,
   X,
   ArrowRight
-} from "lucide-react";
-import { useCart } from "../contexts/CartContext";
+} from 'lucide-react';
+import { useCart } from '../contexts/CartContext';
 
-const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, onLogout }) => {
+const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, onOpenOrderHistory, onLogout }) => {
   // Location state - Fixed: Added missing location state
   const [location, setLocation] = useState("Detecting location...");
   const [isLocationDropdownOpen, setIsLocationDropdownOpen] = useState(false);
@@ -33,17 +32,20 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
   const [isCartDropdownOpen, setIsCartDropdownOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [notificationCount] = useState(2);
-  const [user, setUser] = useState({ email: "user@example.com", name: "John Doe" });
+  const [user, setUser] = useState({
+    email: 'user@example.com',
+    name: 'John Doe'
+  });
 
   // Cart functionality from context
-  const { 
-    items, 
-    totalAmount, 
-    itemCount, 
-    loading: cartLoading, 
+  const {
+    items,
+    totalAmount,
+    itemCount,
+    loading: cartLoading,
     error: cartError,
-    updateQuantity, 
-    removeFromCart, 
+    updateQuantity,
+    removeFromCart,
     clearCart,
     loadCart,
     clearError
@@ -61,21 +63,21 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
               `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`
             );
             const data = await response.json();
-            const locationString = `${data.locality || data.city || 'Unknown'}, ${data.principalSubdivision || ''}`;
+            const locationString = `${data.locality || data.city || 'Unknown'}, ${data.principalSubdivision}`;
             setLocation(locationString);
           } catch (error) {
             console.error('Error fetching location:', error);
-            setLocation("Location unavailable");
+            setLocation('Location unavailable');
           }
         },
         (error) => {
           console.error('Error getting location:', error);
-          setLocation("Enable location access");
+          setLocation('Enable location access');
         },
         { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
       );
     } else {
-      setLocation("Location not supported");
+      setLocation('Location not supported');
     }
   }, []);
 
@@ -83,35 +85,23 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (token) {
-      if (!cartLoading) {
-        loadCart();
-      }
+      if (!cartLoading) loadCart();
     }
   }, []);
 
   // Listen for cart updates from other components with debouncing
   useEffect(() => {
     let timeoutId;
-
     const handleCartUpdate = (event) => {
       console.log('Cart updated, refreshing header cart...', event.detail);
-
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-
-      timeoutId = setTimeout(() => {
-        loadCart();
-      }, 100);
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => loadCart(), 100);
     };
 
     window.addEventListener('cartUpdated', handleCartUpdate);
-
     return () => {
       window.removeEventListener('cartUpdated', handleCartUpdate);
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
+      if (timeoutId) clearTimeout(timeoutId);
     };
   }, [loadCart]);
 
@@ -121,9 +111,7 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
     if (!token) return;
 
     const cartRefreshInterval = setInterval(() => {
-      if (!cartLoading) {
-        loadCart(true);
-      }
+      if (!cartLoading) loadCart(true);
     }, 30000);
 
     return () => clearInterval(cartRefreshInterval);
@@ -139,36 +127,44 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
   // Dark mode persistence
   useEffect(() => {
     if (isDarkMode) {
-      document.documentElement.classList.add("dark");
+      document.documentElement.classList.add('dark');
     } else {
-      document.documentElement.classList.remove("dark");
+      document.documentElement.classList.remove('dark');
     }
   }, [isDarkMode]);
 
   const toggleDarkMode = () => setIsDarkMode(!isDarkMode);
 
   const openSettings = () => {
-    onOpenSettings && onOpenSettings();
+    if (onOpenSettings) onOpenSettings();
     setIsAccountDropdownOpen(false);
   };
 
   const handleWishlistClick = (e) => {
     e.preventDefault();
     console.log('Wishlist clicked - navigating to wishlist page');
-    onOpenWishlist && onOpenWishlist();
+    if (onOpenWishlist) onOpenWishlist();
+  };
+
+  const handleOrderHistoryClick = (e) => {
+    window.location.href = '/order-history';
+
+    e.preventDefault();
+    console.log('Order History clicked');
+    if (onOpenOrderHistory) onOpenOrderHistory();
   };
 
   const handleLogout = () => {
     setUser(null);
     setIsAccountDropdownOpen(false);
-    onLogout && onLogout();
-    console.log("User logged out");
+    if (onLogout) onLogout();
+    console.log('User logged out');
   };
 
   const handleDiscoverClick = (e) => {
     e.preventDefault();
     console.log('Discover clicked - navigating to discovery page');
-    onOpenDiscovery && onOpenDiscovery();
+    if (onOpenDiscovery) onOpenDiscovery();
   };
 
   const handleHomeClick = (e) => {
@@ -179,19 +175,13 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
   // Enhanced cart handlers with error handling
   const handleCartClick = useCallback(() => {
     console.log('Cart clicked - opening cart page with', itemCount, 'items');
-    if (onOpenCart) {
-      onOpenCart();
-    }
+    if (onOpenCart) onOpenCart();
     setIsCartDropdownOpen(false);
   }, [itemCount, onOpenCart]);
 
   const handleQuantityChange = useCallback(async (dishId, newQuantity) => {
-    console.log('Updating quantity for dish:', dishId, 'to:', newQuantity);
-
-    if (cartError) {
-      clearError();
-    }
-
+    console.log('Updating quantity for dish', dishId, 'to', newQuantity);
+    if (cartError) clearError();
     try {
       const result = await updateQuantity(dishId, newQuantity);
       if (result.success) {
@@ -206,11 +196,7 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
 
   const handleRemoveItem = useCallback(async (dishId, dishName = 'Item') => {
     console.log('Removing item from cart:', dishId);
-
-    if (cartError) {
-      clearError();
-    }
-
+    if (cartError) clearError();
     try {
       const result = await removeFromCart(dishId);
       if (result.success) {
@@ -226,11 +212,7 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
   const handleClearCart = useCallback(async () => {
     if (window.confirm('Are you sure you want to clear your cart?')) {
       console.log('Clearing entire cart');
-
-      if (cartError) {
-        clearError();
-      }
-
+      if (cartError) clearError();
       try {
         const result = await clearCart();
         if (result.success) {
@@ -246,8 +228,8 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
   }, [clearCart, cartError, clearError]);
 
   const handleProceedToOrder = useCallback(() => {
-    console.log('Proceeding to order with', itemCount, 'items, total: ₹', totalAmount);
-    window.location.href = '/order-summary';
+    console.log('Proceeding to order with', itemCount, 'items, total ₹', totalAmount);
+    window.location.href = 'order-summary';
     setIsCartDropdownOpen(false);
   }, [itemCount, totalAmount]);
 
@@ -267,13 +249,13 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
   }, []);
 
   const notifications = [
-    { id: 1, message: "Your order from Pizza Palace is ready!", time: "2 min ago" },
-    { id: 2, message: "Time to reorder your favorite Biryani 🍛", time: "1 hour ago" },
-    { id: 3, message: "50% off on all desserts today!", time: "3 hours ago" },
+    { id: 1, message: 'Your order from Pizza Palace is ready!', time: '2 min ago' },
+    { id: 2, message: 'Time to reorder your favorite Biryani!', time: '1 hour ago' },
+    { id: 3, message: '50% off on all desserts today!', time: '3 hours ago' },
   ];
 
   return (
-    <div className={isDarkMode ? "dark" : ""}>
+    <div className={isDarkMode ? 'dark' : ''}>
       <header className="sticky top-0 z-50 bg-white shadow-md dark:bg-gray-900 transition-colors duration-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
@@ -295,7 +277,7 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
               </div>
             </div>
 
-            {/* Search + Location */}
+            {/* Search & Location */}
             <div className="flex-1 max-w-2xl mx-8">
               <div className="flex space-x-4">
                 {/* Fixed Location Dropdown - Removed nested button structure */}
@@ -327,6 +309,10 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
                         >
                           <MapPin className="w-4 h-4" />
                           <span>Use current location</span>
+                        </button>
+                        <button onClick={handleOrderHistoryClick}>
+                          <Package className="w-4 h-4" />
+                          <span>Orders</span>
                         </button>
                       </div>
                       <input
@@ -385,10 +371,7 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
                       <h3 className="font-semibold text-gray-900 dark:text-white">Notifications</h3>
                     </div>
                     {notifications.map((notification) => (
-                      <div
-                        key={notification.id}
-                        className="p-4 border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                      >
+                      <div key={notification.id} className="p-4 border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                         <p className="text-sm text-gray-900 dark:text-white">{notification.message}</p>
                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{notification.time}</p>
                       </div>
@@ -399,7 +382,7 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
 
               {/* ENHANCED Cart Button with Real-time Updates and Error Handling */}
               <div className="relative dropdown-container">
-                <button 
+                <button
                   onClick={handleCartClick}
                   className="relative p-2 text-gray-600 hover:text-orange-500 dark:text-gray-400 dark:hover:text-orange-500 transition-colors group"
                   disabled={cartLoading}
@@ -410,9 +393,9 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
                       {itemCount > 99 ? '99+' : itemCount}
                     </span>
                   )}
-
+                  
                   <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                    {cartError ? 'Error loading cart' : itemCount === 0 ? 'Your cart is empty' : `${itemCount} items • ₹${totalAmount}`}
+                    {cartError ? 'Error loading cart' : itemCount === 0 ? 'Your cart is empty' : `${itemCount} items • ${totalAmount}`}
                   </div>
                 </button>
 
@@ -435,14 +418,8 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-2">
                           <ShoppingCart className="w-5 h-5 text-orange-600" />
-                          <h3 className="font-semibold text-gray-900 dark:text-white">
-                            Cart ({itemCount})
-                          </h3>
-                          {itemCount > 0 && (
-                            <span className="text-sm text-orange-600 font-medium">
-                              ₹{totalAmount}
-                            </span>
-                          )}
+                          <h3 className="font-semibold text-gray-900 dark:text-white">Cart ({itemCount})</h3>
+                          {itemCount > 0 && <span className="text-sm text-orange-600 font-medium">{totalAmount}</span>}
                         </div>
                         <div className="flex items-center space-x-2">
                           <button
@@ -498,23 +475,19 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
                         </button>
                       </div>
                     ) : (
-                      <div>
+                      <>
                         {/* Restaurant Info */}
                         {items.length > 0 && (
                           <div className="p-4 bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
-                            <p className="text-sm font-medium text-gray-900 dark:text-white">
-                              {items[0].restaurantName}
-                            </p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400">
-                              {itemCount} {itemCount === 1 ? 'item' : 'items'} • ₹{totalAmount}
-                            </p>
+                            <p className="text-sm font-medium text-gray-900 dark:text-white">{items[0]?.restaurantName}</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">{itemCount} {itemCount === 1 ? 'item' : 'items'} • {totalAmount}</p>
                           </div>
                         )}
 
                         {/* Cart Items */}
                         <div className="max-h-60 overflow-y-auto">
                           {items.slice(0, 3).map((item) => (
-                            <div key={item.dishId._id || item.dishId} className="p-4 border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                            <div key={item.dishId?._id || item.dishId} className="p-4 border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                               <div className="flex items-center space-x-3">
                                 <div className="w-12 h-12 bg-gray-200 dark:bg-gray-600 rounded-lg overflow-hidden flex-shrink-0">
                                   {item.dishImage ? (
@@ -534,27 +507,21 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
                                 </div>
 
                                 <div className="flex-1 min-w-0">
-                                  <h4 className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                                    {item.dishName}
-                                  </h4>
-                                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                                    ₹{item.price} × {item.quantity}
-                                  </p>
+                                  <h4 className="text-sm font-medium text-gray-900 dark:text-white truncate">{item.dishName}</h4>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">{item.price} × {item.quantity}</p>
                                 </div>
 
                                 <div className="flex items-center space-x-2">
                                   <button
-                                    onClick={() => handleQuantityChange(item.dishId._id || item.dishId, item.quantity - 1)}
+                                    onClick={() => handleQuantityChange(item.dishId?._id || item.dishId, item.quantity - 1)}
                                     className="w-6 h-6 flex items-center justify-center rounded-full bg-gray-200 hover:bg-gray-300 dark:bg-gray-600 dark:hover:bg-gray-500 transition-colors disabled:opacity-50"
                                     disabled={cartLoading}
                                   >
                                     <Minus className="w-3 h-3" />
                                   </button>
-                                  <span className="w-6 text-center text-sm font-semibold text-gray-900 dark:text-white">
-                                    {item.quantity}
-                                  </span>
+                                  <span className="w-6 text-center text-sm font-semibold text-gray-900 dark:text-white">{item.quantity}</span>
                                   <button
-                                    onClick={() => handleQuantityChange(item.dishId._id || item.dishId, item.quantity + 1)}
+                                    onClick={() => handleQuantityChange(item.dishId?._id || item.dishId, item.quantity + 1)}
                                     className="w-6 h-6 flex items-center justify-center rounded-full bg-gray-200 hover:bg-gray-300 dark:bg-gray-600 dark:hover:bg-gray-500 transition-colors disabled:opacity-50"
                                     disabled={cartLoading}
                                   >
@@ -564,10 +531,10 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
 
                                 <div className="flex items-center space-x-2">
                                   <span className="text-sm font-semibold text-gray-900 dark:text-white">
-                                    ₹{item.price * item.quantity}
+                                    {item.price} × {item.quantity}
                                   </span>
                                   <button
-                                    onClick={() => handleRemoveItem(item.dishId._id || item.dishId, item.dishName)}
+                                    onClick={() => handleRemoveItem(item.dishId?._id || item.dishId, item.dishName)}
                                     className="text-red-500 hover:text-red-700 transition-colors disabled:opacity-50"
                                     disabled={cartLoading}
                                     title={`Remove ${item.dishName}`}
@@ -589,12 +556,8 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
                         <div className="p-4 border-t border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800">
                           <div className="flex items-center justify-between mb-4">
                             <div>
-                              <span className="text-lg font-bold text-gray-900 dark:text-white">
-                                Total: ₹{totalAmount}
-                              </span>
-                              <p className="text-xs text-gray-500">
-                                + taxes & delivery charges
-                              </p>
+                              <span className="text-lg font-bold text-gray-900 dark:text-white">Total: {totalAmount}</span>
+                              <p className="text-xs text-gray-500">(taxes & delivery charges)</p>
                             </div>
                             {items.length > 1 && (
                               <button
@@ -606,6 +569,7 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
                               </button>
                             )}
                           </div>
+
                           <div className="flex space-x-2">
                             <button
                               onClick={handleCartClick}
@@ -623,7 +587,7 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
                             </button>
                           </div>
                         </div>
-                      </div>
+                      </>
                     )}
                   </div>
                 )}
@@ -641,18 +605,20 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
                 {isAccountDropdownOpen && (
                   <div className="absolute top-12 right-0 w-64 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">
                     <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-                      <p className="font-semibold text-gray-900 dark:text-white">{user ? user.email : "Guest User"}</p>
-                      {user && user.name && (
-                        <p className="text-sm text-gray-500 dark:text-gray-400">{user.name}</p>
-                      )}
+                      <p className="font-semibold text-gray-900 dark:text-white">{user ? user.email : 'Guest User'}</p>
+                      {user && user.name && <p className="text-sm text-gray-500 dark:text-gray-400">{user.name}</p>}
                     </div>
                     <div className="p-2">
                       <button
                         onClick={toggleDarkMode}
                         className="w-full flex items-center space-x-2 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
                       >
-                        {isDarkMode ? <Sun className="w-4 h-4 text-gray-600 dark:text-gray-400" /> : <Moon className="w-4 h-4 text-gray-600 dark:text-gray-400" />}
-                        <span className="text-sm text-gray-900 dark:text-white">{isDarkMode ? "Light Mode" : "Dark Mode"}</span>
+                        {isDarkMode ? (
+                          <Sun className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                        ) : (
+                          <Moon className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                        )}
+                        <span className="text-sm text-gray-900 dark:text-white">{isDarkMode ? 'Light Mode' : 'Dark Mode'}</span>
                       </button>
 
                       <button
@@ -663,7 +629,7 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
                         <span className="text-sm text-gray-900 dark:text-white">Settings</span>
                       </button>
 
-                      <button 
+                      <button
                         onClick={handleLogout}
                         className="w-full flex items-center space-x-2 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors text-red-600 dark:text-red-400"
                       >
@@ -682,28 +648,37 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
         <div className="border-t border-gray-200 dark:border-gray-700">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <nav className="flex space-x-8 overflow-x-auto">
-              <button 
+              <button
                 onClick={handleHomeClick}
                 className="flex items-center space-x-2 px-3 py-3 text-orange-600 border-b-2 border-orange-600 font-medium"
               >
-                <Home className="w-4 h-4" /><span>Home</span>
+                <Home className="w-4 h-4" />
+                <span>Home</span>
               </button>
-              <button 
+              
+              <button
                 onClick={handleDiscoverClick}
                 className="flex items-center space-x-2 px-3 py-3 text-gray-600 hover:text-orange-600 dark:text-gray-400 dark:hover:text-orange-600 transition-colors"
               >
-                <Compass className="w-4 h-4" /><span>Discover</span>
+                <Compass className="w-4 h-4" />
+                <span>Discover</span>
               </button>
+              
               <button className="flex items-center space-x-2 px-3 py-3 text-gray-600 hover:text-orange-600 dark:text-gray-400 dark:hover:text-orange-600 transition-colors">
-                <Calendar className="w-4 h-4" /><span>Reservations</span>
+                <Calendar className="w-4 h-4" />
+                <span>Reservations</span>
               </button>
-              <button 
-                onClick={handleProceedToOrder}
+              
+              {/* FIXED: Changed from handleProceedToOrder to handleOrderHistoryClick */}
+              <button
+                onClick={handleOrderHistoryClick}
                 className="flex items-center space-x-2 px-3 py-3 text-gray-600 hover:text-orange-600 dark:text-gray-400 dark:hover:text-orange-600 transition-colors"
               >
-                <Package className="w-4 h-4" /><span>Orders</span>
+                <Package className="w-4 h-4" />
+                <span>Orders</span>
               </button>
-              <button 
+              
+              <button
                 onClick={handleWishlistClick}
                 className="flex items-center space-x-2 px-3 py-3 text-gray-600 hover:text-orange-600 dark:text-gray-400 dark:hover:text-orange-600 transition-colors"
               >

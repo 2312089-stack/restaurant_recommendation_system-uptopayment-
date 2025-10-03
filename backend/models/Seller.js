@@ -37,7 +37,19 @@ const sellerSchema = new mongoose.Schema({
     trim: true,
     match: [/^\+?[\d\s\-\(\)]{10,}$/, 'Please enter a valid phone number']
   },
-  
+   isOnline: {
+    type: Boolean,
+    default: false
+  },
+  lastActive: {
+    type: Date,
+    default: Date.now
+  },
+  dashboardStatus: {
+    type: String,
+    enum: ['online', 'offline', 'busy'],
+    default: 'offline'
+  },
   // Address information
   address: {
     street: {
@@ -68,6 +80,7 @@ const sellerSchema = new mongoose.Schema({
         max: 180
       }
     }
+
   },
   
   // Detailed business information

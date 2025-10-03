@@ -137,7 +137,7 @@ export const signin = async (req, res) => {
     // Generate JWT token
     const token = jwt.sign(
       { id: user._id, userId: user._id, emailId: user.emailId, email: user.emailId },
-      process.env.JWT_SECRET || "your-secret-key",
+      process.env.JWT_SECRET || "tastesphere-super-secret-jwt-key-2024-make-this-very-long-and-random-for-security",
       { expiresIn: "7d" }
     );
 

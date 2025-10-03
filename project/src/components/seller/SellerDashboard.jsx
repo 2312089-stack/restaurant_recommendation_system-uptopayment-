@@ -37,6 +37,11 @@ import {
   ThumbsUp,
   Send
 } from 'lucide-react';
+import NotificationPanel from './NotificationPanel';
+
+
+// ADD SOCKET IMPORT
+import { useSocket } from '../../contexts/SocketContext';
 
 const API_BASE = 'http://localhost:5000/api';
 
@@ -52,6 +57,9 @@ const getImageUrl = (imagePath) => {
 };
 
 const SellerDashboard = () => {
+  // ADD SOCKET HOOK
+  const { socket, connected, notifications, markAsRead, markAllAsRead, clearNotifications, removeNotification } = useSocket();
+  
   const [activeSection, setActiveSection] = useState('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showModal, setShowModal] = useState(false);
@@ -65,7 +73,8 @@ const SellerDashboard = () => {
   const [stats, setStats] = useState(null);
   const [dishes, setDishes] = useState([]);
   const [editingDish, setEditingDish] = useState(null);
-  
+  const [showNotifications, setShowNotifications] = useState(false);
+
   // Review states
   const [reviews, setReviews] = useState([]);
   const [reviewsLoading, setReviewsLoading] = useState(false);
@@ -74,6 +83,7 @@ const SellerDashboard = () => {
   const [reviewSort, setReviewSort] = useState('newest');
   const [respondingTo, setRespondingTo] = useState(null);
   const [responseText, setResponseText] = useState('');
+const [dashboardStatus, setDashboardStatus] = useState('online'); // online, busy, offline
 
   // Form states
   const [dishForm, setDishForm] = useState({
@@ -85,6 +95,10 @@ const SellerDashboard = () => {
     availability: true,
     preparationTime: 30
   });
+  //order states
+  const [orders, setOrders] = useState([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [orderFilter, setOrderFilter] = useState('all');
 
   const [profileForm, setProfileForm] = useState({
     businessName: '',
@@ -145,11 +159,188 @@ const SellerDashboard = () => {
   };
 
   // Load data on component mount
+ useEffect(() => {
+  // Wait for socket connection before authenticating
+  const authenticateSeller = async () => {
+    if (!socket || !connected) {
+      console.log('Socket not ready yet');
+      return;
+    }
+
+    const token = localStorage.getItem('sellerToken');
+    if (!token) {
+      console.log('No seller token found');
+      setError('Seller authentication required. Please log in again.');
+      return;
+    }
+
+    console.log('🔐 Authenticating seller with socket, token length:', token.length);
+    
+    // Remove any previous listeners to avoid duplicates
+    socket.off('authenticated');
+    socket.off('auth-error');
+
+    // Listen for authentication confirmation BEFORE emitting
+    socket.on('authenticated', (data) => {
+      console.log('✅ Seller authenticated successfully:', data);
+      setDashboardStatus('online');
+      setError(''); // Clear any errors
+      
+      // Now emit status update
+      socket.emit('update-dashboard-status', { status: 'online' });
+    });
+
+    socket.on('auth-error', (error) => {
+      console.error('❌ Authentication failed:', error);
+      setError('Authentication failed. Please refresh and log in again.');
+      setDashboardStatus('offline');
+    });
+
+    // Emit authentication with proper format
+socket.emit('authenticate-seller', token);  };
+
+  authenticateSeller();
+
+  // Track dashboard visibility
+  const handleVisibilityChange = () => {
+    if (socket && connected) {
+      if (document.hidden) {
+        console.log('📴 Dashboard hidden - setting offline');
+        socket.emit('update-dashboard-status', { status: 'offline' });
+        setDashboardStatus('offline');
+      } else {
+        console.log('📱 Dashboard visible - setting online');
+        socket.emit('update-dashboard-status', { status: 'online' });
+        setDashboardStatus('online');
+      }
+    }
+  };
+
+  // Track page unload (seller closing browser/tab)
+  const handleBeforeUnload = () => {
+    if (socket && connected) {
+      console.log('🚪 Seller closing dashboard');
+      socket.emit('update-dashboard-status', { status: 'offline' });
+    }
+  };
+
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+  window.addEventListener('beforeunload', handleBeforeUnload);
+
+  // Cleanup
+  return () => {
+    if (socket && connected) {
+      console.log('🔌 Seller dashboard unmounting - setting offline');
+      socket.emit('update-dashboard-status', { status: 'offline' });
+    }
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+    window.removeEventListener('beforeunload', handleBeforeUnload);
+  };
+}, [socket, connected]);
+
+// ADD THIS FUNCTION to manually toggle status
+const toggleDashboardStatus = (newStatus) => {
+  if (!socket || !connected) {
+    alert('Not connected to server');
+    return;
+  }
+
+  setDashboardStatus(newStatus);
+  socket.emit('update-dashboard-status', { status: newStatus });
+  
+  const statusMessages = {
+    online: 'You are now accepting orders',
+    busy: 'You are marked as busy',
+    offline: 'You are not accepting new orders'
+  };
+  
+  setSuccess(statusMessages[newStatus]);
+};
+<div className="flex items-center space-x-3">
+  {/* Status Indicator and Toggle */}
+  <div className="flex items-center space-x-2 px-3 py-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
+    <div className={`w-3 h-3 rounded-full ${
+      dashboardStatus === 'online' ? 'bg-green-500' : 
+      dashboardStatus === 'busy' ? 'bg-yellow-500' : 
+      'bg-red-500'
+    }`}></div>
+    <select
+      value={dashboardStatus}
+      onChange={(e) => toggleDashboardStatus(e.target.value)}
+      className="text-sm border-none bg-transparent focus:ring-0 cursor-pointer"
+      disabled={!connected}
+    >
+      <option value="online">Online</option>
+      <option value="busy">Busy</option>
+      <option value="offline">Offline</option>
+    </select>
+  </div>
+  
+  {/* Connection indicator */}
+  {!connected && (
+    <div className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded">
+      Disconnected
+    </div>
+  )}
+</div>
+
+// ADD THIS WARNING BANNER when offline
+{dashboardStatus === 'offline' && (
+  <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-4">
+    <div className="flex items-center">
+      <AlertCircle className="w-5 h-5 text-red-600 mr-2" />
+      <p className="text-red-800 font-medium">
+        Your restaurant is currently offline. Customers cannot place new orders.
+      </p>
+    </div>
+  </div>
+)}
   useEffect(() => {
-    loadSellerData();
-    loadStats();
-    loadDishes();
-  }, []);
+    // Join seller room when component mounts and socket is ready
+    if (socket && connected && sellerData?._id) {
+      console.log('🏪 Joining seller room:', sellerData._id);
+      socket.emit('join-seller-room', sellerData._id);
+    }
+
+    // Listen for new orders via DOM events (fallback)
+    const handleNewOrder = (e) => {
+      console.log('📦 New order event:', e.detail);
+      loadOrders(); // Refresh order list
+      setSuccess('New order received!');
+    };
+
+    // Listen for custom DOM events
+    window.addEventListener('new-order', handleNewOrder);
+    
+    // Listen for Socket.IO events if connected
+    if (socket && connected) {
+      const handleSocketNewOrder = (orderData) => {
+        console.log('🔔 New order via Socket.IO:', orderData);
+        loadOrders(); // Refresh order list
+        setSuccess(`New order #${orderData.order?.orderId} - ₹${orderData.order?.totalAmount}`);
+        
+        // Play notification sound
+        try {
+          const audio = new Audio('/notification.mp3');
+          audio.play().catch(e => console.log('Audio play failed:', e));
+        } catch (e) {
+          console.log('Audio not available');
+        }
+      };
+
+      socket.on('new-order', handleSocketNewOrder);
+
+      // Cleanup socket listeners
+      return () => {
+        socket.off('new-order', handleSocketNewOrder);
+        window.removeEventListener('new-order', handleNewOrder);
+      };
+    }
+    
+    return () => {
+      window.removeEventListener('new-order', handleNewOrder);
+    };
+  }, [socket, connected, sellerData]);
 
   // Load reviews when reviews section is active
   useEffect(() => {
@@ -157,6 +348,13 @@ const SellerDashboard = () => {
       loadReviews();
     }
   }, [activeSection, reviewFilter, reviewSort]);
+
+  // Load orders when orders section is active
+  useEffect(() => {
+    if (activeSection === 'orders') {
+      loadOrders();
+    }
+  }, [activeSection, orderFilter]);
 
   // Clear messages after timeout
   useEffect(() => {
@@ -230,6 +428,38 @@ const SellerDashboard = () => {
     }
   };
 
+  // Load orders
+const loadOrders = async () => {
+  try {
+    setOrdersLoading(true);
+    const token = getAuthToken();
+    
+    const response = await fetch(`${API_BASE}/seller/orders?status=${orderFilter}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    const data = await response.json();
+    if (response.ok) {
+      console.log('📦 Loaded orders:', data.orders);
+      console.log('📊 Order statuses:', data.orders?.map(o => ({
+        id: o.orderId,
+        status: o.orderStatus // ✅ Check this field
+      })));
+      setOrders(data.orders || []);
+    } else {
+      setError(data.error || 'Failed to load orders');
+    }
+  } catch (err) {
+    console.error('Load orders error:', err);
+    setError('Failed to load orders');
+  } finally {
+    setOrdersLoading(false);
+  }
+};
+
   const loadStats = async () => {
     try {
       const token = getAuthToken();
@@ -247,6 +477,248 @@ const SellerDashboard = () => {
     } catch (err) {
       console.error('Load stats error:', err);
     }
+  };
+
+// In SellerDashboard.jsx - Update this function
+const updateOrderStatus = async (orderId, newStatus) => {
+  try {
+    setLoading(true);
+    const token = getAuthToken();
+    
+    console.log('📤 Updating order status:', { orderId, newStatus });
+    
+    const response = await fetch(`${API_BASE}/seller/orders/${orderId}/status`, {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ 
+        status: newStatus  // ✅ Send 'status' to match backend
+      })
+    });
+
+    const data = await response.json();
+    
+    if (response.ok) {
+      console.log('✅ Order status updated successfully:', data);
+      setSuccess(`Order ${newStatus.replace('_', ' ')} successfully!`);
+      loadOrders(); // Refresh orders
+    } else {
+      console.error('❌ Failed to update status:', data);
+      setError(data.error || 'Failed to update order status');
+    }
+  } catch (err) {
+    console.error('❌ Update order status error:', err);
+    setError('Failed to update order status: ' + err.message);
+  } finally {
+    setLoading(false);
+  }
+};
+
+  // Render Order Management section
+  const renderOrders = () => {
+   const getOrdersByStatus = (status) => {
+  return orders.filter(order => {
+    const orderStatus = order.orderStatus || order.status;
+    
+    if (status === 'new') {
+      return ['confirmed', 'pending'].includes(orderStatus);
+    }
+    if (status === 'preparing') {
+      return orderStatus === 'preparing';
+    }
+    if (status === 'ready') {
+      return orderStatus === 'ready';
+    }
+    if (status === 'out_for_delivery') {  // ADD THIS SECTION
+      return orderStatus === 'out_for_delivery';
+    }
+    if (status === 'delivered') {
+      return ['delivered', 'completed'].includes(orderStatus);
+    }
+    return false;
+  });
+};
+const OrderCard = ({ order, status }) => (
+  <div className="bg-white rounded-lg border border-gray-200 p-4 mb-4">
+    <div className="space-y-3">
+      <div>
+        <p className="text-sm text-gray-500">Order ID: #{order.orderId || order._id?.slice(-8)}</p>
+        <p className="font-semibold text-gray-900 mt-1">
+          Customer: {order.customerName}
+        </p>
+      </div>
+      
+      <div>
+        <p className="text-sm text-gray-600">
+          Item: {order.item?.name} (x{order.item?.quantity || 1})
+        </p>
+        <p className="text-sm text-gray-600 mt-1">
+          Delivery Time: {order.estimatedDelivery || '25-30 minutes'}
+        </p>
+        <p className="text-sm font-semibold text-gray-900 mt-1">
+          Total: ₹{order.totalAmount}
+        </p>
+      </div>
+
+      <div className="flex space-x-2 pt-2">
+        {status === 'new' && (
+          <>
+            <button
+              onClick={() => updateOrderStatus(order._id, 'preparing')}
+              className="flex-1 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-medium transition-colors"
+            >
+              Accept & Prepare
+            </button>
+            <button
+              onClick={() => updateOrderStatus(order._id, 'cancelled')}
+              className="px-4 py-2 border-2 border-red-500 text-red-500 rounded-lg hover:bg-red-50 font-medium transition-colors"
+            >
+              Reject
+            </button>
+          </>
+        )}
+        
+        {status === 'preparing' && (
+          <button
+            onClick={() => updateOrderStatus(order._id, 'ready')}
+            className="flex-1 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-medium transition-colors"
+          >
+            Mark as Ready
+          </button>
+        )}
+        
+        {status === 'ready' && (
+          <button
+            onClick={() => updateOrderStatus(order._id, 'out_for_delivery')}
+            className="flex-1 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-medium transition-colors"
+          >
+            Out for Delivery
+          </button>
+        )}
+
+        {/* ADD THIS: Button for marking as delivered */}
+        {(status === 'out_for_delivery' || order.orderStatus === 'out_for_delivery') && (
+          <button
+            onClick={() => updateOrderStatus(order._id, 'delivered')}
+            className="flex-1 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 font-medium transition-colors"
+          >
+            Mark as Delivered
+          </button>
+        )}
+
+        {status === 'delivered' && (
+          <button
+            disabled
+            className="flex-1 px-4 py-2 bg-gray-300 text-gray-500 rounded-lg cursor-not-allowed font-medium"
+          >
+            ✓ Delivered
+          </button>
+        )}
+      </div>
+    </div>
+  </div>
+);
+
+    const newOrders = getOrdersByStatus('new');
+    const preparingOrders = getOrdersByStatus('preparing');
+    const readyOrders = getOrdersByStatus('ready');
+    const outForDeliveryOrders = getOrdersByStatus('out_for_delivery'); // ADD THIS
+    const deliveredOrders = getOrdersByStatus('delivered');
+
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-2xl font-bold text-gray-900">Order Management</h2>
+        </div>
+
+        {ordersLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-6 h-6 animate-spin text-orange-500" />
+            <span className="ml-2 text-gray-500">Loading orders...</span>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {/* New Orders */}
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">New Orders</h3>
+                {newOrders.length > 0 && (
+                  <button className="text-gray-500 hover:text-gray-700">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+              {newOrders.length > 0 ? (
+                newOrders.map(order => <OrderCard key={order._id} order={order} status="new" />)
+              ) : (
+                <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">
+                  No new orders
+                </div>
+              )}
+            </div>
+
+            {/* Preparing */}
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Preparing</h3>
+              {preparingOrders.length > 0 ? (
+                preparingOrders.map(order => <OrderCard key={order._id} order={order} status="preparing" />)
+              ) : (
+                <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">
+                  No orders being prepared
+                </div>
+              )}
+            </div>
+
+            {/* Ready for Pickup */}
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Ready for Pickup</h3>
+              {readyOrders.length > 0 ? (
+                readyOrders.map(order => <OrderCard key={order._id} order={order} status="ready" />)
+              ) : (
+                <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">
+                  No orders ready for pickup
+                </div>
+              )}
+            </div>
+               <div>
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Out for Delivery</h3>
+        {outForDeliveryOrders.length > 0 ? (
+          outForDeliveryOrders.map(order => 
+            <OrderCard key={order._id} order={order} status="out_for_delivery" />
+          )
+        ) : (
+          <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">
+            No orders out for delivery
+          </div>
+        )}
+      </div>
+            {/* Delivered */}
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Delivered</h3>
+              {deliveredOrders.length > 0 ? (
+                deliveredOrders.map(order => <OrderCard key={order._id} order={order} status="delivered" />)
+              ) : (
+                <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">
+                  No delivered orders
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {!ordersLoading && orders.length === 0 && (
+          <div className="text-center py-12">
+            <ShoppingBag className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-500 mb-2">No orders yet</h3>
+            <p className="text-gray-400">Orders from customers will appear here</p>
+          </div>
+        )}
+      </div>
+    );
   };
 
   const loadDishes = async () => {
@@ -1001,7 +1473,42 @@ const SellerDashboard = () => {
               <p className="text-sm text-gray-500">Total Reviews</p>
             </div>
           </div>
+<div className="flex items-center space-x-4">
+  {/* NOTIFICATION BELL WITH PANEL */}
+  <div className="relative">
+    <button
+      onClick={() => setShowNotifications(!showNotifications)}
+      className={`relative p-2 rounded-lg transition-colors ${
+        connected ? 'hover:bg-gray-100' : ''
+      }`}
+      title={connected ? 'Notifications' : 'Disconnected from notifications'}
+    >
+      <Bell 
+        className={`w-6 h-6 transition-colors ${
+          connected ? 'text-gray-600 hover:text-gray-900' : 'text-gray-400'
+        }`}
+      />
+      {notifications.length > 0 && (
+        <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
+          {notifications.length > 9 ? '9+' : notifications.length}
+        </span>
+      )}
+      {/* Connection status indicator */}
+      <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white ${
+        connected ? 'bg-green-400' : 'bg-gray-400'
+      }`}></div>
+    </button>
+  </div>
 
+  <div className="flex items-center space-x-2">
+    <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center">
+      <User className="w-4 h-4 text-orange-600" />
+    </div>
+    <span className="hidden md:block text-sm font-medium text-gray-700">
+      {getSellerDisplayName()}
+    </span>
+  </div>
+</div>
           <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
             <div className="text-center">
               <div className="text-3xl font-bold text-green-500 mb-2">
@@ -1091,7 +1598,7 @@ const SellerDashboard = () => {
       case 'reviews':
         return renderReviews();
       case 'orders':
-        return renderPlaceholder('Orders', ShoppingBag);
+        return renderOrders(); // UPDATED: Use the actual renderOrders function
       case 'reservations':
         return renderPlaceholder('Reservations', Calendar);
       case 'payments':
@@ -1118,6 +1625,15 @@ const SellerDashboard = () => {
            sellerData?.email || 
            'Restaurant Owner';
   };
+<NotificationPanel
+  notifications={notifications}
+  isOpen={showNotifications}
+  onClose={() => setShowNotifications(false)}
+  onMarkAsRead={markAsRead}
+  onMarkAllAsRead={markAllAsRead}
+  onClear={clearNotifications}
+  onRemove={removeNotification}
+/>
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
@@ -1216,9 +1732,23 @@ const SellerDashboard = () => {
             </button>
 
             <div className="flex items-center space-x-4">
+              {/* NOTIFICATION BELL WITH SOCKET.IO INTEGRATION */}
               <div className="relative">
-                <Bell className="w-6 h-6 text-gray-600 hover:text-gray-900 transition-colors cursor-pointer" />
-                <span className="absolute -top-2 -right-2 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">0</span>
+                <Bell 
+                  className={`w-6 h-6 transition-colors cursor-pointer ${
+                    connected ? 'text-gray-600 hover:text-gray-900' : 'text-gray-400'
+                  }`}
+                  title={connected ? 'Connected to real-time notifications' : 'Disconnected from notifications'}
+                />
+                {notifications.length > 0 && (
+                  <span className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+                    {notifications.length}
+                  </span>
+                )}
+                {/* Connection status indicator */}
+                <div className={`absolute -bottom-1 -right-1 w-2 h-2 rounded-full ${
+                  connected ? 'bg-green-400' : 'bg-gray-400'
+                }`}></div>
               </div>
 
               <div className="flex items-center space-x-2">

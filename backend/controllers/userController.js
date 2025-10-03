@@ -168,4 +168,5 @@ export const getOnboardingStatus = async (req, res) => {
       error: "Failed to retrieve onboarding status",
     });
   }
+  
 };

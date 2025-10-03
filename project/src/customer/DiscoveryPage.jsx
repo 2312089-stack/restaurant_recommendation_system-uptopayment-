@@ -1,24 +1,13 @@
-// DiscoveryPage.jsx - Updated with Dynamic Wishlist Integration
+// DiscoveryPage.jsx - Updated with Real-time Seller Status
 import React, { useState, useEffect } from 'react';
 import { 
-  Search, 
-  MapPin, 
-  Star, 
-  Clock, 
-  Truck, 
-  Loader2, 
-  AlertCircle,
-  ArrowLeft,
-  Grid3X3,
-  List,
-  SlidersHorizontal,
-  ShoppingCart,
-  Zap,
-  CheckCircle,
-  Heart
+  Search, MapPin, Star, Clock, Truck, Loader2, AlertCircle,
+  ArrowLeft, Grid3X3, List, SlidersHorizontal, ShoppingCart,
+  Zap, CheckCircle, Heart, XCircle
 } from 'lucide-react';
 import { useCart } from '../contexts/CartContext';
-import { useWishlist } from '../contexts/WishlistContext'; // Import WishlistContext
+import { useWishlist } from '../contexts/WishlistContext';
+import { useSocket } from '../contexts/SocketContext'; // Import Socket Context
 import { useNavigate } from 'react-router-dom';
 
 const API_BASE = 'http://localhost:5000/api';
@@ -47,10 +36,9 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
   const [hasMore, setHasMore] = useState(true);
   const [page, setPage] = useState(1);
 
-  // Cart integration
+  // Context hooks
   const { addToCart, loading: cartLoading, itemCount, totalAmount, clearCart } = useCart();
-
-  // Wishlist integration
+  const { socket, connected } = useSocket(); // Socket.IO hook
   const { 
     addToWishlist, 
     removeFromWishlist, 
@@ -63,71 +51,63 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
   const [successMessage, setSuccessMessage] = useState('');
   const [addingToCart, setAddingToCart] = useState(null);
   const [wishlistMessage, setWishlistMessage] = useState('');
-
-  // Animation states
   const [animatingHeart, setAnimatingHeart] = useState(null);
 
-  // Categories for filter dropdown
+  // Categories
   const categories = [
-    'All Categories',
-    'Starters',
-    'Main Course', 
-    'Desserts',
-    'Beverages',
-    'Chinese',
-    'Indian',
-    'Continental',
-    'South Indian'
+    'All Categories', 'Starters', 'Main Course', 'Desserts',
+    'Beverages', 'Chinese', 'Indian', 'Continental', 'South Indian'
   ];
 
-  // Enhanced like functionality with API integration
-  const handleLikeClick = async (dish, e) => {
-    e.stopPropagation(); // Prevent triggering dish details
-    
-    const dishId = dish._id || dish.id;
-    const isCurrentlyLiked = isInWishlist(dishId);
-    
-    // Optimistic UI update - show animation immediately
-    if (!isCurrentlyLiked) {
-      setAnimatingHeart(dishId);
-      setTimeout(() => {
-        setAnimatingHeart(null);
-      }, 600);
+  // REAL-TIME SELLER STATUS LISTENER
+  useEffect(() => {
+    if (!socket || !connected) {
+      console.log('Socket not connected yet');
+      return;
     }
 
-    try {
-      const result = await toggleWishlist(dish);
+    console.log('🎧 Setting up seller status listener');
+
+    const handleSellerStatusChange = (data) => {
+      console.log('📡 Seller status changed:', data);
       
-      if (result.success) {
-        // Show success message
-        const message = isCurrentlyLiked 
-          ? `${dish.name} removed from wishlist` 
-          : `${dish.name} added to wishlist`;
-        
-        setWishlistMessage(message);
-        setTimeout(() => setWishlistMessage(''), 3000);
+      // Update dishes with new seller status
+      setDishes(prevDishes => 
+        prevDishes.map(dish => {
+          if (dish.restaurantId === data.sellerId) {
+            console.log(`Updating dish ${dish.name} - seller is now ${data.isOnline ? 'online' : 'offline'}`);
+            return {
+              ...dish,
+              isSellerOnline: data.isOnline,
+              sellerDashboardStatus: data.dashboardStatus
+            };
+          }
+          return dish;
+        })
+      );
 
-        // Trigger global wishlist update event
-        window.dispatchEvent(new CustomEvent('wishlistUpdated', { 
-          detail: { 
-            action: isCurrentlyLiked ? 'remove' : 'add',
-            dish: dish,
-            dishId: dishId
-          } 
-        }));
+      // Also update restaurants
+      setRestaurants(prevRestaurants =>
+        prevRestaurants.map(restaurant => {
+          if (restaurant.id === data.sellerId || restaurant._id === data.sellerId) {
+            return {
+              ...restaurant,
+              isSellerOnline: data.isOnline,
+              sellerDashboardStatus: data.dashboardStatus
+            };
+          }
+          return restaurant;
+        })
+      );
+    };
 
-        console.log('Wishlist updated successfully:', message);
-      } else {
-        // Show error message
-        setWishlistMessage(result.error || 'Failed to update wishlist');
-        setTimeout(() => setWishlistMessage(''), 3000);
-      }
-    } catch (error) {
-      console.error('Wishlist toggle error:', error);
-      setWishlistMessage('Failed to update wishlist');
-      setTimeout(() => setWishlistMessage(''), 3000);
-    }
-  };
+    socket.on('seller-status-changed', handleSellerStatusChange);
+
+    return () => {
+      console.log('🔇 Removing seller status listener');
+      socket.off('seller-status-changed', handleSellerStatusChange);
+    };
+  }, [socket, connected]);
 
   // Fetch data based on active tab and filters
   useEffect(() => {
@@ -138,57 +118,85 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
     }
   }, [activeTab, filters, searchQuery]);
 
-  const fetchDishes = async (reset = false) => {
-    try {
-      setLoading(true);
-      setError('');
-      
-      const currentPage = reset ? 1 : page;
-      const queryParams = new URLSearchParams({
-        limit: '20',
-        page: currentPage.toString()
-      });
-      
-      if (searchQuery.trim()) {
-        queryParams.append('q', searchQuery.trim());
-      }
-      
-      if (filters.city) queryParams.append('city', filters.city);
-      if (filters.category && filters.category !== 'All Categories') {
-        queryParams.append('category', filters.category);
-      }
-      if (filters.type) queryParams.append('type', filters.type);
-
-      const endpoint = searchQuery.trim() 
-        ? '/discovery/search' 
-        : '/discovery/dishes/popular';
-      
-      const response = await fetch(`${API_BASE}${endpoint}?${queryParams}`);
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to fetch dishes');
-      }
-
-      const newDishes = searchQuery.trim() ? data.results : data.dishes;
-      
-      if (reset) {
-        setDishes(newDishes || []);
-        setPage(2);
-      } else {
-        setDishes(prev => [...prev, ...(newDishes || [])]);
-        setPage(prev => prev + 1);
-      }
-      
-      setHasMore((newDishes || []).length === 20);
-      
-    } catch (err) {
-      console.error('Fetch dishes error:', err);
-      setError('Failed to load dishes. Please try again.');
-    } finally {
-      setLoading(false);
+const fetchDishes = async (reset = false) => {
+  try {
+    setLoading(true);
+    setError('');
+    
+    const currentPage = reset ? 1 : page;
+    const queryParams = new URLSearchParams({
+      limit: '20',
+      page: currentPage.toString()
+    });
+    
+    if (searchQuery.trim()) queryParams.append('q', searchQuery.trim());
+    if (filters.city) queryParams.append('city', filters.city);
+    if (filters.category && filters.category !== 'All Categories') {
+      queryParams.append('category', filters.category);
     }
-  };
+    if (filters.type) queryParams.append('type', filters.type);
+
+    const endpoint = searchQuery.trim() ? '/discovery/search' : '/discovery/dishes/popular';
+    const response = await fetch(`${API_BASE}${endpoint}?${queryParams}`);
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to fetch dishes');
+    }
+
+    const newDishes = searchQuery.trim() ? data.results : data.dishes;
+    
+    // Extract all unique seller IDs and fetch their statuses
+    const sellerIds = [...new Set(newDishes.map(dish => dish.restaurantId).filter(Boolean))];
+    
+    // Fetch current seller statuses
+    if (sellerIds.length > 0) {
+      try {
+        console.log('Fetching statuses for sellers:', sellerIds);
+        const statusResponse = await fetch('http://localhost:5000/api/seller-status/bulk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sellerIds })
+        });
+        const statusData = await statusResponse.json();
+        
+        if (statusData.success) {
+          console.log('Received seller statuses:', statusData.statuses);
+          // Update dishes with current seller status
+          newDishes.forEach(dish => {
+            const status = statusData.statuses[dish.restaurantId];
+            if (status) {
+              dish.isSellerOnline = status.isOnline;
+              dish.sellerDashboardStatus = status.dashboardStatus;
+              console.log(`Dish ${dish.name}: seller online = ${status.isOnline}`);
+            } else {
+              dish.isSellerOnline = false;
+              dish.sellerDashboardStatus = 'offline';
+            }
+          });
+        }
+      } catch (statusError) {
+        console.error('Failed to fetch seller statuses:', statusError);
+      }
+    }
+    
+    if (reset) {
+      setDishes(newDishes || []);
+      setPage(2);
+    } else {
+      setDishes(prev => [...prev, ...(newDishes || [])]);
+      setPage(prev => prev + 1);
+    }
+    
+    setHasMore((newDishes || []).length === 20);
+    
+  } catch (err) {
+    console.error('Fetch dishes error:', err);
+    setError('Failed to load dishes. Please try again.');
+  } finally {
+    setLoading(false);
+  }
+};
 
   const fetchRestaurants = async (reset = false) => {
     try {
@@ -234,6 +242,7 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
       setError('Failed to load restaurants. Please try again.');
     } finally {
       setLoading(false);
+
     }
   };
 
@@ -248,10 +257,7 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
   };
 
   const handleFilterChange = (key, value) => {
-    setFilters(prev => ({
-      ...prev,
-      [key]: value
-    }));
+    setFilters(prev => ({ ...prev, [key]: value }));
     setPage(1);
   };
 
@@ -265,7 +271,46 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
     }
   };
 
-  // Enhanced add to cart with visual feedback
+  const handleLikeClick = async (dish, e) => {
+    e.stopPropagation();
+    
+    const dishId = dish._id || dish.id;
+    const isCurrentlyLiked = isInWishlist(dishId);
+    
+    if (!isCurrentlyLiked) {
+      setAnimatingHeart(dishId);
+      setTimeout(() => setAnimatingHeart(null), 600);
+    }
+
+    try {
+      const result = await toggleWishlist(dish);
+      
+      if (result.success) {
+        const message = isCurrentlyLiked 
+          ? `${dish.name} removed from wishlist` 
+          : `${dish.name} added to wishlist`;
+        
+        setWishlistMessage(message);
+        setTimeout(() => setWishlistMessage(''), 3000);
+
+        window.dispatchEvent(new CustomEvent('wishlistUpdated', { 
+          detail: { 
+            action: isCurrentlyLiked ? 'remove' : 'add',
+            dish: dish,
+            dishId: dishId
+          } 
+        }));
+      } else {
+        setWishlistMessage(result.error || 'Failed to update wishlist');
+        setTimeout(() => setWishlistMessage(''), 3000);
+      }
+    } catch (error) {
+      console.error('Wishlist toggle error:', error);
+      setWishlistMessage('Failed to update wishlist');
+      setTimeout(() => setWishlistMessage(''), 3000);
+    }
+  };
+
   const handleAddToCart = async (dish) => {
     if (!dish || (!dish._id && !dish.id)) {
       console.error('Invalid dish object:', dish);
@@ -277,19 +322,11 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
     
     try {
       setAddingToCart(dishId);
-      console.log('Adding to cart from discovery page:', {
-        dishId,
-        dishName: dish.name,
-        price: dish.price
-      });
-      
       const result = await addToCart(dishId, 1);
       
       if (result.success) {
         setSuccessMessage(`${dish.name} added to cart!`);
         setTimeout(() => setSuccessMessage(''), 3000);
-        
-        console.log('Cart updated successfully, triggering header refresh');
         
         window.dispatchEvent(new CustomEvent('cartUpdated', { 
           detail: { 
@@ -309,33 +346,13 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
           );
           
           if (shouldClear) {
-            try {
-              const clearResult = await clearCart();
-              if (clearResult.success) {
-                const addResult = await addToCart(dishId, 1);
-                if (addResult.success) {
-                  setSuccessMessage(`Cart cleared and ${dish.name} added!`);
-                  setTimeout(() => setSuccessMessage(''), 3000);
-                  
-                  window.dispatchEvent(new CustomEvent('cartUpdated', { 
-                    detail: { 
-                      action: 'replace',
-                      dishId: dishId,
-                      dishName: dish.name,
-                      itemCount: 1,
-                      totalAmount: dish.price,
-                      timestamp: Date.now()
-                    } 
-                  }));
-                } else {
-                  throw new Error(addResult.error || 'Failed to add item after clearing cart');
-                }
-              } else {
-                throw new Error(clearResult.error || 'Failed to clear cart');
+            const clearResult = await clearCart();
+            if (clearResult.success) {
+              const addResult = await addToCart(dishId, 1);
+              if (addResult.success) {
+                setSuccessMessage(`Cart cleared and ${dish.name} added!`);
+                setTimeout(() => setSuccessMessage(''), 3000);
               }
-            } catch (clearError) {
-              console.error('Error during cart clear and add:', clearError);
-              alert(`Failed to clear cart and add item: ${clearError.message}`);
             }
           }
         } else if (result.requiresAuth) {
@@ -357,7 +374,6 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
     }
   };
 
-  // Handle order now - navigate to address page with dish data
   const handleOrderNow = async (dish) => {
     if (!dish || (!dish._id && !dish.id)) {
       console.error('Invalid dish object:', dish);
@@ -365,38 +381,27 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
       return;
     }
 
-    console.log('Order now clicked for dish:', dish.name);
-    
-    try {
-      const dishData = {
-        id: dish._id || dish.id,
-        name: dish.name,
-        restaurant: dish.restaurant || dish.restaurantName || 'Restaurant',
-        price: dish.currentPrice || `₹${dish.price}`,
-        image: dish.image ? `http://localhost:5000${dish.image}` : 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg?auto=compress&cs=tinysrgb&w=400&h=250&dpr=1',
-        rating: dish.rating || '4.2',
-        deliveryTime: dish.deliveryTime || '25-30 min',
-        category: dish.category,
-        type: dish.type,
-        description: dish.description || `Delicious ${dish.name} from ${dish.restaurant || dish.restaurantName || 'our kitchen'}`
-      };
+    const dishData = {
+      id: dish._id || dish.id,
+      name: dish.name,
+      restaurant: dish.restaurant || dish.restaurantName || 'Restaurant',
+      price: dish.currentPrice || `₹${dish.price}`,
+      image: dish.image ? `http://localhost:5000${dish.image}` : 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg',
+      rating: dish.rating || '4.2',
+      deliveryTime: dish.deliveryTime || '25-30 min',
+      category: dish.category,
+      type: dish.type,
+      description: dish.description || `Delicious ${dish.name}`
+    };
 
-      console.log('Navigating to address page with dish data:', dishData);
-      
-      navigate('/address', { 
-        state: { 
-          item: dishData,
-          fromDiscovery: true
-        } 
-      });
-      
-    } catch (error) {
-      console.error('Order now error:', error);
-      alert(`Failed to process order: ${error.message || 'Unknown error'}`);
-    }
+    navigate('/address', { 
+      state: { 
+        item: dishData,
+        fromDiscovery: true
+      } 
+    });
   };
 
-  // Handle dish image click to show details
   const handleDishClick = (dish) => {
     onShowDishDetails(dish._id || dish.id);
   };
@@ -407,9 +412,15 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
     const isLiked = isInWishlist(dishId);
     const isAnimating = animatingHeart === dishId;
     
+    // CHECK SELLER STATUS
+    const isOffline = !dish.isSellerOnline || dish.sellerDashboardStatus === 'offline';
+    
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 overflow-hidden border border-gray-100 dark:border-gray-700 group relative">
-        {/* Success overlay */}
+      <div className={`bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden border transition-all duration-200 group relative ${
+        isOffline 
+          ? 'opacity-60 border-red-200 dark:border-red-900' 
+          : 'border-gray-100 dark:border-gray-700 hover:shadow-lg'
+      }`}>
         {isBeingAdded && (
           <div className="absolute inset-0 bg-green-500 bg-opacity-90 z-10 flex items-center justify-center rounded-xl">
             <div className="text-center text-white">
@@ -419,64 +430,78 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
           </div>
         )}
         
-        <div className="relative cursor-pointer" onClick={() => handleDishClick(dish)}>
+        <div className="relative cursor-pointer" onClick={() => !isOffline && handleDishClick(dish)}>
           <img
-            src={dish.image ? `http://localhost:5000${dish.image}` : 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg?auto=compress&cs=tinysrgb&w=400&h=250&dpr=1'}
+            src={dish.image ? `http://localhost:5000${dish.image}` : 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg'}
             alt={dish.name}
-            className="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-300"
+            className={`w-full h-48 object-cover transition-transform duration-300 ${
+              isOffline ? 'grayscale' : 'group-hover:scale-105'
+            }`}
             onError={(e) => {
-              e.target.src = 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg?auto=compress&cs=tinysrgb&w=400&h=250&dpr=1';
+              e.target.src = 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg';
             }}
           />
+          
+          {/* OFFLINE OVERLAY */}
+          {isOffline && (
+            <div className="absolute inset-0 bg-black bg-opacity-60 flex items-center justify-center">
+              <div className="text-center text-white">
+                <XCircle className="w-12 h-12 mx-auto mb-2" />
+                <p className="font-semibold text-lg">Restaurant Closed</p>
+                <p className="text-sm mt-1">Currently unavailable</p>
+              </div>
+            </div>
+          )}
+
           <div className={`absolute top-2 right-2 w-4 h-4 rounded-sm border-2 ${
-            dish.type === 'veg' 
-              ? 'border-green-500 bg-white' 
-              : 'border-red-500 bg-white'
+            dish.type === 'veg' ? 'border-green-500 bg-white' : 'border-red-500 bg-white'
           } flex items-center justify-center`}>
             <div className={`w-2 h-2 rounded-full ${
               dish.type === 'veg' ? 'bg-green-500' : 'bg-red-500'
             }`}></div>
           </div>
-          {dish.offer && (
-            <div className="absolute bottom-2 left-2 bg-orange-500 text-white px-2 py-1 rounded text-xs font-semibold">
-              {dish.offer}
+
+          {/* STATUS BADGE */}
+          <div className={`absolute bottom-2 left-2 px-3 py-1 rounded-full text-xs font-semibold ${
+            isOffline ? 'bg-red-500 text-white' : 'bg-green-500 text-white'
+          }`}>
+            {isOffline ? 'Closed' : 'Open Now'}
+          </div>
+
+          {!isOffline && (
+            <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all duration-300 flex items-center justify-center">
+              <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-white dark:bg-gray-800 px-3 py-1 rounded-full text-sm font-medium">
+                Click for details
+              </div>
             </div>
           )}
-          {/* Click to view overlay */}
-          <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all duration-300 flex items-center justify-center">
-            <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-white dark:bg-gray-800 px-3 py-1 rounded-full text-sm font-medium text-gray-900 dark:text-white">
-              Click for details
-            </div>
-          </div>
         </div>
 
         <div className="p-4">
-          {/* Dish name and heart button */}
           <div className="flex items-center justify-between mb-1">
             <h3 className="font-semibold text-lg text-gray-900 dark:text-white truncate flex-1 mr-2">
               {dish.name}
             </h3>
-            {/* Enhanced Heart Like Button with Wishlist Integration */}
             <button
               onClick={(e) => handleLikeClick(dish, e)}
-              disabled={wishlistLoading}
+              disabled={wishlistLoading || isOffline}
               className={`relative flex items-center justify-center w-8 h-8 rounded-full transition-all duration-200 ${
-                isLiked 
-                  ? 'bg-red-50 hover:bg-red-100 dark:bg-red-900/30 dark:hover:bg-red-900/50' 
-                  : 'bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600'
+                isOffline 
+                  ? 'bg-gray-100 cursor-not-allowed' 
+                  : isLiked 
+                    ? 'bg-red-50 hover:bg-red-100' 
+                    : 'bg-gray-50 hover:bg-gray-100'
               } disabled:opacity-50`}
-              title={isLiked ? 'Remove from wishlist' : 'Add to wishlist'}
             >
-              <Heart 
-                className={`w-5 h-5 transition-all duration-200 ${
-                  isLiked 
+              <Heart className={`w-5 h-5 transition-all duration-200 ${
+                isOffline 
+                  ? 'text-gray-300' 
+                  : isLiked 
                     ? 'text-red-500 fill-red-500' 
-                    : 'text-gray-400 hover:text-red-400 dark:text-gray-500 dark:hover:text-red-400'
-                } ${isAnimating ? 'animate-heart-pop' : ''} ${wishlistLoading ? 'animate-pulse' : ''}`}
-              />
+                    : 'text-gray-400'
+              } ${isAnimating ? 'animate-heart-pop' : ''}`} />
               
-              {/* Pop-up animation hearts */}
-              {isAnimating && (
+              {isAnimating && !isOffline && (
                 <>
                   <Heart className="absolute w-4 h-4 text-red-500 fill-red-500 animate-heart-float-1" />
                   <Heart className="absolute w-3 h-3 text-red-500 fill-red-500 animate-heart-float-2" />
@@ -489,20 +514,19 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-2 truncate">
             {dish.restaurant || dish.restaurantName}
           </p>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mb-3 line-clamp-2">
-            {dish.category}
-          </p>
 
-          <div className="flex items-center justify-between text-sm">
+          {isOffline && (
+            <div className="flex items-center space-x-1 mb-2">
+              <AlertCircle className="w-4 h-4 text-red-500" />
+              <span className="text-xs text-red-600 font-medium">Restaurant dashboard offline</span>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between text-sm mb-3">
             <div className="flex items-center space-x-2">
               <span className="font-bold text-gray-900 dark:text-white">
                 {dish.currentPrice || `₹${dish.price}`}
               </span>
-              {dish.currentPrice !== `₹${dish.price}` && dish.currentPrice && (
-                <span className="text-gray-400 line-through text-xs">
-                  ₹{dish.price}
-                </span>
-              )}
             </div>
             <div className="flex items-center space-x-1 bg-green-100 dark:bg-green-900 px-2 py-1 rounded">
               <Star className="w-3 h-3 text-green-600 dark:text-green-400 fill-current" />
@@ -512,28 +536,19 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
             </div>
           </div>
 
-          <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
-            <div className="flex items-center space-x-1 text-gray-500 dark:text-gray-400">
-              <Clock className="w-4 h-4" />
-              <span className="text-sm">{dish.deliveryTime || '25-30 min'}</span>
-            </div>
-            <div className="flex items-center space-x-1 text-green-600 dark:text-green-400">
-              <Truck className="w-4 h-4" />
-              <span className="text-sm font-medium">
-                {dish.distance || '1.2 km'}
-              </span>
-            </div>
-          </div>
-
-          {/* Split Button with Order Now functionality */}
-          <div className="mt-3 flex">
+          {/* ACTION BUTTONS */}
+          <div className="flex space-x-2">
             <button 
               onClick={(e) => {
                 e.stopPropagation();
                 handleAddToCart(dish);
               }}
-              disabled={cartLoading || isBeingAdded}
-              className="flex-1 flex items-center justify-center space-x-2 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white font-medium py-2 px-4 rounded-l-lg transition-colors duration-200"
+              disabled={cartLoading || isBeingAdded || isOffline}
+              className={`flex-1 flex items-center justify-center space-x-2 font-medium py-2 px-4 rounded-lg transition-colors ${
+                isOffline
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  : 'bg-orange-500 hover:bg-orange-600 text-white disabled:bg-orange-300'
+              }`}
             >
               {isBeingAdded ? (
                 <>
@@ -543,18 +558,22 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
               ) : (
                 <>
                   <ShoppingCart className="w-4 h-4" />
-                  <span>Add to Cart</span>
+                  <span>{isOffline ? 'Unavailable' : 'Add to Cart'}</span>
                 </>
               )}
             </button>
+            
             <button 
               onClick={(e) => {
                 e.stopPropagation();
                 handleOrderNow(dish);
               }}
-              disabled={isBeingAdded}
-              className="flex items-center justify-center bg-orange-600 hover:bg-orange-700 disabled:bg-orange-400 text-white font-medium py-2 px-3 rounded-r-lg border-l border-orange-400 transition-colors duration-200"
-              title="Order Now - Skip to checkout"
+              disabled={isBeingAdded || isOffline}
+              className={`flex items-center justify-center font-medium py-2 px-3 rounded-lg transition-colors ${
+                isOffline
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  : 'bg-orange-600 hover:bg-orange-700 text-white disabled:bg-orange-400'
+              }`}
             >
               <Zap className="w-4 h-4" />
             </button>
@@ -568,11 +587,11 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
     <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 overflow-hidden border border-gray-100 dark:border-gray-700 cursor-pointer hover:scale-105">
       <div className="relative">
         <img
-          src={restaurant.bannerImage ? `http://localhost:5000${restaurant.bannerImage}` : 'https://images.pexels.com/photos/262978/pexels-photo-262978.jpeg?auto=compress&cs=tinysrgb&w=400&h=200&dpr=1'}
+          src={restaurant.bannerImage ? `http://localhost:5000${restaurant.bannerImage}` : 'https://images.pexels.com/photos/262978/pexels-photo-262978.jpeg'}
           alt={restaurant.name}
           className="w-full h-40 object-cover"
           onError={(e) => {
-            e.target.src = 'https://images.pexels.com/photos/262978/pexels-photo-262978.jpeg?auto=compress&cs=tinysrgb&w=400&h=200&dpr=1';
+            e.target.src = 'https://images.pexels.com/photos/262978/pexels-photo-262978.jpeg';
           }}
         />
         {restaurant.isNew && (
@@ -631,7 +650,6 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      {/* Success Messages */}
       {successMessage && (
         <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center space-x-2 animate-slide-down">
           <CheckCircle className="w-5 h-5" />
@@ -639,7 +657,6 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
         </div>
       )}
 
-      {/* Wishlist Messages */}
       {wishlistMessage && (
         <div className="fixed top-32 left-1/2 transform -translate-x-1/2 z-50 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center space-x-2 animate-slide-down">
           <Heart className="w-5 h-5" />
@@ -647,7 +664,13 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
         </div>
       )}
 
-      {/* Header */}
+      {/* Socket Connection Status Indicator (optional - for debugging) */}
+      {!connected && (
+        <div className="fixed top-4 right-4 bg-yellow-100 text-yellow-800 px-3 py-2 rounded-lg text-xs font-medium z-50">
+          Real-time updates disconnected
+        </div>
+      )}
+
       <div className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
@@ -682,7 +705,6 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
             </div>
           </div>
 
-          {/* Search and Tabs */}
           <div className="mt-4">
             <form onSubmit={handleSearch} className="flex items-center space-x-4 mb-4">
               <div className="flex-1 relative">
@@ -711,12 +733,10 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
               </button>
             </form>
 
-            {/* Tabs */}
             <div className="flex space-x-1 bg-gray-100 dark:bg-gray-700 p-1 rounded-lg w-fit">
               <button
                 onClick={() => setActiveTab('dishes')}
-                className={`px-6 py-2 rounded-md transition-colors ${
-                  activeTab === 'dishes' 
+                className={`px-6 py-2 rounded-md transition-colors ${activeTab === 'dishes' 
                     ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm' 
                     : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
                 }`}
@@ -736,7 +756,6 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
             </div>
           </div>
 
-          {/* Filters */}
           {showFilters && (
             <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -762,7 +781,6 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
         </div>
       </div>
 
-      {/* Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {error && (
           <div className="flex items-center justify-center py-16">
@@ -784,7 +802,6 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
 
         {!error && (
           <>
-            {/* Results Grid */}
             {activeTab === 'dishes' ? (
               <div className={`grid gap-6 ${
                 viewMode === 'grid' 
@@ -807,7 +824,6 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
               </div>
             )}
 
-            {/* Loading State */}
             {loading && (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
@@ -817,7 +833,6 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
               </div>
             )}
 
-            {/* Empty State */}
             {!loading && (activeTab === 'dishes' ? dishes.length === 0 : restaurants.length === 0) && (
               <div className="text-center py-16">
                 <div className="w-20 h-20 bg-gray-200 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -832,7 +847,6 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
               </div>
             )}
 
-            {/* Load More Button */}
             {!loading && hasMore && (activeTab === 'dishes' ? dishes.length > 0 : restaurants.length > 0) && (
               <div className="text-center mt-8">
                 <button
@@ -847,7 +861,6 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
         )}
       </div>
 
-      {/* Custom CSS for animations */}
       <style jsx>{`
         @keyframes slide-down {
           from {
