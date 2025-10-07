@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
-
+import { useAuth } from '../contexts/AuthContext';
 const LoginScreen = ({ onLoginComplete, onForgotPassword, onCreateAccount }) => {
+    const { login } = useAuth(); // ADD THIS
+
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -10,68 +12,42 @@ const LoginScreen = ({ onLoginComplete, onForgotPassword, onCreateAccount }) => 
 
   const API_BASE_URL = "http://localhost:5000/api";
 
-  const handleLogin = async () => {
-    if (!username || !password) {
-      setError("Email and password required");
-      return;
-    }
+const handleLogin = async () => {
+  if (!username || !password) {
+    setError("Email and password required");
+    return;
+  }
 
-    // Updated validation: minimum 6 characters
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters long");
-      return;
-    }
+  if (password.length < 6) {
+    setError("Password must be at least 6 characters long");
+    return;
+  }
 
-    setLoading(true);
-    setError('');
+  setLoading(true);
+  setError('');
 
-    try {
-      console.log('🔐 Attempting login for:', username);
-      
-      const res = await fetch(`${API_BASE_URL}/auth/login`, {
+ try {
+      const res = await fetch(`${API_BASE_URL}/auth/signin`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: username, password }),
       });
 
       const data = await res.json();
-      console.log('📡 Login response:', data);
 
-      if (data.success) {
-        console.log('✅ Login successful');
+      if (data.success && data.token) {
+        // Use AuthContext instead of manual localStorage
+        login(data.token, data.user); // REPLACE localStorage calls
         
-        // **CRITICAL FIX: Store the JWT token**
-        if (data.token) {
-          localStorage.setItem('token', data.token);
-          console.log('💾 Token stored successfully');
-        } else {
-          console.warn('⚠️ No token received from server');
-        }
-        
-        // **OPTIONAL: Store user data if provided**
-        if (data.user) {
-          localStorage.setItem('user', JSON.stringify(data.user));
-          console.log('👤 User data stored');
-        }
-        
-        // **OPTIONAL: Store user preferences if provided**
-        if (data.user && data.user.preferences) {
-          localStorage.setItem('userPreferences', JSON.stringify(data.user.preferences));
-        }
-        
-        // Clear form
         setUsername('');
         setPassword('');
         setError('');
         
-        // Call parent callback
         onLoginComplete();
       } else {
-        console.log('❌ Login failed:', data.error);
-        setError(data.error || data.message || "Login failed");
+        setError(data.error || "Login failed");
       }
     } catch (err) {
-      console.error("❌ Login error:", err);
       setError("Network error. Please try again.");
     } finally {
       setLoading(false);

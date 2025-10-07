@@ -1,65 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Menu,
-  X,
-  Home,
-  User,
-  ChefHat,
-  ShoppingBag,
-  Calendar,
-  CreditCard,
-  BarChart3,
-  Star,
-  Tag,
-  Settings,
-  Upload,
-  Plus,
-  Edit3,
-  Trash2,
-  Bell,
-  DollarSign,
-  AlertCircle,
-  CheckCircle,
-  Loader2,
-  MapPin,
-  Clock,
-  Camera,
-  Save,
-  Building,
-  Phone,
-  Mail,
-  Globe,
-  MessageCircle,
-  Reply,
-  Filter,
-  TrendingUp,
-  Award,
-  ThumbsUp,
-  Send
+  Menu, X, Home, User, ChefHat, ShoppingBag, Calendar, CreditCard,
+  BarChart3, Star, Tag, Settings, Upload, Plus, Edit3, Trash2, Bell,
+  DollarSign, AlertCircle, CheckCircle, Loader2, Camera, Save, Building,
+  MessageCircle
 } from 'lucide-react';
 import NotificationPanel from './NotificationPanel';
-
-
-// ADD SOCKET IMPORT
 import { useSocket } from '../../contexts/SocketContext';
 
 const API_BASE = 'http://localhost:5000/api';
 
-// FIXED: Helper function to construct correct image URLs
 const getImageUrl = (imagePath) => {
   if (!imagePath) return null;
-  
-  // Remove any leading slashes and construct proper URL
   const cleanPath = imagePath.startsWith('/') ? imagePath.slice(1) : imagePath;
-  
-  // Return direct server URL without /api prefix for static files
   return `http://localhost:5000/${cleanPath}`;
 };
 
 const SellerDashboard = () => {
-  // ADD SOCKET HOOK
   const { socket, connected, notifications, markAsRead, markAllAsRead, clearNotifications, removeNotification } = useSocket();
-  
+
+  // UI States
   const [activeSection, setActiveSection] = useState('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showModal, setShowModal] = useState(false);
@@ -67,56 +27,34 @@ const SellerDashboard = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [dashboardStatus, setDashboardStatus] = useState('online');
 
-  // Data states
+  // Data States
   const [sellerData, setSellerData] = useState(null);
   const [stats, setStats] = useState(null);
   const [dishes, setDishes] = useState([]);
   const [editingDish, setEditingDish] = useState(null);
-  const [showNotifications, setShowNotifications] = useState(false);
-
-  // Review states
+  const [orders, setOrders] = useState([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [orderFilter, setOrderFilter] = useState('all');
   const [reviews, setReviews] = useState([]);
   const [reviewsLoading, setReviewsLoading] = useState(false);
   const [reviewStats, setReviewStats] = useState(null);
   const [reviewFilter, setReviewFilter] = useState('all');
   const [reviewSort, setReviewSort] = useState('newest');
-  const [respondingTo, setRespondingTo] = useState(null);
-  const [responseText, setResponseText] = useState('');
-const [dashboardStatus, setDashboardStatus] = useState('online'); // online, busy, offline
 
-  // Form states
+  // Form States
   const [dishForm, setDishForm] = useState({
-    name: '',
-    price: '',
-    category: 'Main Course',
-    type: 'veg',
-    description: '',
-    availability: true,
-    preparationTime: 30
+    name: '', price: '', category: 'Main Course', type: 'veg',
+    description: '', availability: true, preparationTime: 30
   });
-  //order states
-  const [orders, setOrders] = useState([]);
-  const [ordersLoading, setOrdersLoading] = useState(false);
-  const [orderFilter, setOrderFilter] = useState('all');
 
   const [profileForm, setProfileForm] = useState({
-    businessName: '',
-    businessType: 'Restaurant',
-    ownerName: '',
-    phone: '',
-    email: '',
-    description: '',
-    cuisine: [],
-    priceRange: 'mid-range',
-    seatingCapacity: '',
-    servicesOffered: [],
-    street: '',
-    city: '',
-    state: '',
-    zipCode: '',
-    latitude: '',
-    longitude: '',
+    businessName: '', businessType: 'Restaurant', ownerName: '', phone: '',
+    email: '', description: '', cuisine: [], priceRange: 'mid-range',
+    seatingCapacity: '', servicesOffered: [], street: '', city: '',
+    state: '', zipCode: '', latitude: '', longitude: '',
     openingHours: {
       monday: { open: '09:00', close: '22:00', closed: false },
       tuesday: { open: '09:00', close: '22:00', closed: false },
@@ -128,17 +66,10 @@ const [dashboardStatus, setDashboardStatus] = useState('online'); // online, bus
     }
   });
 
-  // File states for image uploads
   const [selectedFile, setSelectedFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
-  const [profileImages, setProfileImages] = useState({
-    logo: null,
-    bannerImage: null
-  });
-  const [profileImagePreviews, setProfileImagePreviews] = useState({
-    logo: null,
-    bannerImage: null
-  });
+  const [profileImages, setProfileImages] = useState({ logo: null, bannerImage: null });
+  const [profileImagePreviews, setProfileImagePreviews] = useState({ logo: null, bannerImage: null });
 
   const sidebarItems = [
     { id: 'overview', label: 'Overview', icon: Home },
@@ -153,173 +84,99 @@ const [dashboardStatus, setDashboardStatus] = useState('online'); // online, bus
     { id: 'settings', label: 'Settings & Support', icon: Settings }
   ];
 
-  // Get token from localStorage
-  const getAuthToken = () => {
-    return localStorage.getItem('sellerToken') || localStorage.getItem('token');
-  };
+  const getAuthToken = () => localStorage.getItem('sellerToken') || localStorage.getItem('token');
 
-  // Load data on component mount
- useEffect(() => {
-  // Wait for socket connection before authenticating
-  const authenticateSeller = async () => {
-    if (!socket || !connected) {
-      console.log('Socket not ready yet');
-      return;
-    }
-
-    const token = localStorage.getItem('sellerToken');
-    if (!token) {
-      console.log('No seller token found');
-      setError('Seller authentication required. Please log in again.');
-      return;
-    }
-
-    console.log('🔐 Authenticating seller with socket, token length:', token.length);
-    
-    // Remove any previous listeners to avoid duplicates
-    socket.off('authenticated');
-    socket.off('auth-error');
-
-    // Listen for authentication confirmation BEFORE emitting
-    socket.on('authenticated', (data) => {
-      console.log('✅ Seller authenticated successfully:', data);
-      setDashboardStatus('online');
-      setError(''); // Clear any errors
-      
-      // Now emit status update
-      socket.emit('update-dashboard-status', { status: 'online' });
-    });
-
-    socket.on('auth-error', (error) => {
-      console.error('❌ Authentication failed:', error);
-      setError('Authentication failed. Please refresh and log in again.');
-      setDashboardStatus('offline');
-    });
-
-    // Emit authentication with proper format
-socket.emit('authenticate-seller', token);  };
-
-  authenticateSeller();
-
-  // Track dashboard visibility
-  const handleVisibilityChange = () => {
-    if (socket && connected) {
-      if (document.hidden) {
-        console.log('📴 Dashboard hidden - setting offline');
-        socket.emit('update-dashboard-status', { status: 'offline' });
-        setDashboardStatus('offline');
-      } else {
-        console.log('📱 Dashboard visible - setting online');
-        socket.emit('update-dashboard-status', { status: 'online' });
-        setDashboardStatus('online');
-      }
-    }
-  };
-
-  // Track page unload (seller closing browser/tab)
-  const handleBeforeUnload = () => {
-    if (socket && connected) {
-      console.log('🚪 Seller closing dashboard');
-      socket.emit('update-dashboard-status', { status: 'offline' });
-    }
-  };
-
-  document.addEventListener('visibilitychange', handleVisibilityChange);
-  window.addEventListener('beforeunload', handleBeforeUnload);
-
-  // Cleanup
-  return () => {
-    if (socket && connected) {
-      console.log('🔌 Seller dashboard unmounting - setting offline');
-      socket.emit('update-dashboard-status', { status: 'offline' });
-    }
-    document.removeEventListener('visibilitychange', handleVisibilityChange);
-    window.removeEventListener('beforeunload', handleBeforeUnload);
-  };
-}, [socket, connected]);
-
-// ADD THIS FUNCTION to manually toggle status
-const toggleDashboardStatus = (newStatus) => {
-  if (!socket || !connected) {
-    alert('Not connected to server');
-    return;
-  }
-
-  setDashboardStatus(newStatus);
-  socket.emit('update-dashboard-status', { status: newStatus });
-  
-  const statusMessages = {
-    online: 'You are now accepting orders',
-    busy: 'You are marked as busy',
-    offline: 'You are not accepting new orders'
-  };
-  
-  setSuccess(statusMessages[newStatus]);
-};
-<div className="flex items-center space-x-3">
-  {/* Status Indicator and Toggle */}
-  <div className="flex items-center space-x-2 px-3 py-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
-    <div className={`w-3 h-3 rounded-full ${
-      dashboardStatus === 'online' ? 'bg-green-500' : 
-      dashboardStatus === 'busy' ? 'bg-yellow-500' : 
-      'bg-red-500'
-    }`}></div>
-    <select
-      value={dashboardStatus}
-      onChange={(e) => toggleDashboardStatus(e.target.value)}
-      className="text-sm border-none bg-transparent focus:ring-0 cursor-pointer"
-      disabled={!connected}
-    >
-      <option value="online">Online</option>
-      <option value="busy">Busy</option>
-      <option value="offline">Offline</option>
-    </select>
-  </div>
-  
-  {/* Connection indicator */}
-  {!connected && (
-    <div className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded">
-      Disconnected
-    </div>
-  )}
-</div>
-
-// ADD THIS WARNING BANNER when offline
-{dashboardStatus === 'offline' && (
-  <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-4">
-    <div className="flex items-center">
-      <AlertCircle className="w-5 h-5 text-red-600 mr-2" />
-      <p className="text-red-800 font-medium">
-        Your restaurant is currently offline. Customers cannot place new orders.
-      </p>
-    </div>
-  </div>
-)}
+  // Socket Authentication & Status Management
   useEffect(() => {
-    // Join seller room when component mounts and socket is ready
+    const authenticateSeller = async () => {
+      if (!socket || !connected) return;
+
+      const token = localStorage.getItem('sellerToken');
+      if (!token) {
+        setError('Seller authentication required. Please log in again.');
+        return;
+      }
+
+      socket.off('authenticated');
+      socket.off('auth-error');
+
+      socket.on('authenticated', (data) => {
+        console.log('Seller authenticated successfully:', data);
+        setDashboardStatus('online');
+        setError('');
+        socket.emit('update-dashboard-status', { status: 'online' });
+      });
+
+      socket.on('auth-error', (error) => {
+        console.error('Authentication failed:', error);
+        setError('Authentication failed. Please refresh and log in again.');
+        setDashboardStatus('offline');
+      });
+
+      socket.emit('authenticate-seller', token);
+    };
+
+    authenticateSeller();
+
+    const handleVisibilityChange = () => {
+      if (socket && connected) {
+        const status = document.hidden ? 'offline' : 'online';
+        socket.emit('update-dashboard-status', { status });
+        setDashboardStatus(status);
+      }
+    };
+
+    const handleBeforeUnload = () => {
+      if (socket && connected) {
+        socket.emit('update-dashboard-status', { status: 'offline' });
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      if (socket && connected) {
+        socket.emit('update-dashboard-status', { status: 'offline' });
+      }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [socket, connected]);
+
+  const toggleDashboardStatus = (newStatus) => {
+    if (!socket || !connected) {
+      alert('Not connected to server');
+      return;
+    }
+    setDashboardStatus(newStatus);
+    socket.emit('update-dashboard-status', { status: newStatus });
+    const messages = {
+      online: 'You are now accepting orders',
+      busy: 'You are marked as busy',
+      offline: 'You are not accepting new orders'
+    };
+    setSuccess(messages[newStatus]);
+  };
+
+  // Listen for New Orders
+  useEffect(() => {
     if (socket && connected && sellerData?._id) {
-      console.log('🏪 Joining seller room:', sellerData._id);
       socket.emit('join-seller-room', sellerData._id);
     }
 
-    // Listen for new orders via DOM events (fallback)
     const handleNewOrder = (e) => {
-      console.log('📦 New order event:', e.detail);
-      loadOrders(); // Refresh order list
+      loadOrders();
       setSuccess('New order received!');
     };
 
-    // Listen for custom DOM events
     window.addEventListener('new-order', handleNewOrder);
-    
-    // Listen for Socket.IO events if connected
+
     if (socket && connected) {
       const handleSocketNewOrder = (orderData) => {
-        console.log('🔔 New order via Socket.IO:', orderData);
-        loadOrders(); // Refresh order list
+        console.log('New order via Socket.IO:', orderData);
+        loadOrders();
         setSuccess(`New order #${orderData.order?.orderId} - ₹${orderData.order?.totalAmount}`);
-        
-        // Play notification sound
         try {
           const audio = new Audio('/notification.mp3');
           audio.play().catch(e => console.log('Audio play failed:', e));
@@ -329,34 +186,24 @@ const toggleDashboardStatus = (newStatus) => {
       };
 
       socket.on('new-order', handleSocketNewOrder);
-
-      // Cleanup socket listeners
       return () => {
         socket.off('new-order', handleSocketNewOrder);
         window.removeEventListener('new-order', handleNewOrder);
       };
     }
-    
-    return () => {
-      window.removeEventListener('new-order', handleNewOrder);
-    };
+
+    return () => window.removeEventListener('new-order', handleNewOrder);
   }, [socket, connected, sellerData]);
 
-  // Load reviews when reviews section is active
+  // Load data effects
   useEffect(() => {
-    if (activeSection === 'reviews') {
-      loadReviews();
-    }
+    if (activeSection === 'reviews') loadReviews();
   }, [activeSection, reviewFilter, reviewSort]);
 
-  // Load orders when orders section is active
   useEffect(() => {
-    if (activeSection === 'orders') {
-      loadOrders();
-    }
+    if (activeSection === 'orders') loadOrders();
   }, [activeSection, orderFilter]);
 
-  // Clear messages after timeout
   useEffect(() => {
     if (success) {
       const timer = setTimeout(() => setSuccess(''), 3000);
@@ -371,7 +218,7 @@ const toggleDashboardStatus = (newStatus) => {
     }
   }, [error]);
 
-  // Load seller data
+  // API Calls
   const loadSellerData = async () => {
     try {
       const token = getAuthToken();
@@ -379,18 +226,14 @@ const toggleDashboardStatus = (newStatus) => {
         setError('Please login to continue');
         return;
       }
-      
+
       const response = await fetch(`${API_BASE}/seller/profile`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
       });
 
       const data = await response.json();
       if (response.ok) {
         setSellerData(data.seller);
-        // Populate profile form with existing data
         const seller = data.seller;
         setProfileForm({
           businessName: seller.businessName || '',
@@ -409,15 +252,7 @@ const toggleDashboardStatus = (newStatus) => {
           zipCode: seller.address?.zipCode || '',
           latitude: seller.address?.coordinates?.latitude || '',
           longitude: seller.address?.coordinates?.longitude || '',
-          openingHours: seller.businessDetails?.openingHours || {
-            monday: { open: '09:00', close: '22:00', closed: false },
-            tuesday: { open: '09:00', close: '22:00', closed: false },
-            wednesday: { open: '09:00', close: '22:00', closed: false },
-            thursday: { open: '09:00', close: '22:00', closed: false },
-            friday: { open: '09:00', close: '22:00', closed: false },
-            saturday: { open: '09:00', close: '22:00', closed: false },
-            sunday: { open: '09:00', close: '22:00', closed: false }
-          }
+          openingHours: seller.businessDetails?.openingHours || profileForm.openingHours
         });
       } else {
         setError(data.error || 'Failed to load profile');
@@ -428,46 +263,130 @@ const toggleDashboardStatus = (newStatus) => {
     }
   };
 
-  // Load orders
-const loadOrders = async () => {
+  const loadOrders = async () => {
+    try {
+      setOrdersLoading(true);
+      const token = getAuthToken();
+
+      const response = await fetch(`${API_BASE}/seller/orders?status=${orderFilter}`, {
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        setOrders(data.orders || []);
+      } else {
+        setError(data.error || 'Failed to load orders');
+      }
+    } catch (err) {
+      console.error('Load orders error:', err);
+      setError('Failed to load orders');
+    } finally {
+      setOrdersLoading(false);
+    }
+  };
+
+ // SellerDashboard.jsx - Update handleAcceptOrder
+const handleAcceptOrder = async (orderId) => {
   try {
-    setOrdersLoading(true);
     const token = getAuthToken();
-    
-    const response = await fetch(`${API_BASE}/seller/orders?status=${orderFilter}`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
+
+    const response = await fetch(`${API_BASE}/seller/orders/${orderId}/accept`, {
+      method: 'POST',
+      headers: { 
+        'Authorization': `Bearer ${token}`, 
+        'Content-Type': 'application/json' 
       }
     });
 
     const data = await response.json();
-    if (response.ok) {
-      console.log('📦 Loaded orders:', data.orders);
-      console.log('📊 Order statuses:', data.orders?.map(o => ({
-        id: o.orderId,
-        status: o.orderStatus // ✅ Check this field
-      })));
-      setOrders(data.orders || []);
+    
+    if (response.ok && data.success) {
+      setSuccess('✅ Order accepted! Customer notified.');
+      
+      // ✅ EMIT SOCKET EVENT
+      if (socket && connected) {
+        socket.emit('seller-accepted-order', {
+          orderId: data.order.orderId,
+          orderMongoId: data.order._id,
+          _id: data.order._id,
+          orderStatus: 'seller_accepted',
+          customerEmail: data.order.customerEmail
+        });
+      }
+      
+      loadOrders();
     } else {
-      setError(data.error || 'Failed to load orders');
+      setError(data.error || 'Failed to accept order');
     }
   } catch (err) {
-    console.error('Load orders error:', err);
-    setError('Failed to load orders');
-  } finally {
-    setOrdersLoading(false);
+    console.error('❌ Accept order error:', err);
+    setError('Failed to accept order: ' + err.message);
   }
 };
+
+
+  const handleRejectOrder = async (orderId) => {
+    const reason = prompt('Please provide a reason for rejecting this order:');
+    if (!reason || reason.trim() === '') {
+      alert('Please provide a reason for rejection');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const token = getAuthToken();
+
+      const response = await fetch(`${API_BASE}/seller/orders/${orderId}/status`, {
+        method: 'PATCH',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'seller_rejected', cancellationReason: reason })
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        setSuccess('Order rejected. Customer has been notified.');
+        loadOrders();
+      } else {
+        setError(data.error || 'Failed to reject order');
+      }
+    } catch (err) {
+      setError('Failed to reject order: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateOrderStatus = async (orderId, newStatus) => {
+    try {
+      setLoading(true);
+      const token = getAuthToken();
+
+      const response = await fetch(`${API_BASE}/seller/orders/${orderId}/status`, {
+        method: 'PATCH',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus })
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        setSuccess(`Order ${newStatus.replace('_', ' ')} successfully!`);
+        loadOrders();
+      } else {
+        setError(data.error || 'Failed to update order status');
+      }
+    } catch (err) {
+      setError('Failed to update order status: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const loadStats = async () => {
     try {
       const token = getAuthToken();
       const response = await fetch(`${API_BASE}/seller/menu/stats`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
       });
 
       const data = await response.json();
@@ -479,262 +398,15 @@ const loadOrders = async () => {
     }
   };
 
-// In SellerDashboard.jsx - Update this function
-const updateOrderStatus = async (orderId, newStatus) => {
-  try {
-    setLoading(true);
-    const token = getAuthToken();
-    
-    console.log('📤 Updating order status:', { orderId, newStatus });
-    
-    const response = await fetch(`${API_BASE}/seller/orders/${orderId}/status`, {
-      method: 'PATCH',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ 
-        status: newStatus  // ✅ Send 'status' to match backend
-      })
-    });
-
-    const data = await response.json();
-    
-    if (response.ok) {
-      console.log('✅ Order status updated successfully:', data);
-      setSuccess(`Order ${newStatus.replace('_', ' ')} successfully!`);
-      loadOrders(); // Refresh orders
-    } else {
-      console.error('❌ Failed to update status:', data);
-      setError(data.error || 'Failed to update order status');
-    }
-  } catch (err) {
-    console.error('❌ Update order status error:', err);
-    setError('Failed to update order status: ' + err.message);
-  } finally {
-    setLoading(false);
-  }
-};
-
-  // Render Order Management section
-  const renderOrders = () => {
-   const getOrdersByStatus = (status) => {
-  return orders.filter(order => {
-    const orderStatus = order.orderStatus || order.status;
-    
-    if (status === 'new') {
-      return ['confirmed', 'pending'].includes(orderStatus);
-    }
-    if (status === 'preparing') {
-      return orderStatus === 'preparing';
-    }
-    if (status === 'ready') {
-      return orderStatus === 'ready';
-    }
-    if (status === 'out_for_delivery') {  // ADD THIS SECTION
-      return orderStatus === 'out_for_delivery';
-    }
-    if (status === 'delivered') {
-      return ['delivered', 'completed'].includes(orderStatus);
-    }
-    return false;
-  });
-};
-const OrderCard = ({ order, status }) => (
-  <div className="bg-white rounded-lg border border-gray-200 p-4 mb-4">
-    <div className="space-y-3">
-      <div>
-        <p className="text-sm text-gray-500">Order ID: #{order.orderId || order._id?.slice(-8)}</p>
-        <p className="font-semibold text-gray-900 mt-1">
-          Customer: {order.customerName}
-        </p>
-      </div>
-      
-      <div>
-        <p className="text-sm text-gray-600">
-          Item: {order.item?.name} (x{order.item?.quantity || 1})
-        </p>
-        <p className="text-sm text-gray-600 mt-1">
-          Delivery Time: {order.estimatedDelivery || '25-30 minutes'}
-        </p>
-        <p className="text-sm font-semibold text-gray-900 mt-1">
-          Total: ₹{order.totalAmount}
-        </p>
-      </div>
-
-      <div className="flex space-x-2 pt-2">
-        {status === 'new' && (
-          <>
-            <button
-              onClick={() => updateOrderStatus(order._id, 'preparing')}
-              className="flex-1 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-medium transition-colors"
-            >
-              Accept & Prepare
-            </button>
-            <button
-              onClick={() => updateOrderStatus(order._id, 'cancelled')}
-              className="px-4 py-2 border-2 border-red-500 text-red-500 rounded-lg hover:bg-red-50 font-medium transition-colors"
-            >
-              Reject
-            </button>
-          </>
-        )}
-        
-        {status === 'preparing' && (
-          <button
-            onClick={() => updateOrderStatus(order._id, 'ready')}
-            className="flex-1 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-medium transition-colors"
-          >
-            Mark as Ready
-          </button>
-        )}
-        
-        {status === 'ready' && (
-          <button
-            onClick={() => updateOrderStatus(order._id, 'out_for_delivery')}
-            className="flex-1 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-medium transition-colors"
-          >
-            Out for Delivery
-          </button>
-        )}
-
-        {/* ADD THIS: Button for marking as delivered */}
-        {(status === 'out_for_delivery' || order.orderStatus === 'out_for_delivery') && (
-          <button
-            onClick={() => updateOrderStatus(order._id, 'delivered')}
-            className="flex-1 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 font-medium transition-colors"
-          >
-            Mark as Delivered
-          </button>
-        )}
-
-        {status === 'delivered' && (
-          <button
-            disabled
-            className="flex-1 px-4 py-2 bg-gray-300 text-gray-500 rounded-lg cursor-not-allowed font-medium"
-          >
-            ✓ Delivered
-          </button>
-        )}
-      </div>
-    </div>
-  </div>
-);
-
-    const newOrders = getOrdersByStatus('new');
-    const preparingOrders = getOrdersByStatus('preparing');
-    const readyOrders = getOrdersByStatus('ready');
-    const outForDeliveryOrders = getOrdersByStatus('out_for_delivery'); // ADD THIS
-    const deliveredOrders = getOrdersByStatus('delivered');
-
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-bold text-gray-900">Order Management</h2>
-        </div>
-
-        {ordersLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-6 h-6 animate-spin text-orange-500" />
-            <span className="ml-2 text-gray-500">Loading orders...</span>
-          </div>
-        ) : (
-          <div className="space-y-6">
-            {/* New Orders */}
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-900">New Orders</h3>
-                {newOrders.length > 0 && (
-                  <button className="text-gray-500 hover:text-gray-700">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </button>
-                )}
-              </div>
-              {newOrders.length > 0 ? (
-                newOrders.map(order => <OrderCard key={order._id} order={order} status="new" />)
-              ) : (
-                <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">
-                  No new orders
-                </div>
-              )}
-            </div>
-
-            {/* Preparing */}
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Preparing</h3>
-              {preparingOrders.length > 0 ? (
-                preparingOrders.map(order => <OrderCard key={order._id} order={order} status="preparing" />)
-              ) : (
-                <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">
-                  No orders being prepared
-                </div>
-              )}
-            </div>
-
-            {/* Ready for Pickup */}
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Ready for Pickup</h3>
-              {readyOrders.length > 0 ? (
-                readyOrders.map(order => <OrderCard key={order._id} order={order} status="ready" />)
-              ) : (
-                <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">
-                  No orders ready for pickup
-                </div>
-              )}
-            </div>
-               <div>
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Out for Delivery</h3>
-        {outForDeliveryOrders.length > 0 ? (
-          outForDeliveryOrders.map(order => 
-            <OrderCard key={order._id} order={order} status="out_for_delivery" />
-          )
-        ) : (
-          <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">
-            No orders out for delivery
-          </div>
-        )}
-      </div>
-            {/* Delivered */}
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Delivered</h3>
-              {deliveredOrders.length > 0 ? (
-                deliveredOrders.map(order => <OrderCard key={order._id} order={order} status="delivered" />)
-              ) : (
-                <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">
-                  No delivered orders
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {!ordersLoading && orders.length === 0 && (
-          <div className="text-center py-12">
-            <ShoppingBag className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-500 mb-2">No orders yet</h3>
-            <p className="text-gray-400">Orders from customers will appear here</p>
-          </div>
-        )}
-      </div>
-    );
-  };
-
   const loadDishes = async () => {
     try {
       const token = getAuthToken();
       const response = await fetch(`${API_BASE}/seller/menu/dishes`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
       });
 
       const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to load dishes');
-      }
+      if (!response.ok) throw new Error(data.error || 'Failed to load dishes');
       setDishes(data.dishes || []);
     } catch (err) {
       console.error('Load dishes error:', err);
@@ -742,17 +414,13 @@ const OrderCard = ({ order, status }) => (
     }
   };
 
-  // Load reviews for seller
   const loadReviews = async () => {
     try {
       setReviewsLoading(true);
       const token = getAuthToken();
-      
+
       const response = await fetch(`${API_BASE}/reviews/seller/reviews?rating=${reviewFilter}&sort=${reviewSort}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
       });
 
       const data = await response.json();
@@ -770,7 +438,6 @@ const OrderCard = ({ order, status }) => (
     }
   };
 
-  // Handle profile update
   const handleProfileUpdate = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -780,7 +447,6 @@ const OrderCard = ({ order, status }) => (
       const token = getAuthToken();
       const formData = new FormData();
 
-      // Append all profile form fields
       Object.keys(profileForm).forEach(key => {
         if (key === 'cuisine' || key === 'servicesOffered') {
           if (Array.isArray(profileForm[key])) {
@@ -793,26 +459,19 @@ const OrderCard = ({ order, status }) => (
         }
       });
 
-      // Append images if selected
-      if (profileImages.logo) {
-        formData.append('logo', profileImages.logo);
-      }
-      if (profileImages.bannerImage) {
-        formData.append('bannerImage', profileImages.bannerImage);
-      }
+      if (profileImages.logo) formData.append('logo', profileImages.logo);
+      if (profileImages.bannerImage) formData.append('bannerImage', profileImages.bannerImage);
 
       const response = await fetch(`${API_BASE}/seller/profile`, {
         method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
+        headers: { 'Authorization': `Bearer ${token}` },
         body: formData
       });
 
       const data = await response.json();
       if (response.ok) {
         setSuccess('Profile updated successfully!');
-        await loadSellerData(); // Reload profile data
+        await loadSellerData();
       } else {
         setError(data.error || 'Failed to update profile');
       }
@@ -824,7 +483,6 @@ const OrderCard = ({ order, status }) => (
     }
   };
 
-  // Handle dish form submission
   const handleDishSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -833,28 +491,16 @@ const OrderCard = ({ order, status }) => (
     try {
       const token = getAuthToken();
       const formData = new FormData();
-      
-      // Append dish form data
-      Object.keys(dishForm).forEach(key => {
-        formData.append(key, dishForm[key]);
-      });
-      
-      // Append image if selected
-      if (selectedFile) {
-        formData.append('dishImages', selectedFile);
-      }
 
-      const url = editingDish 
-        ? `${API_BASE}/seller/menu/dish/${editingDish._id}`
-        : `${API_BASE}/seller/menu/dish`;
-        
+      Object.keys(dishForm).forEach(key => formData.append(key, dishForm[key]));
+      if (selectedFile) formData.append('dishImages', selectedFile);
+
+      const url = editingDish ? `${API_BASE}/seller/menu/dish/${editingDish._id}` : `${API_BASE}/seller/menu/dish`;
       const method = editingDish ? 'PATCH' : 'POST';
 
       const response = await fetch(url, {
         method,
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
+        headers: { 'Authorization': `Bearer ${token}` },
         body: formData
       });
 
@@ -875,22 +521,16 @@ const OrderCard = ({ order, status }) => (
     }
   };
 
-  // Handle dish deletion
   const handleDeleteDish = async (dishId) => {
-    if (!window.confirm('Are you sure you want to delete this dish?')) {
-      return;
-    }
+    if (!window.confirm('Are you sure you want to delete this dish?')) return;
 
     try {
       setLoading(true);
       const token = getAuthToken();
-      
+
       const response = await fetch(`${API_BASE}/seller/menu/dish/${dishId}`, {
         method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
       });
 
       const data = await response.json();
@@ -908,34 +548,25 @@ const OrderCard = ({ order, status }) => (
     }
   };
 
-  // Reset dish form
   const resetDishForm = () => {
     setDishForm({
-      name: '',
-      price: '',
-      category: 'Main Course',
-      type: 'veg',
-      description: '',
-      availability: true,
-      preparationTime: 30
+      name: '', price: '', category: 'Main Course', type: 'veg',
+      description: '', availability: true, preparationTime: 30
     });
     setSelectedFile(null);
     setImagePreview(null);
     setEditingDish(null);
   };
 
-  // FIXED: Handle image file selection
   const handleImageSelect = (event, type = 'dish') => {
     const file = event.target.files[0];
     if (!file) return;
 
-    // Validate file size (10MB limit)
     if (file.size > 10 * 1024 * 1024) {
       setError('Image size should be less than 10MB');
       return;
     }
 
-    // Validate file type - allow any image type
     if (!file.type.startsWith('image/')) {
       setError('Please select a valid image file');
       return;
@@ -949,29 +580,21 @@ const OrderCard = ({ order, status }) => (
       setProfileImagePreviews(prev => ({ ...prev, [type]: URL.createObjectURL(file) }));
     }
 
-    // Clear any existing errors
     if (error) setError('');
   };
 
-  // Star rating component
+  // Components
   const StarRating = ({ rating, size = 'sm' }) => {
     const starSize = size === 'lg' ? 'w-6 h-6' : size === 'md' ? 'w-5 h-5' : 'w-4 h-4';
-    
     return (
       <div className="flex items-center space-x-1">
         {[1, 2, 3, 4, 5].map((star) => (
-          <Star
-            key={star}
-            className={`${starSize} ${
-              star <= rating ? 'text-yellow-400 fill-current' : 'text-gray-300'
-            }`}
-          />
+          <Star key={star} className={`${starSize} ${star <= rating ? 'text-yellow-400 fill-current' : 'text-gray-300'}`} />
         ))}
       </div>
     );
   };
 
-  // Stats card component
   const StatsCard = ({ title, value, icon: Icon, color, bgColor }) => (
     <div className={`${bgColor} p-6 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow`}>
       <div className="flex items-center justify-between">
@@ -986,42 +609,220 @@ const OrderCard = ({ order, status }) => (
     </div>
   );
 
-  // Render Restaurant Profile section
+  // Render Functions
+  const renderOrders = () => {
+    const getOrdersByStatus = (status) => {
+      return orders.filter(order => {
+        const orderStatus = order.orderStatus || order.status;
+        if (status === 'pending_seller') return orderStatus === 'pending_seller';
+        if (status === 'new') return ['confirmed', 'pending', 'seller_accepted'].includes(orderStatus);
+        if (status === 'preparing') return orderStatus === 'preparing';
+        if (status === 'ready') return orderStatus === 'ready';
+        if (status === 'out_for_delivery') return orderStatus === 'out_for_delivery';
+        if (status === 'delivered') return ['delivered', 'completed'].includes(orderStatus);
+        return false;
+      });
+    };
+
+    const OrderCard = ({ order, status }) => (
+      <div className="bg-white rounded-lg border border-gray-200 p-4 mb-4 hover:shadow-md transition-shadow">
+        <div className="space-y-3">
+          <div>
+            <p className="text-sm text-gray-500">Order ID: #{order.orderId || order._id?.slice(-8)}</p>
+            <p className="font-semibold text-gray-900 mt-1">Customer: {order.customerName}</p>
+          </div>
+          <div>
+            <p className="text-sm text-gray-600">Item: {order.item?.name} (x{order.item?.quantity || 1})</p>
+            <p className="text-sm text-gray-600 mt-1">Delivery Time: {order.estimatedDelivery || '25-30 minutes'}</p>
+            <p className="text-sm font-semibold text-gray-900 mt-1">Total: ₹{order.totalAmount}</p>
+          </div>
+          <div className="flex space-x-2 pt-2">
+            {status === 'pending_seller' && (
+              <>
+                <button onClick={() => handleAcceptOrder(order._id)} disabled={loading}
+                  className="flex-1 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 font-medium transition-colors disabled:opacity-50">
+                  {loading ? 'Processing...' : '✓ Accept Order'}
+                </button>
+                <button onClick={() => handleRejectOrder(order._id)} disabled={loading}
+                  className="px-4 py-2 border-2 border-red-500 text-red-500 rounded-lg hover:bg-red-50 font-medium transition-colors disabled:opacity-50">
+                  ✗ Reject
+                </button>
+              </>
+            )}
+            {status === 'new' && (
+              <>
+                <button onClick={() => updateOrderStatus(order._id, 'preparing')} disabled={loading}
+                  className="flex-1 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-medium transition-colors disabled:opacity-50">
+                  Start Preparing
+                </button>
+                <button onClick={() => updateOrderStatus(order._id, 'cancelled')} disabled={loading}
+                  className="px-4 py-2 border-2 border-red-500 text-red-500 rounded-lg hover:bg-red-50 font-medium transition-colors disabled:opacity-50">
+                  Cancel
+                </button>
+              </>
+            )}
+            {status === 'preparing' && (
+              <button onClick={() => updateOrderStatus(order._id, 'ready')} disabled={loading}
+                className="flex-1 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-medium transition-colors disabled:opacity-50">
+                Mark as Ready
+              </button>
+            )}
+            {status === 'ready' && (
+              <button onClick={() => updateOrderStatus(order._id, 'out_for_delivery')} disabled={loading}
+                className="flex-1 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-medium transition-colors disabled:opacity-50">
+                Out for Delivery
+              </button>
+            )}
+            {status === 'out_for_delivery' && (
+              <button onClick={() => updateOrderStatus(order._id, 'delivered')} disabled={loading}
+                className="flex-1 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 font-medium transition-colors disabled:opacity-50">
+                Mark as Delivered
+              </button>
+            )}
+            {status === 'delivered' && (
+              <button disabled className="flex-1 px-4 py-2 bg-gray-300 text-gray-500 rounded-lg cursor-not-allowed font-medium">
+                ✓ Delivered
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+
+    const pendingSellerOrders = getOrdersByStatus('pending_seller');
+    const newOrders = getOrdersByStatus('new');
+    const preparingOrders = getOrdersByStatus('preparing');
+    const readyOrders = getOrdersByStatus('ready');
+    const outForDeliveryOrders = getOrdersByStatus('out_for_delivery');
+    const deliveredOrders = getOrdersByStatus('delivered');
+
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-2xl font-bold text-gray-900">Order Management</h2>
+          <div className="flex items-center space-x-2 px-3 py-2 bg-gray-50 rounded-lg">
+            <div className={`w-3 h-3 rounded-full ${dashboardStatus === 'online' ? 'bg-green-500' : dashboardStatus === 'busy' ? 'bg-yellow-500' : 'bg-red-500'}`}></div>
+            <select value={dashboardStatus} onChange={(e) => toggleDashboardStatus(e.target.value)}
+              className="text-sm border-none bg-transparent focus:ring-0 cursor-pointer" disabled={!connected}>
+              <option value="online">Online</option>
+              <option value="busy">Busy</option>
+              <option value="offline">Offline</option>
+            </select>
+          </div>
+        </div>
+
+        {dashboardStatus === 'offline' && (
+          <div className="bg-red-50 border-l-4 border-red-500 p-4">
+            <div className="flex items-center">
+              <AlertCircle className="w-5 h-5 text-red-600 mr-2" />
+              <p className="text-red-800 font-medium">Your restaurant is currently offline. Customers cannot place new orders.</p>
+            </div>
+          </div>
+        )}
+
+        {ordersLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-6 h-6 animate-spin text-orange-500" />
+            <span className="ml-2 text-gray-500">Loading orders...</span>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Awaiting Your Confirmation</h3>
+                {pendingSellerOrders.length > 0 && (
+                  <span className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full text-sm font-medium">
+                    {pendingSellerOrders.length} pending
+                  </span>
+                )}
+              </div>
+              {pendingSellerOrders.length > 0 ? (
+                pendingSellerOrders.map(order => <OrderCard key={order._id} order={order} status="pending_seller" />)
+              ) : (
+                <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">No orders awaiting confirmation</div>
+              )}
+            </div>
+
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Confirmed Orders</h3>
+              {newOrders.length > 0 ? (
+                newOrders.map(order => <OrderCard key={order._id} order={order} status="new" />)
+              ) : (
+                <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">No confirmed orders</div>
+              )}
+            </div>
+
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Preparing</h3>
+              {preparingOrders.length > 0 ? (
+                preparingOrders.map(order => <OrderCard key={order._id} order={order} status="preparing" />)
+              ) : (
+                <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">No orders being prepared</div>
+              )}
+            </div>
+
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Ready for Pickup</h3>
+              {readyOrders.length > 0 ? (
+                readyOrders.map(order => <OrderCard key={order._id} order={order} status="ready" />)
+              ) : (
+                <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">No orders ready</div>
+              )}
+            </div>
+
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Out for Delivery</h3>
+              {outForDeliveryOrders.length > 0 ? (
+                outForDeliveryOrders.map(order => <OrderCard key={order._id} order={order} status="out_for_delivery" />)
+              ) : (
+                <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">No orders out for delivery</div>
+              )}
+            </div>
+
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Delivered</h3>
+              {deliveredOrders.length > 0 ? (
+                deliveredOrders.map(order => <OrderCard key={order._id} order={order} status="delivered" />)
+              ) : (
+                <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">No delivered orders</div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {!ordersLoading && orders.length === 0 && (
+          <div className="text-center py-12">
+            <ShoppingBag className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-500 mb-2">No orders yet</h3>
+            <p className="text-gray-400">Orders from customers will appear here</p>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderProfile = () => (
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-gray-900">Restaurant Profile</h2>
-        <div className="text-sm text-gray-500">
-          Complete your profile to attract more customers
-        </div>
+        <div className="text-sm text-gray-500">Complete your profile to attract more customers</div>
       </div>
 
       <form onSubmit={handleProfileUpdate} className="space-y-6">
-        {/* Basic Information */}
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Basic Information</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Business Name *
-              </label>
-              <input
-                type="text"
-                value={profileForm.businessName}
+              <label className="block text-sm font-medium text-gray-700 mb-2">Business Name *</label>
+              <input type="text" value={profileForm.businessName}
                 onChange={(e) => setProfileForm(prev => ({ ...prev, businessName: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                required
-              />
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500" required />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Business Type
-              </label>
-              <select
-                value={profileForm.businessType}
+              <label className="block text-sm font-medium text-gray-700 mb-2">Business Type</label>
+              <select value={profileForm.businessType}
                 onChange={(e) => setProfileForm(prev => ({ ...prev, businessType: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-              >
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500">
                 <option value="Restaurant">Restaurant</option>
                 <option value="Cafe">Cafe</option>
                 <option value="Fast Food">Fast Food</option>
@@ -1030,114 +831,63 @@ const OrderCard = ({ order, status }) => (
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Owner Name *
-              </label>
-              <input
-                type="text"
-                value={profileForm.ownerName}
+              <label className="block text-sm font-medium text-gray-700 mb-2">Owner Name *</label>
+              <input type="text" value={profileForm.ownerName}
                 onChange={(e) => setProfileForm(prev => ({ ...prev, ownerName: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                required
-              />
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500" required />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Phone Number *
-              </label>
-              <input
-                type="tel"
-                value={profileForm.phone}
+              <label className="block text-sm font-medium text-gray-700 mb-2">Phone Number *</label>
+              <input type="tel" value={profileForm.phone}
                 onChange={(e) => setProfileForm(prev => ({ ...prev, phone: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                required
-              />
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500" required />
             </div>
           </div>
           <div className="mt-6">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Restaurant Description
-            </label>
-            <textarea
-              value={profileForm.description}
-              onChange={(e) => setProfileForm(prev => ({ ...prev, description: e.target.value }))}
-              rows="3"
+            <label className="block text-sm font-medium text-gray-700 mb-2">Restaurant Description</label>
+            <textarea value={profileForm.description}
+              onChange={(e) => setProfileForm(prev => ({ ...prev, description: e.target.value }))} rows="3"
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-              placeholder="Tell customers about your restaurant..."
-            />
+              placeholder="Tell customers about your restaurant..." />
           </div>
         </div>
 
-        {/* Address Information */}
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Address Information</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Street Address *
-              </label>
-              <input
-                type="text"
-                value={profileForm.street}
+              <label className="block text-sm font-medium text-gray-700 mb-2">Street Address *</label>
+              <input type="text" value={profileForm.street}
                 onChange={(e) => setProfileForm(prev => ({ ...prev, street: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                required
-              />
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500" required />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                City *
-              </label>
-              <input
-                type="text"
-                value={profileForm.city}
+              <label className="block text-sm font-medium text-gray-700 mb-2">City *</label>
+              <input type="text" value={profileForm.city}
                 onChange={(e) => setProfileForm(prev => ({ ...prev, city: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                required
-              />
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500" required />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                State *
-              </label>
-              <input
-                type="text"
-                value={profileForm.state}
+              <label className="block text-sm font-medium text-gray-700 mb-2">State *</label>
+              <input type="text" value={profileForm.state}
                 onChange={(e) => setProfileForm(prev => ({ ...prev, state: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                required
-              />
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500" required />
             </div>
           </div>
         </div>
 
-        {/* FIXED: Restaurant Branding - Updated image handling */}
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Restaurant Branding</h3>
-          
-          {/* Logo Upload */}
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Restaurant Logo
-              </label>
-              <p className="text-sm text-gray-500 mb-3">
-                Upload your restaurant logo (max 10MB)
-              </p>
-              
+              <label className="block text-sm font-medium text-gray-700 mb-2">Restaurant Logo</label>
+              <p className="text-sm text-gray-500 mb-3">Upload your restaurant logo (max 10MB)</p>
               <div className="flex items-start space-x-4">
-                {/* Logo Preview - FIXED */}
                 <div className="w-24 h-24 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center bg-gray-50">
                   {profileImagePreviews.logo || sellerData?.businessDetails?.documents?.logo ? (
-                    <img
-                      src={profileImagePreviews.logo || getImageUrl(sellerData?.businessDetails?.documents?.logo)}
-                      alt="Restaurant Logo"
-                      className="w-full h-full object-cover rounded-lg"
-                      onError={(e) => {
-                        console.error('Logo image failed to load:', e.target.src);
-                        e.target.style.display = 'none';
-                      }}
-                    />
+                    <img src={profileImagePreviews.logo || getImageUrl(sellerData?.businessDetails?.documents?.logo)}
+                      alt="Restaurant Logo" className="w-full h-full object-cover rounded-lg"
+                      onError={(e) => { e.target.style.display = 'none'; }} />
                   ) : (
                     <div className="text-center">
                       <Building className="w-8 h-8 text-gray-400 mx-auto mb-1" />
@@ -1145,52 +895,27 @@ const OrderCard = ({ order, status }) => (
                     </div>
                   )}
                 </div>
-                
-                {/* Logo Upload Button */}
                 <div className="flex-1">
-                  <input
-                    type="file"
-                    id="logo-upload"
-                    accept="image/*"
-                    onChange={(e) => handleImageSelect(e, 'logo')}
-                    className="hidden"
-                  />
-                  <label
-                    htmlFor="logo-upload"
-                    className="flex items-center justify-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 cursor-pointer"
-                  >
-                    <Upload className="w-4 h-4 mr-2" />
-                    Choose Logo
+                  <input type="file" id="logo-upload" accept="image/*"
+                    onChange={(e) => handleImageSelect(e, 'logo')} className="hidden" />
+                  <label htmlFor="logo-upload"
+                    className="flex items-center justify-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 cursor-pointer">
+                    <Upload className="w-4 h-4 mr-2" />Choose Logo
                   </label>
-                  <p className="text-xs text-gray-500 mt-2">
-                    Any image format (max 10MB)
-                  </p>
+                  <p className="text-xs text-gray-500 mt-2">Any image format (max 10MB)</p>
                 </div>
               </div>
             </div>
 
-            {/* Banner Image Upload - FIXED */}
             <div className="pt-4 border-t border-gray-100">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Banner Image
-              </label>
-              <p className="text-sm text-gray-500 mb-3">
-                Upload a banner image for your restaurant (max 10MB)
-              </p>
-              
+              <label className="block text-sm font-medium text-gray-700 mb-2">Banner Image</label>
+              <p className="text-sm text-gray-500 mb-3">Upload a banner image for your restaurant (max 10MB)</p>
               <div className="space-y-4">
-                {/* Banner Preview - FIXED */}
                 <div className="w-full h-32 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center bg-gray-50 overflow-hidden">
                   {profileImagePreviews.bannerImage || sellerData?.businessDetails?.documents?.bannerImage ? (
-                    <img
-                      src={profileImagePreviews.bannerImage || getImageUrl(sellerData?.businessDetails?.documents?.bannerImage)}
-                      alt="Restaurant Banner"
-                      className="w-full h-full object-cover rounded-lg"
-                      onError={(e) => {
-                        console.error('Banner image failed to load:', e.target.src);
-                        e.target.style.display = 'none';
-                      }}
-                    />
+                    <img src={profileImagePreviews.bannerImage || getImageUrl(sellerData?.businessDetails?.documents?.bannerImage)}
+                      alt="Restaurant Banner" className="w-full h-full object-cover rounded-lg"
+                      onError={(e) => { e.target.style.display = 'none'; }} />
                   ) : (
                     <div className="text-center">
                       <Camera className="w-8 h-8 text-gray-400 mx-auto mb-2" />
@@ -1199,22 +924,12 @@ const OrderCard = ({ order, status }) => (
                     </div>
                   )}
                 </div>
-                
-                {/* Banner Upload Button */}
                 <div>
-                  <input
-                    type="file"
-                    id="banner-upload"
-                    accept="image/*"
-                    onChange={(e) => handleImageSelect(e, 'bannerImage')}
-                    className="hidden"
-                  />
-                  <label
-                    htmlFor="banner-upload"
-                    className="flex items-center justify-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 cursor-pointer"
-                  >
-                    <Upload className="w-4 h-4 mr-2" />
-                    Choose Banner Image
+                  <input type="file" id="banner-upload" accept="image/*"
+                    onChange={(e) => handleImageSelect(e, 'bannerImage')} className="hidden" />
+                  <label htmlFor="banner-upload"
+                    className="flex items-center justify-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 cursor-pointer">
+                    <Upload className="w-4 h-4 mr-2" />Choose Banner Image
                   </label>
                 </div>
               </div>
@@ -1223,16 +938,9 @@ const OrderCard = ({ order, status }) => (
         </div>
 
         <div className="flex justify-end">
-          <button
-            type="submit"
-            disabled={loading}
-            className="flex items-center space-x-2 px-6 py-2 bg-orange-500 text-white rounded-md hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Save className="w-4 h-4" />
-            )}
+          <button type="submit" disabled={loading}
+            className="flex items-center space-x-2 px-6 py-2 bg-orange-500 text-white rounded-md hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed">
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             <span>{loading ? 'Updating...' : 'Update Profile'}</span>
           </button>
         </div>
@@ -1240,48 +948,30 @@ const OrderCard = ({ order, status }) => (
     </div>
   );
 
-  // Render Menu Management section
   const renderMenu = () => (
     <div className="space-y-8">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <h2 className="text-2xl font-bold text-gray-900">Menu Management</h2>
-        <button
-          onClick={() => {
-            resetDishForm();
-            setModalType('add');
-            setShowModal(true);
-          }}
-          className="flex items-center space-x-2 px-4 py-2 bg-orange-500 text-white rounded-md hover:bg-orange-600"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add New Dish</span>
+        <button onClick={() => { resetDishForm(); setModalType('add'); setShowModal(true); }}
+          className="flex items-center space-x-2 px-4 py-2 bg-orange-500 text-white rounded-md hover:bg-orange-600">
+          <Plus className="w-4 h-4" /><span>Add New Dish</span>
         </button>
       </div>
 
-      {/* Dishes Grid - FIXED */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {dishes.map((dish) => (
           <div key={dish._id} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="relative h-48 bg-gray-100">
               {dish.image ? (
-                <img
-                  src={getImageUrl(dish.image)}
-                  alt={dish.name}
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    console.error('Dish image failed to load:', e.target.src);
-                    e.target.style.display = 'none';
-                  }}
-                />
+                <img src={getImageUrl(dish.image)} alt={dish.name} className="w-full h-full object-cover"
+                  onError={(e) => { e.target.style.display = 'none'; }} />
               ) : (
                 <div className="w-full h-full flex items-center justify-center">
                   <Camera className="w-12 h-12 text-gray-400" />
                 </div>
               )}
               <div className="absolute top-2 right-2">
-                <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                  dish.availability ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                }`}>
+                <span className={`px-2 py-1 text-xs font-medium rounded-full ${dish.availability ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
                   {dish.availability ? 'Available' : 'Unavailable'}
                 </span>
               </div>
@@ -1289,9 +979,7 @@ const OrderCard = ({ order, status }) => (
             <div className="p-4">
               <div className="flex items-start justify-between mb-2">
                 <h3 className="font-semibold text-gray-900 truncate">{dish.name}</h3>
-                <span className={`w-3 h-3 rounded-full ${
-                  dish.type === 'veg' ? 'bg-green-500' : 'bg-red-500'
-                }`}></span>
+                <span className={`w-3 h-3 rounded-full ${dish.type === 'veg' ? 'bg-green-500' : 'bg-red-500'}`}></span>
               </div>
               <p className="text-sm text-gray-600 mb-3 line-clamp-2">{dish.description}</p>
               <div className="flex items-center justify-between mb-3">
@@ -1299,30 +987,19 @@ const OrderCard = ({ order, status }) => (
                 <span className="text-sm text-gray-500">{dish.category}</span>
               </div>
               <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => {
-                    setEditingDish(dish);
-                    setDishForm({
-                      name: dish.name,
-                      price: dish.price,
-                      category: dish.category,
-                      type: dish.type,
-                      description: dish.description,
-                      availability: dish.availability,
-                      preparationTime: dish.preparationTime || 30
-                    });
-                    setModalType('edit');
-                    setShowModal(true);
-                  }}
-                  className="flex-1 flex items-center justify-center space-x-1 px-3 py-2 text-sm bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200"
-                >
-                  <Edit3 className="w-4 h-4" />
-                  <span>Edit</span>
+                <button onClick={() => {
+                  setEditingDish(dish);
+                  setDishForm({
+                    name: dish.name, price: dish.price, category: dish.category, type: dish.type,
+                    description: dish.description, availability: dish.availability, preparationTime: dish.preparationTime || 30
+                  });
+                  setModalType('edit'); setShowModal(true);
+                }}
+                  className="flex-1 flex items-center justify-center space-x-1 px-3 py-2 text-sm bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200">
+                  <Edit3 className="w-4 h-4" /><span>Edit</span>
                 </button>
-                <button
-                  onClick={() => handleDeleteDish(dish._id)}
-                  className="flex items-center justify-center px-3 py-2 text-sm bg-red-100 text-red-700 rounded-md hover:bg-red-200"
-                >
+                <button onClick={() => handleDeleteDish(dish._id)}
+                  className="flex items-center justify-center px-3 py-2 text-sm bg-red-100 text-red-700 rounded-md hover:bg-red-200">
                   <Trash2 className="w-4 h-4" />
                 </button>
               </div>
@@ -1336,54 +1013,22 @@ const OrderCard = ({ order, status }) => (
           <ChefHat className="w-16 h-16 text-gray-300 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-500 mb-2">No dishes yet</h3>
           <p className="text-gray-400 mb-4">Start building your menu by adding your first dish</p>
-          <button
-            onClick={() => {
-              resetDishForm();
-              setModalType('add');
-              setShowModal(true);
-            }}
-            className="flex items-center space-x-2 px-4 py-2 bg-orange-500 text-white rounded-md hover:bg-orange-600 mx-auto"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add First Dish</span>
+          <button onClick={() => { resetDishForm(); setModalType('add'); setShowModal(true); }}
+            className="flex items-center space-x-2 px-4 py-2 bg-orange-500 text-white rounded-md hover:bg-orange-600 mx-auto">
+            <Plus className="w-4 h-4" /><span>Add First Dish</span>
           </button>
         </div>
       )}
     </div>
   );
 
-  // Render Overview section
   const renderOverview = () => (
     <div className="space-y-8">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatsCard 
-          title="Today's Revenue" 
-          value={`₹${stats?.todayRevenue || 0}`} 
-          icon={DollarSign} 
-          color="bg-green-500" 
-          bgColor="bg-white"
-        />
-        <StatsCard 
-          title="Active Orders" 
-          value={stats?.activeOrders || 0} 
-          icon={ShoppingBag} 
-          color="bg-blue-500" 
-          bgColor="bg-white"
-        />
-        <StatsCard 
-          title="Total Dishes" 
-          value={stats?.totalDishes || dishes.length || 0} 
-          icon={ChefHat} 
-          color="bg-purple-500" 
-          bgColor="bg-white"
-        />
-        <StatsCard 
-          title="Rating" 
-          value={reviewStats?.averageRating?.toFixed(1) || '0.0'} 
-          icon={Star} 
-          color="bg-yellow-500" 
-          bgColor="bg-white"
-        />
+        <StatsCard title="Today's Revenue" value={`₹${stats?.todayRevenue || 0}`} icon={DollarSign} color="bg-green-500" bgColor="bg-white" />
+        <StatsCard title="Active Orders" value={stats?.activeOrders || 0} icon={ShoppingBag} color="bg-blue-500" bgColor="bg-white" />
+        <StatsCard title="Total Dishes" value={stats?.totalDishes || dishes.length || 0} icon={ChefHat} color="bg-purple-500" bgColor="bg-white" />
+        <StatsCard title="Rating" value={reviewStats?.averageRating?.toFixed(1) || '0.0'} icon={Star} color="bg-yellow-500" bgColor="bg-white" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -1420,20 +1065,15 @@ const OrderCard = ({ order, status }) => (
             <h3 className="text-lg font-semibold text-gray-900">Quick Actions</h3>
           </div>
           <div className="p-6 space-y-4">
-            <button 
-              onClick={() => setActiveSection('menu')}
-              className="w-full flex items-center space-x-4 p-4 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-all group"
-            >
+            <button onClick={() => setActiveSection('menu')}
+              className="w-full flex items-center space-x-4 p-4 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-all group">
               <div className="p-2 bg-blue-100 rounded-lg group-hover:bg-blue-200 transition-colors">
                 <Plus className="w-5 h-5 text-blue-600" />
               </div>
               <span className="font-medium text-gray-700 group-hover:text-blue-700">Manage Menu</span>
             </button>
-
-            <button 
-              onClick={() => setActiveSection('reviews')}
-              className="w-full flex items-center space-x-4 p-4 rounded-lg border border-gray-200 hover:bg-yellow-50 hover:border-yellow-200 transition-all group"
-            >
+            <button onClick={() => setActiveSection('reviews')}
+              className="w-full flex items-center space-x-4 p-4 rounded-lg border border-gray-200 hover:bg-yellow-50 hover:border-yellow-200 transition-all group">
               <div className="p-2 bg-yellow-100 rounded-lg group-hover:bg-yellow-200 transition-colors">
                 <Star className="w-5 h-5 text-yellow-600" />
               </div>
@@ -1445,70 +1085,27 @@ const OrderCard = ({ order, status }) => (
     </div>
   );
 
-  // Render Reviews section
   const renderReviews = () => (
     <div className="space-y-8">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <h2 className="text-2xl font-bold text-gray-900">Reviews & Ratings</h2>
       </div>
 
-      {/* Review Statistics */}
       {reviewStats && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
             <div className="text-center">
-              <div className="text-3xl font-bold text-orange-500 mb-2">
-                {reviewStats.averageRating || '0.0'}
-              </div>
+              <div className="text-3xl font-bold text-orange-500 mb-2">{reviewStats.averageRating || '0.0'}</div>
               <StarRating rating={Math.round(reviewStats.averageRating || 0)} size="md" />
               <p className="text-sm text-gray-500 mt-2">Average Rating</p>
             </div>
           </div>
-          
           <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
             <div className="text-center">
-              <div className="text-3xl font-bold text-blue-500 mb-2">
-                {reviewStats.totalReviews || 0}
-              </div>
+              <div className="text-3xl font-bold text-blue-500 mb-2">{reviewStats.totalReviews || 0}</div>
               <p className="text-sm text-gray-500">Total Reviews</p>
             </div>
           </div>
-<div className="flex items-center space-x-4">
-  {/* NOTIFICATION BELL WITH PANEL */}
-  <div className="relative">
-    <button
-      onClick={() => setShowNotifications(!showNotifications)}
-      className={`relative p-2 rounded-lg transition-colors ${
-        connected ? 'hover:bg-gray-100' : ''
-      }`}
-      title={connected ? 'Notifications' : 'Disconnected from notifications'}
-    >
-      <Bell 
-        className={`w-6 h-6 transition-colors ${
-          connected ? 'text-gray-600 hover:text-gray-900' : 'text-gray-400'
-        }`}
-      />
-      {notifications.length > 0 && (
-        <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
-          {notifications.length > 9 ? '9+' : notifications.length}
-        </span>
-      )}
-      {/* Connection status indicator */}
-      <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white ${
-        connected ? 'bg-green-400' : 'bg-gray-400'
-      }`}></div>
-    </button>
-  </div>
-
-  <div className="flex items-center space-x-2">
-    <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center">
-      <User className="w-4 h-4 text-orange-600" />
-    </div>
-    <span className="hidden md:block text-sm font-medium text-gray-700">
-      {getSellerDisplayName()}
-    </span>
-  </div>
-</div>
           <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
             <div className="text-center">
               <div className="text-3xl font-bold text-green-500 mb-2">
@@ -1517,7 +1114,6 @@ const OrderCard = ({ order, status }) => (
               <p className="text-sm text-gray-500">Positive Reviews</p>
             </div>
           </div>
-
           <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
             <div className="text-center">
               <div className="text-3xl font-bold text-yellow-500 mb-2">
@@ -1529,7 +1125,6 @@ const OrderCard = ({ order, status }) => (
         </div>
       )}
 
-      {/* Reviews List */}
       {reviewsLoading ? (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="w-6 h-6 animate-spin text-orange-500" />
@@ -1559,9 +1154,7 @@ const OrderCard = ({ order, status }) => (
                       </div>
                       <div className="flex items-center space-x-2 mt-1">
                         <StarRating rating={review.rating} size="sm" />
-                        <span className="text-sm text-gray-500">
-                          {new Date(review.createdAt).toLocaleDateString()}
-                        </span>
+                        <span className="text-sm text-gray-500">{new Date(review.createdAt).toLocaleDateString()}</span>
                       </div>
                     </div>
                   </div>
@@ -1578,7 +1171,6 @@ const OrderCard = ({ order, status }) => (
     </div>
   );
 
-  // Placeholder functions for other sections
   const renderPlaceholder = (title, IconComponent) => (
     <div className="text-center py-20">
       <IconComponent className="w-16 h-16 text-gray-300 mx-auto mb-4" />
@@ -1586,92 +1178,49 @@ const OrderCard = ({ order, status }) => (
     </div>
   );
 
-  // Main content renderer
   const renderContent = () => {
     switch (activeSection) {
-      case 'overview':
-        return renderOverview();
-      case 'profile':
-        return renderProfile();
-      case 'menu':
-        return renderMenu();
-      case 'reviews':
-        return renderReviews();
-      case 'orders':
-        return renderOrders(); // UPDATED: Use the actual renderOrders function
-      case 'reservations':
-        return renderPlaceholder('Reservations', Calendar);
-      case 'payments':
-        return renderPlaceholder('Payments', CreditCard);
-      case 'analytics':
-        return renderPlaceholder('Analytics', BarChart3);
-      case 'offers':
-        return renderPlaceholder('Offers', Tag);
-      case 'settings':
-        return renderPlaceholder('Settings', Settings);
-      default:
-        return renderOverview();
+      case 'overview': return renderOverview();
+      case 'profile': return renderProfile();
+      case 'menu': return renderMenu();
+      case 'reviews': return renderReviews();
+      case 'orders': return renderOrders();
+      case 'reservations': return renderPlaceholder('Reservations', Calendar);
+      case 'payments': return renderPlaceholder('Payments', CreditCard);
+      case 'analytics': return renderPlaceholder('Analytics', BarChart3);
+      case 'offers': return renderPlaceholder('Offers', Tag);
+      case 'settings': return renderPlaceholder('Settings', Settings);
+      default: return renderOverview();
     }
   };
 
-  // Get seller display information
-  const getSellerEmail = () => {
-    return sellerData?.email || 'Loading...';
-  };
-
-  const getSellerDisplayName = () => {
-    return sellerData?.businessDetails?.ownerName || 
-           sellerData?.businessName || 
-           sellerData?.email || 
-           'Restaurant Owner';
-  };
-<NotificationPanel
-  notifications={notifications}
-  isOpen={showNotifications}
-  onClose={() => setShowNotifications(false)}
-  onMarkAsRead={markAsRead}
-  onMarkAllAsRead={markAllAsRead}
-  onClear={clearNotifications}
-  onRemove={removeNotification}
-/>
+  const getSellerEmail = () => sellerData?.email || 'Loading...';
+  const getSellerDisplayName = () => sellerData?.businessDetails?.ownerName || sellerData?.businessName || sellerData?.email || 'Restaurant Owner';
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
-      {/* Global Messages */}
+      <NotificationPanel notifications={notifications} isOpen={showNotifications} onClose={() => setShowNotifications(false)}
+        onMarkAsRead={markAsRead} onMarkAllAsRead={markAllAsRead} onClear={clearNotifications} onRemove={removeNotification} />
+
       {success && (
         <div className="fixed top-4 right-4 z-50 flex items-center space-x-2 text-green-600 bg-green-50 p-4 rounded-lg shadow-lg border border-green-200">
-          <CheckCircle className="w-5 h-5" />
-          <span className="font-medium">{success}</span>
+          <CheckCircle className="w-5 h-5" /><span className="font-medium">{success}</span>
         </div>
       )}
 
       {error && (
         <div className="fixed top-4 right-4 z-50 flex items-center space-x-2 text-red-600 bg-red-50 p-4 rounded-lg shadow-lg border border-red-200">
-          <AlertCircle className="w-5 h-5" />
-          <span className="font-medium">{error}</span>
+          <AlertCircle className="w-5 h-5" /><span className="font-medium">{error}</span>
         </div>
       )}
 
-      {/* Sidebar */}
-      {sidebarOpen && (
-        <div 
-          className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
+      {sidebarOpen && <div className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />}
 
-      <div className={`
-        fixed lg:static inset-y-0 left-0 z-50 w-72 bg-white border-r border-gray-200 
-        transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} 
-        transition-transform duration-300 ease-in-out lg:translate-x-0 lg:transition-none
-      `}>
+      <div className={`fixed lg:static inset-y-0 left-0 z-50 w-72 bg-white border-r border-gray-200 transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} transition-transform duration-300 ease-in-out lg:translate-x-0 lg:transition-none`}>
         <div className="flex flex-col h-full">
           <div className="flex items-center justify-between h-16 px-6 border-b border-gray-200">
             <h1 className="text-xl font-bold text-orange-600">Seller Dashboard</h1>
-            <button 
-              onClick={() => setSidebarOpen(false)}
-              className="lg:hidden text-gray-400 hover:text-gray-600 transition-colors"
-            >
+            <button onClick={() => setSidebarOpen(false)} className="lg:hidden text-gray-400 hover:text-gray-600 transition-colors">
               <X className="w-6 h-6" />
             </button>
           </div>
@@ -1680,20 +1229,8 @@ const OrderCard = ({ order, status }) => (
             {sidebarItems.map(item => {
               const Icon = item.icon;
               return (
-                <button
-                  key={item.id}
-                  onClick={() => {
-                    setActiveSection(item.id);
-                    setSidebarOpen(false);
-                  }}
-                  className={`
-                    w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-left transition-all duration-200
-                    ${activeSection === item.id 
-                      ? 'bg-orange-100 text-orange-700 border-orange-200 shadow-sm' 
-                      : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
-                    }
-                  `}
-                >
+                <button key={item.id} onClick={() => { setActiveSection(item.id); setSidebarOpen(false); }}
+                  className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-left transition-all duration-200 ${activeSection === item.id ? 'bg-orange-100 text-orange-700 border-orange-200 shadow-sm' : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'}`}>
                   <Icon className="w-5 h-5" />
                   <span className="font-medium">{item.label}</span>
                 </button>
@@ -1701,86 +1238,62 @@ const OrderCard = ({ order, status }) => (
             })}
           </nav>
 
-          {/* Fixed seller profile section */}
           <div className="p-4 border-t border-gray-200">
             <div className="flex items-center space-x-3 p-3 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer">
               <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center">
                 <User className="w-5 h-5 text-orange-600" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900 truncate">
-                  {getSellerDisplayName()}
-                </p>
-                <p className="text-xs text-gray-500 truncate">
-                  {getSellerEmail()}
-                </p>
+                <p className="text-sm font-medium text-gray-900 truncate">{getSellerDisplayName()}</p>
+                <p className="text-xs text-gray-500 truncate">{getSellerEmail()}</p>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Main Content */}
       <div className="flex-1 min-w-0">
         <header className="bg-white border-b border-gray-200 px-4 lg:px-8 py-4">
           <div className="flex items-center justify-between">
-            <button
-              onClick={() => setSidebarOpen(true)}
-              className="lg:hidden text-gray-600 hover:text-gray-900 transition-colors"
-            >
+            <button onClick={() => setSidebarOpen(true)} className="lg:hidden text-gray-600 hover:text-gray-900 transition-colors">
               <Menu className="w-6 h-6" />
             </button>
 
             <div className="flex items-center space-x-4">
-              {/* NOTIFICATION BELL WITH SOCKET.IO INTEGRATION */}
               <div className="relative">
-                <Bell 
-                  className={`w-6 h-6 transition-colors cursor-pointer ${
-                    connected ? 'text-gray-600 hover:text-gray-900' : 'text-gray-400'
-                  }`}
-                  title={connected ? 'Connected to real-time notifications' : 'Disconnected from notifications'}
-                />
-                {notifications.length > 0 && (
-                  <span className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
-                    {notifications.length}
-                  </span>
-                )}
-                {/* Connection status indicator */}
-                <div className={`absolute -bottom-1 -right-1 w-2 h-2 rounded-full ${
-                  connected ? 'bg-green-400' : 'bg-gray-400'
-                }`}></div>
+                <button onClick={() => setShowNotifications(!showNotifications)}
+                  className={`relative p-2 rounded-lg transition-colors ${connected ? 'hover:bg-gray-100' : ''}`}
+                  title={connected ? 'Notifications' : 'Disconnected from notifications'}>
+                  <Bell className={`w-6 h-6 transition-colors ${connected ? 'text-gray-600 hover:text-gray-900' : 'text-gray-400'}`} />
+                  {notifications.length > 0 && (
+                    <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
+                      {notifications.length > 9 ? '9+' : notifications.length}
+                    </span>
+                  )}
+                  <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white ${connected ? 'bg-green-400' : 'bg-gray-400'}`}></div>
+                </button>
               </div>
 
               <div className="flex items-center space-x-2">
                 <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center">
                   <User className="w-4 h-4 text-orange-600" />
                 </div>
-                <span className="hidden md:block text-sm font-medium text-gray-700">
-                  {getSellerDisplayName()}
-                </span>
+                <span className="hidden md:block text-sm font-medium text-gray-700">{getSellerDisplayName()}</span>
               </div>
             </div>
           </div>
         </header>
 
-        <main className="p-4 lg:p-8">
-          {renderContent()}
-        </main>
+        <main className="p-4 lg:p-8">{renderContent()}</main>
       </div>
 
-      {/* Add/Edit Dish Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-gray-200">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-gray-900">
-                  {modalType === 'edit' ? 'Edit Dish' : 'Add New Dish'}
-                </h3>
-                <button
-                  onClick={() => setShowModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
+                <h3 className="text-lg font-semibold text-gray-900">{modalType === 'edit' ? 'Edit Dish' : 'Add New Dish'}</h3>
+                <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600">
                   <X className="w-6 h-6" />
                 </button>
               </div>
@@ -1789,41 +1302,22 @@ const OrderCard = ({ order, status }) => (
             <form onSubmit={handleDishSubmit} className="p-6 space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Dish Name *
-                  </label>
-                  <input
-                    type="text"
-                    value={dishForm.name}
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Dish Name *</label>
+                  <input type="text" value={dishForm.name}
                     onChange={(e) => setDishForm(prev => ({ ...prev, name: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                    required
-                  />
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500" required />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Price (₹) *
-                  </label>
-                  <input
-                    type="number"
-                    value={dishForm.price}
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Price (₹) *</label>
+                  <input type="number" value={dishForm.price}
                     onChange={(e) => setDishForm(prev => ({ ...prev, price: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                    min="0"
-                    step="0.01"
-                    required
-                  />
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500" min="0" step="0.01" required />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Category *
-                  </label>
-                  <select
-                    value={dishForm.category}
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Category *</label>
+                  <select value={dishForm.category}
                     onChange={(e) => setDishForm(prev => ({ ...prev, category: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                    required
-                  >
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500" required>
                     <option value="Starters">Starters</option>
                     <option value="Main Course">Main Course</option>
                     <option value="Desserts">Desserts</option>
@@ -1835,15 +1329,10 @@ const OrderCard = ({ order, status }) => (
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Type *
-                  </label>
-                  <select
-                    value={dishForm.type}
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Type *</label>
+                  <select value={dishForm.type}
                     onChange={(e) => setDishForm(prev => ({ ...prev, type: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                    required
-                  >
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500" required>
                     <option value="veg">Vegetarian</option>
                     <option value="non-veg">Non-Vegetarian</option>
                   </select>
@@ -1851,74 +1340,43 @@ const OrderCard = ({ order, status }) => (
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Description *
-                </label>
-                <textarea
-                  value={dishForm.description}
-                  onChange={(e) => setDishForm(prev => ({ ...prev, description: e.target.value }))}
-                  rows="3"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                  required
-                />
+                <label className="block text-sm font-medium text-gray-700 mb-2">Description *</label>
+                <textarea value={dishForm.description}
+                  onChange={(e) => setDishForm(prev => ({ ...prev, description: e.target.value }))} rows="3"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500" required />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Dish Image
-                </label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => handleImageSelect(e, 'dish')}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                />
+                <label className="block text-sm font-medium text-gray-700 mb-2">Dish Image</label>
+                <input type="file" accept="image/*" onChange={(e) => handleImageSelect(e, 'dish')}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500" />
                 {imagePreview && (
                   <div className="mt-2">
-                    <img
-                      src={imagePreview}
-                      alt="Preview"
-                      className="w-32 h-32 object-cover rounded-md"
-                    />
+                    <img src={imagePreview} alt="Preview" className="w-32 h-32 object-cover rounded-md" />
                   </div>
                 )}
               </div>
 
               <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  id="availability"
-                  checked={dishForm.availability}
+                <input type="checkbox" id="availability" checked={dishForm.availability}
                   onChange={(e) => setDishForm(prev => ({ ...prev, availability: e.target.checked }))}
-                  className="w-4 h-4 text-orange-600 focus:ring-orange-500 border-gray-300 rounded"
-                />
-                <label htmlFor="availability" className="text-sm font-medium text-gray-700">
-                  Available for orders
-                </label>
+                  className="w-4 h-4 text-orange-600 focus:ring-orange-500 border-gray-300 rounded" />
+                <label htmlFor="availability" className="text-sm font-medium text-gray-700">Available for orders</label>
               </div>
 
               <div className="flex justify-end space-x-3">
-                <button
-                  type="button"
-                  onClick={() => setShowModal(false)}
-                  className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="flex items-center space-x-2 px-4 py-2 bg-orange-500 text-white rounded-md hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {loading ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Save className="w-4 h-4" />
-                  )}
+                <button type="button" onClick={() => setShowModal(false)}
+                  className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50">Cancel</button>
+                <button type="submit" disabled={loading}
+                  className="flex items-center space-x-2 px-4 py-2 bg-orange-500 text-white rounded-md hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed">
+                  {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                   <span>{loading ? 'Saving...' : (modalType === 'edit' ? 'Update Dish' : 'Add Dish')}</span>
                 </button>
               </div>
-            </form>
+            </
+            
+            
+            form>
           </div>
         </div>
       )}

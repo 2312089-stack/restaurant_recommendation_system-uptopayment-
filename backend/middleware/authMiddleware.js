@@ -6,7 +6,11 @@ export const authenticateToken = async (req, res, next) => {
   try {
     console.log('🔐 Authentication middleware called');
     console.log('Request URL:', req.method, req.originalUrl);
-
+      console.log('🔐 Auth middleware - Headers:', {
+      authorization: req.headers.authorization ? 'Present' : 'Missing',
+      authLength: req.headers.authorization?.length,
+      xAccessToken: req.headers['x-access-token'] ? 'Present' : 'Missing'
+    });
     let token = null;
 
     // Extract token from headers
@@ -206,3 +210,4 @@ export const authenticateSellerToken = async (req, res, next) => {
 
 
 export { authenticateToken as authenticateUser };
+export { authenticateSellerToken as authenticateSeller }; // Add only this ONE line

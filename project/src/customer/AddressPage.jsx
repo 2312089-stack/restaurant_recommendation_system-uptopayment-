@@ -276,7 +276,15 @@ const calculateOrderTotal = (item) => {
 }, [selectedItem, navigate]);
   
   // Log the received item for debugging
-  
+  // AddressPage.jsx (Line ~280)
+navigate('/order-summary', { 
+  state: { 
+    item: selectedItem,
+    selectedAddress: selectedAddress, // Pass ID
+    addresses: savedAddresses,        // Pass full array
+    orderTotal: calculateOrderTotal(selectedItem)
+  } 
+});
   const handleAddressSelection = () => {
   if (selectedAddress) {
     const selectedAddressData = savedAddresses.find(addr => addr.id === selectedAddress);

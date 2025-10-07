@@ -20,24 +20,24 @@ export const initializeSocket = (server) => {
 
   sellerStatusManager.initialize(io);
 
+  // Cleanup inactive sellers every 10 minutes
   setInterval(() => {
     sellerStatusManager.cleanupInactiveSellers(30);
   }, 10 * 60 * 1000);
 
   io.on('connection', (socket) => {
-    console.log('🔌 Client connected:', socket.id);
+    console.log('Client connected:', socket.id);
 
-    // SELLER AUTHENTICATION
+    // ==================== SELLER AUTHENTICATION ====================
     socket.on('authenticate-seller', async (token) => {
       try {
-        console.log('🔐 Seller authentication attempt');
+        console.log('Seller authentication attempt');
         if (!token) {
           socket.emit('auth-error', { error: 'No token provided' });
           return;
         }
 
         const JWT_SECRET = process.env.JWT_SECRET || 'tastesphere-super-secret-jwt-key-2024-make-this-very-long-and-random-for-security';
-
         const decoded = jwt.verify(token, JWT_SECRET);
         const sellerId = decoded.sellerId || decoded.id;
 
@@ -48,7 +48,6 @@ export const initializeSocket = (server) => {
 
         socket.sellerId = sellerId;
         socket.userType = 'seller';
-
         socket.join(`seller-${sellerId}`);
 
         sellerStatusManager.setSellerOnline(sellerId, socket.id);
@@ -65,9 +64,9 @@ export const initializeSocket = (server) => {
           status: 'online'
         });
 
-        console.log(`✅ Seller authenticated and online: ${sellerId}`);
+        console.log(`Seller authenticated and online: ${sellerId}`);
       } catch (error) {
-        console.error('❌ Seller auth error:', error.name, error.message);
+        console.error('Seller auth error:', error.name, error.message);
         socket.emit('auth-error', {
           error: 'Authentication failed',
           type: error.name,
@@ -76,7 +75,7 @@ export const initializeSocket = (server) => {
       }
     });
 
-    // SELLER DASHBOARD STATUS UPDATES
+    // ==================== SELLER DASHBOARD STATUS ====================
     socket.on('update-dashboard-status', (data) => {
       if (socket.sellerId) {
         const { status } = data;
@@ -85,21 +84,20 @@ export const initializeSocket = (server) => {
         } else {
           sellerStatusManager.updateSellerStatus(socket.sellerId, status);
         }
-        console.log(`📊 Seller ${socket.sellerId} dashboard status: ${status}`);
+        console.log(`Seller ${socket.sellerId} dashboard status: ${status}`);
       }
     });
 
-    // USER AUTHENTICATION
+    // ==================== CUSTOMER AUTHENTICATION ====================
     socket.on('authenticate-user', async (token) => {
       try {
-        console.log('🔐 Customer authentication attempt');
+        console.log('Customer authentication attempt');
         if (!token) {
           socket.emit('auth-error', { error: 'No token provided' });
           return;
         }
 
         const JWT_SECRET = process.env.JWT_SECRET || 'tastesphere-super-secret-jwt-key-2024-make-this-very-long-and-random-for-security';
-
         const decoded = jwt.verify(token, JWT_SECRET);
         const userId = decoded.id || decoded.userId;
         const userEmail = decoded.email || decoded.emailId;
@@ -125,9 +123,9 @@ export const initializeSocket = (server) => {
           userType: 'customer'
         });
 
-        console.log(`✅ Customer authenticated: ${userId} (${userEmail})`);
+        console.log(`Customer authenticated: ${userId} (${userEmail})`);
       } catch (error) {
-        console.error('❌ User auth error:', error.name, error.message);
+        console.error('User auth error:', error.name, error.message);
         socket.emit('auth-error', { 
           error: 'Authentication failed',
           type: error.name,
@@ -136,41 +134,38 @@ export const initializeSocket = (server) => {
       }
     });
 
-    // JOIN ORDER ROOM - Allow customers to join specific order rooms
+    // ==================== ROOM MANAGEMENT ====================
     socket.on('join-order-room', (orderId) => {
       if (!orderId) {
-        console.warn('⚠️ join-order-room called without orderId');
+        console.warn('join-order-room called without orderId');
         return;
       }
       
       const roomName = `order-${orderId}`;
       socket.join(roomName);
-      console.log(`📥 Socket ${socket.id} joined room: ${roomName}`);
-      
+      console.log(`Socket ${socket.id} joined room: ${roomName}`);
       socket.emit('joined-order-room', { orderId, room: roomName });
     });
 
-    // JOIN GENERIC ROOM
     socket.on('join', (room) => {
       if (!room) {
-        console.warn('⚠️ join called without room name');
+        console.warn('join called without room name');
         return;
       }
       
       socket.join(room);
-      console.log(`📥 Socket ${socket.id} joined room: ${room}`);
+      console.log(`Socket ${socket.id} joined room: ${room}`);
     });
 
-    // LEAVE ORDER ROOM
     socket.on('leave-order-room', (orderId) => {
       if (!orderId) return;
       
       const roomName = `order-${orderId}`;
       socket.leave(roomName);
-      console.log(`📤 Socket ${socket.id} left room: ${roomName}`);
+      console.log(`Socket ${socket.id} left room: ${roomName}`);
     });
 
-    // REQUEST SELLER STATUS
+    // ==================== SELLER STATUS REQUESTS ====================
     socket.on('request-seller-status', (data) => {
       const { sellerId, sellerIds } = data;
 
@@ -183,15 +178,14 @@ export const initializeSocket = (server) => {
       }
     });
 
-    // REQUEST ALL ONLINE SELLERS
     socket.on('request-online-sellers', () => {
       const onlineSellers = sellerStatusManager.getOnlineSellers();
       socket.emit('online-sellers-response', onlineSellers);
     });
 
-    // DISCONNECT HANDLER
+    // ==================== DISCONNECT HANDLER ====================
     socket.on('disconnect', async (reason) => {
-      console.log(`🔌 Client disconnected: ${socket.id} (${reason})`);
+      console.log(`Client disconnected: ${socket.id} (${reason})`);
 
       if (socket.sellerId) {
         sellerStatusManager.setSellerOffline(socket.sellerId);
@@ -204,21 +198,21 @@ export const initializeSocket = (server) => {
           console.error('Error updating seller offline status:', err);
         });
 
-        console.log(`🔴 Seller ${socket.sellerId} disconnected and marked offline`);
+        console.log(`Seller ${socket.sellerId} disconnected and marked offline`);
       }
 
       if (socket.userId) {
-        console.log(`🔴 Customer ${socket.userId} disconnected`);
+        console.log(`Customer ${socket.userId} disconnected`);
       }
     });
 
-    // ERROR HANDLER
+    // ==================== ERROR HANDLER ====================
     socket.on('error', (error) => {
       console.error('Socket error:', error);
     });
   });
 
-  console.log('✅ Socket.IO initialized with seller status tracking');
+  console.log('Socket.IO initialized with seller status tracking');
   return io;
 };
 
@@ -229,15 +223,17 @@ export const getIO = () => {
   return io;
 };
 
+// ==================== EMISSION HELPERS ====================
+
 // Emit new order to seller
 export const emitNewOrder = (sellerId, orderData) => {
   if (!io) {
-    console.warn('⚠️ Socket.IO not initialized, cannot emit new order');
+    console.warn('Socket.IO not initialized, cannot emit new order');
     return;
   }
   
   const room = `seller-${sellerId}`;
-  console.log(`📤 Emitting new-order to room: ${room}`);
+  console.log(`Emitting new-order to room: ${room}`);
   
   io.to(room).emit('new-order', {
     order: orderData,
@@ -248,18 +244,18 @@ export const emitNewOrder = (sellerId, orderData) => {
     }
   });
   
-  console.log(`✅ New order emitted to seller ${sellerId}`);
+  console.log(`New order emitted to seller ${sellerId}`);
 };
 
 // Emit order confirmation to customer
 export const emitOrderConfirmation = (customerEmail, orderData) => {
   if (!io) {
-    console.warn('⚠️ Socket.IO not initialized, cannot emit order confirmation');
+    console.warn('Socket.IO not initialized, cannot emit order confirmation');
     return;
   }
   
   const room = `user-${customerEmail}`;
-  console.log(`📤 Emitting order-confirmed to room: ${room}`);
+  console.log(`Emitting order-confirmed to room: ${room}`);
   
   io.to(room).emit('order-confirmed', {
     orderId: orderData.orderId,
@@ -270,13 +266,13 @@ export const emitOrderConfirmation = (customerEmail, orderData) => {
     timestamp: new Date()
   });
   
-  console.log(`✅ Order confirmation emitted to customer ${customerEmail}`);
+  console.log(`Order confirmation emitted to customer ${customerEmail}`);
 };
 
 // Emit order status update to customer
 export const emitOrderStatusUpdate = (orderData) => {
   if (!io) {
-    console.warn('⚠️ Socket.IO not initialized, cannot emit status update');
+    console.warn('Socket.IO not initialized');
     return;
   }
   
@@ -284,49 +280,97 @@ export const emitOrderStatusUpdate = (orderData) => {
   const orderId = orderData._id || orderData.id;
   
   if (!customerEmail || !orderId) {
-    console.warn('⚠️ Missing customer email or order ID for status update');
+    console.warn('Missing customer email or order ID');
     return;
   }
-  
-  // Emit to multiple rooms for redundancy
-  const rooms = [
-    `user-${customerEmail}`,
-    `order-${orderId}`
-  ];
   
   const statusUpdate = {
     orderId: orderData.orderId,
     orderMongoId: orderId,
     _id: orderId,
     status: orderData.orderStatus || orderData.status,
+    orderStatus: orderData.orderStatus || orderData.status,
     message: orderData.statusMessage || getStatusMessage(orderData.orderStatus || orderData.status),
     estimatedDelivery: orderData.estimatedDelivery,
+    cancelledAt: orderData.cancelledAt,
+    cancellationReason: orderData.cancellationReason,
+    cancelledBy: orderData.cancelledBy,
     timestamp: new Date()
   };
   
-  console.log(`📤 Emitting order-status-updated to rooms:`, rooms);
-  console.log('Status update data:', statusUpdate);
+  console.log('Emitting status update:', statusUpdate);
+  
+  // Emit to multiple rooms
+  const rooms = [
+    `user-${customerEmail}`,
+    `order-${orderId}`
+  ];
   
   rooms.forEach(room => {
     io.to(room).emit('order-status-updated', statusUpdate);
-    io.to(room).emit('status-update', statusUpdate); // Backup event
+    io.to(room).emit('status-update', statusUpdate);
+    console.log(`Emitted to room: ${room}`);
   });
   
-  console.log(`✅ Status update emitted for order ${orderData.orderId}`);
+  // Also emit to seller if present
+  if (orderData.seller) {
+    const sellerRoom = `seller-${orderData.seller}`;
+    io.to(sellerRoom).emit('order-status-updated', statusUpdate);
+    console.log(`Emitted to seller: ${sellerRoom}`);
+  }
 };
 
 // Helper function to get status message
 const getStatusMessage = (status) => {
   const messages = {
     'pending': 'Your order is pending confirmation',
+    'pending_seller': 'Waiting for restaurant confirmation',
+    'seller_accepted': 'Restaurant accepted your order',
     'confirmed': 'Your order has been confirmed by the restaurant',
     'preparing': 'The restaurant is preparing your food',
     'ready': 'Your order is ready for pickup',
     'out_for_delivery': 'Your order is on its way',
     'delivered': 'Your order has been delivered',
-    'cancelled': 'Your order has been cancelled'
+    'cancelled': 'Your order has been cancelled',
+    'seller_rejected': 'Restaurant declined your order'
   };
   return messages[status] || 'Order status updated';
+};
+
+// Emit order cancellation to customer
+export const emitOrderCancellation = (customerEmail, orderData, cancellationReason) => {
+  if (!io) {
+    console.warn('Socket.IO not initialized, cannot emit cancellation');
+    return;
+  }
+  
+  const customerRoom = `user-${customerEmail}`;
+  const orderId = orderData._id || orderData.id;
+  
+  console.log(`Emitting order cancellation to: ${customerRoom}`);
+  
+  const cancellationData = {
+    orderId: orderData.orderId,
+    orderMongoId: orderId,
+    _id: orderId,
+    status: 'cancelled',
+    orderStatus: 'cancelled',
+    cancellationReason: cancellationReason,
+    cancelledBy: orderData.cancelledBy || 'seller',
+    cancelledAt: orderData.cancelledAt || new Date(),
+    message: `Your order has been cancelled. ${cancellationReason}`,
+    timestamp: new Date()
+  };
+  
+  // Emit to customer room
+  io.to(customerRoom).emit('order-status-updated', cancellationData);
+  io.to(customerRoom).emit('status-update', cancellationData);
+  
+  // Also emit to order room
+  const orderRoom = `order-${orderId}`;
+  io.to(orderRoom).emit('order-status-updated', cancellationData);
+  
+  console.log('Cancellation notification sent');
 };
 
 export default { 
@@ -334,5 +378,6 @@ export default {
   getIO, 
   emitNewOrder, 
   emitOrderConfirmation,
-  emitOrderStatusUpdate 
+  emitOrderStatusUpdate,
+  emitOrderCancellation
 };

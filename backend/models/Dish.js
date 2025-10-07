@@ -1,78 +1,113 @@
-// models/Dish.js - Complete Dish model for restaurant dishes
+// models/Dish.js - COMPLETE FIXED VERSION
 import mongoose from 'mongoose';
 
 const dishSchema = new mongoose.Schema({
+  // Basic Information
   name: {
     type: String,
-    required: true,
+    required: [true, 'Dish name is required'],
     trim: true,
-    maxlength: 100
+    maxlength: [100, 'Dish name cannot exceed 100 characters']
   },
+  
   description: {
     type: String,
-    required: true,
+    required: [true, 'Description is required'],
     trim: true,
-    maxlength: 500
+    maxlength: [500, 'Description cannot exceed 500 characters']
   },
+  
   price: {
     type: Number,
-    required: true,
-    min: 0
+    required: [true, 'Price is required'],
+    min: [0, 'Price cannot be negative']
   },
+  
+  // Category & Type
   category: {
     type: String,
-    required: true,
-    enum: [
-      'Starters', 'Main Course', 'Desserts', 'Beverages', 
-      'Chinese', 'Indian', 'Continental', 'South Indian'
-    ]
+    required: [true, 'Category is required'],
+    enum: {
+      values: [
+        'Starters', 'Main Course', 'Desserts', 'Beverages',
+        'Chinese', 'Indian', 'Continental', 'South Indian'
+      ],
+      message: '{VALUE} is not a valid category'
+    }
   },
+  
   type: {
     type: String,
-    required: true,
-    enum: ['veg', 'non-veg'],
+    required: [true, 'Type is required'],
+    enum: {
+      values: ['veg', 'non-veg'],
+      message: '{VALUE} is not a valid type'
+    },
     default: 'veg'
   },
+  
+  // Availability & Settings
   availability: {
     type: Boolean,
-    default: true
+    default: true,
+    index: true
   },
+  
   preparationTime: {
     type: Number,
     default: 30,
-    min: 5,
-    max: 120
+    min: [5, 'Preparation time must be at least 5 minutes'],
+    max: [120, 'Preparation time cannot exceed 120 minutes']
   },
+  
   image: {
     type: String,
     default: null
   },
   
-  // Seller Information
+  // ✅ CRITICAL: Seller References (both fields for compatibility)
   seller: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Seller',
-    required: true,
+    required: [true, 'Seller reference is required'],
     index: true
   },
+  
+  restaurantId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Seller',
+    required: [true, 'Restaurant ID is required'],
+    index: true
+  },
+  
+  // Seller Details (denormalized for performance)
   sellerName: {
     type: String,
     required: true
   },
+  
   restaurantName: {
     type: String,
     required: true
   },
   
-  // Location (copied from seller for faster queries)
+  // Location Information
   location: {
     street: String,
     city: String,
     state: String,
     zipCode: String,
     coordinates: {
-      latitude: Number,
-      longitude: Number
+      latitude: {
+        type: Number,
+        min: -90,
+        max: 90
+      },
+      longitude: {
+        type: Number,
+        min: -180,
+        max: 180
+      }
     }
   },
   
@@ -86,31 +121,37 @@ const dishSchema = new mongoose.Schema({
     },
     count: {
       type: Number,
-      default: 0
+      default: 0,
+      min: 0
     }
   },
   
-  // Performance metrics
+  // Analytics
   orderCount: {
     type: Number,
-    default: 0
-  },
-  viewCount: {
-    type: Number,
-    default: 0
+    default: 0,
+    min: 0
   },
   
-  // Status flags
+  viewCount: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  
+  // Status Flags
   isActive: {
     type: Boolean,
-    default: true
+    default: true,
+    index: true
   },
+  
   isFeatured: {
     type: Boolean,
     default: false
   },
   
-  // Offer system
+  // Offers & Promotions
   offer: {
     hasOffer: {
       type: Boolean,
@@ -125,111 +166,209 @@ const dishSchema = new mongoose.Schema({
     validUntil: Date
   },
   
-  // Tags for better searchability
+  // Additional Details
+  ingredients: [String],
+  
+  nutritionalInfo: {
+    calories: Number,
+    protein: String,
+    carbs: String,
+    fat: String,
+    fiber: String
+  },
+  
+  allergens: [String],
+  
+  spiceLevel: {
+    type: String,
+    enum: ['mild', 'medium', 'hot', 'extra-hot', null],
+    default: null
+  },
+  
   tags: [String]
+  
 }, {
-  timestamps: true
+  timestamps: true,
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
 });
 
-// Indexes for better query performance
+// ✅ CRITICAL: Pre-save hook to sync seller and restaurantId
+dishSchema.pre('save', function(next) {
+  // Sync seller and restaurantId if one is missing
+  if (this.seller && !this.restaurantId) {
+    this.restaurantId = this.seller;
+  }
+  if (this.restaurantId && !this.seller) {
+    this.seller = this.restaurantId;
+  }
+  next();
+});
+
+// ✅ Indexes for Query Performance
 dishSchema.index({ seller: 1, availability: 1 });
+dishSchema.index({ restaurantId: 1, availability: 1 });
 dishSchema.index({ category: 1, availability: 1 });
 dishSchema.index({ type: 1, availability: 1 });
 dishSchema.index({ 'location.city': 1, availability: 1 });
 dishSchema.index({ orderCount: -1 });
 dishSchema.index({ 'rating.average': -1 });
 dishSchema.index({ isActive: 1, availability: 1 });
+dishSchema.index({ createdAt: -1 });
 
-// Text search index
+// ✅ Text Search Index
 dishSchema.index({
   name: 'text',
   description: 'text',
   tags: 'text'
+}, {
+  weights: {
+    name: 10,
+    tags: 5,
+    description: 1
+  }
 });
 
-// Virtual for formatted price
+// ✅ Virtual Properties
 dishSchema.virtual('formattedPrice').get(function() {
   return `₹${this.price}`;
 });
 
-// Virtual for current price with offer
 dishSchema.virtual('currentPrice').get(function() {
-  if (this.offer.hasOffer && this.offer.validUntil > new Date()) {
-    const discountedPrice = this.price - (this.price * this.offer.discountPercentage / 100);
-    return `₹${Math.round(discountedPrice)}`;
+  if (this.offer?.hasOffer && this.offer.validUntil && new Date(this.offer.validUntil) > new Date()) {
+    const discount = Math.round(this.price - (this.price * this.offer.discountPercentage / 100));
+    return `₹${discount}`;
   }
   return `₹${this.price}`;
 });
 
-// Virtual for rating display
 dishSchema.virtual('ratingDisplay').get(function() {
   return this.rating.average > 0 ? this.rating.average.toFixed(1) : 'New';
 });
 
-// Method to check if dish is available
-dishSchema.methods.isAvailable = function() {
-  return this.availability && this.isActive;
-};
-
-// Method to calculate discounted price
-dishSchema.methods.getDiscountedPrice = function() {
-  if (this.offer.hasOffer && this.offer.validUntil > new Date()) {
-    return Math.round(this.price - (this.price * this.offer.discountPercentage / 100));
+dishSchema.virtual('offerText').get(function() {
+  if (this.offer?.hasOffer && this.offer.validUntil && new Date(this.offer.validUntil) > new Date()) {
+    return `${this.offer.discountPercentage}% OFF`;
   }
-  return this.price;
+  return null;
+});
+
+// ✅ Instance Methods
+
+// Increment view count
+dishSchema.methods.incrementViewCount = function() {
+  this.viewCount += 1;
+  return this.save();
 };
 
-// Static method to find popular dishes
+// Increment order count
+dishSchema.methods.incrementOrderCount = function() {
+  this.orderCount += 1;
+  return this.save();
+};
+
+// Update rating
+dishSchema.methods.updateRating = function(newRating) {
+  const currentTotal = this.rating.average * this.rating.count;
+  this.rating.count += 1;
+  this.rating.average = (currentTotal + newRating) / this.rating.count;
+  return this.save();
+};
+
+// Check if dish is available
+dishSchema.methods.isAvailable = function() {
+  return this.isActive && this.availability;
+};
+
+// Get discount amount
+dishSchema.methods.getDiscountAmount = function() {
+  if (this.offer?.hasOffer && this.offer.validUntil && new Date(this.offer.validUntil) > new Date()) {
+    return Math.round(this.price * this.offer.discountPercentage / 100);
+  }
+  return 0;
+};
+
+// ✅ Static Methods
+
+// Find dishes by seller
+dishSchema.statics.findBySeller = function(sellerId, options = {}) {
+  const query = { 
+    $or: [
+      { seller: sellerId },
+      { restaurantId: sellerId }
+    ]
+  };
+  
+  if (options.activeOnly) {
+    query.isActive = true;
+    query.availability = true;
+  }
+  
+  return this.find(query)
+    .sort(options.sort || { orderCount: -1 })
+    .limit(options.limit || 100);
+};
+
+// Find popular dishes
 dishSchema.statics.findPopular = function(limit = 20) {
-  return this.find({ isActive: true, availability: true })
+  return this.find({ 
+    isActive: true, 
+    availability: true 
+  })
     .sort({ orderCount: -1, 'rating.average': -1 })
     .limit(limit);
 };
 
-// Static method to find featured dishes
-dishSchema.statics.findFeatured = function(limit = 10) {
-  return this.find({ isActive: true, availability: true, isFeatured: true })
-    .sort({ orderCount: -1 })
-    .limit(limit);
-};
-
-// Static method to search dishes
-dishSchema.statics.search = function(query, filters = {}) {
+// Search dishes
+dishSchema.statics.searchDishes = function(query, options = {}) {
   const searchQuery = {
+    $text: { $search: query },
     isActive: true,
     availability: true
   };
-
-  // Text search
-  if (query) {
-    searchQuery.$text = { $search: query };
-  }
-
-  // Apply filters
-  if (filters.category) searchQuery.category = filters.category;
-  if (filters.type) searchQuery.type = filters.type;
-  if (filters.city) searchQuery['location.city'] = new RegExp(filters.city, 'i');
   
-  return this.find(searchQuery).sort({ score: { $meta: 'textScore' } });
+  if (options.category) {
+    searchQuery.category = options.category;
+  }
+  
+  if (options.type) {
+    searchQuery.type = options.type;
+  }
+  
+  return this.find(searchQuery)
+    .sort({ score: { $meta: 'textScore' } })
+    .limit(options.limit || 20);
 };
 
-// Pre-save middleware to update tags
-dishSchema.pre('save', function(next) {
-  if (this.isModified('name') || this.isModified('description') || this.isModified('category')) {
-    this.tags = [
-      this.name.toLowerCase(),
-      this.description.toLowerCase(),
-      this.category.toLowerCase(),
-      this.type,
-      this.restaurantName.toLowerCase()
-    ].filter(tag => tag);
+// Get dishes by category
+dishSchema.statics.findByCategory = function(category, options = {}) {
+  return this.find({
+    category,
+    isActive: true,
+    availability: true
+  })
+    .sort(options.sort || { 'rating.average': -1 })
+    .limit(options.limit || 20);
+};
+
+// ✅ Validation Methods
+
+// Validate before deletion
+dishSchema.pre('remove', async function(next) {
+  // Check if dish has pending orders
+  const Order = mongoose.model('Order');
+  const pendingOrders = await Order.countDocuments({
+    dish: this._id,
+    orderStatus: { $in: ['confirmed', 'preparing', 'ready', 'out_for_delivery'] }
+  });
+  
+  if (pendingOrders > 0) {
+    next(new Error('Cannot delete dish with pending orders'));
+  } else {
+    next();
   }
-  next();
 });
 
-// Ensure virtual fields are serialized
-dishSchema.set('toJSON', { virtuals: true });
-dishSchema.set('toObject', { virtuals: true });
-
 const Dish = mongoose.model('Dish', dishSchema);
+
 export default Dish;

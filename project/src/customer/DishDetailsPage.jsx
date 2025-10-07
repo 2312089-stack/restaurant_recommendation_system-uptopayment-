@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useCart } from '../contexts/CartContext';
+import { useSocket } from '../contexts/SocketContext';
 
 const API_BASE = 'http://localhost:5000/api';
 
@@ -51,8 +52,8 @@ const DishDetailsPage = ({ dishId, onBack }) => {
   const [reviews, setReviews] = useState([]);
   const [reviewsLoading, setReviewsLoading] = useState(false);
   const [showReviewForm, setShowReviewForm] = useState(false);
-  const [reviewFilter, setReviewFilter] = useState('all'); // all, 5, 4, 3, 2, 1
-  const [sortBy, setSortBy] = useState('newest'); // newest, oldest, highest, lowest, helpful
+  const [reviewFilter, setReviewFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('newest');
   
   // Review form states
   const [reviewForm, setReviewForm] = useState({
@@ -69,14 +70,13 @@ const DishDetailsPage = ({ dishId, onBack }) => {
 
   const { addToCart, loading: cartLoading, itemCount, totalAmount, clearCart } = useCart();
 
-  // Get user token for authenticated requests
+  // Check if user can review
+  const [canReview, setCanReview] = useState(false);
+  const [hasReviewed, setHasReviewed] = useState(false);
+
   const getUserToken = () => {
     return localStorage.getItem('token') || localStorage.getItem('userToken');
   };
-
-  // Check if user can review (has ordered this dish)
-  const [canReview, setCanReview] = useState(false);
-  const [hasReviewed, setHasReviewed] = useState(false);
 
   useEffect(() => {
     if (dishId) {
@@ -85,21 +85,29 @@ const DishDetailsPage = ({ dishId, onBack }) => {
       checkReviewEligibility();
     }
   }, [dishId]);
-useEffect(() => {
+
+  useEffect(() => {
     if (!socket || !connected || !dish) return;
 
     const handleStatusChange = (data) => {
-      if (data.sellerId === dish.seller?._id) {
+      if (data.sellerId === dish.seller?._id || data.sellerId === dish.seller) {
         setIsSellerOnline(data.isOnline && data.dashboardStatus !== 'offline');
       }
     };
 
     socket.on('seller-status-changed', handleStatusChange);
 
+    if (dish.seller?._id || dish.seller) {
+      socket.emit('request-seller-status', { 
+        sellerId: dish.seller?._id || dish.seller 
+      });
+    }
+
     return () => {
       socket.off('seller-status-changed', handleStatusChange);
     };
   }, [socket, connected, dish]);
+
   const fetchDishDetails = async () => {
     try {
       setLoading(true);
@@ -192,12 +200,11 @@ useEffect(() => {
         throw new Error(data.error || 'Failed to submit review');
       }
 
-      // Reset form and refresh data
       setReviewForm({ rating: 5, title: '', comment: '', anonymous: false });
       setShowReviewForm(false);
       setHasReviewed(true);
       await fetchReviews();
-      await fetchDishDetails(); // Refresh to update average rating
+      await fetchDishDetails();
       
     } catch (err) {
       console.error('Submit review error:', err);
@@ -219,13 +226,12 @@ useEffect(() => {
         }
       });
       
-      fetchReviews(); // Refresh reviews
+      fetchReviews();
     } catch (err) {
       console.error('Mark review helpful error:', err);
     }
   };
 
-  // Filter and sort reviews
   const filteredAndSortedReviews = reviews
     .filter(review => {
       if (reviewFilter === 'all') return true;
@@ -248,7 +254,6 @@ useEffect(() => {
       }
     });
 
-  // Calculate review statistics
   const reviewStats = {
     total: reviews.length,
     average: reviews.length > 0 ? (reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length).toFixed(1) : 0,
@@ -261,7 +266,6 @@ useEffect(() => {
     }
   };
 
-  // Enhanced add to cart with visual feedback
   const handleAddToCart = async () => {
     if (!dish || (!dish._id && !dish.id)) {
       console.error('Invalid dish object:', dish);
@@ -283,13 +287,9 @@ useEffect(() => {
       const result = await addToCart(dishId, quantity);
       
       if (result.success) {
-        // Show success message
         setSuccessMessage(`${dish.name} (${quantity}x) added to cart!`);
         setTimeout(() => setSuccessMessage(''), 3000);
         
-        console.log('Cart updated successfully');
-        
-        // Dispatch cart update event for header refresh
         window.dispatchEvent(new CustomEvent('cartUpdated', { 
           detail: { 
             action: 'add',
@@ -358,124 +358,78 @@ useEffect(() => {
     }
   };
 
-  // Handle order now - navigate to address page with dish data
-  // Updated handleOrderNow function for DishDetailsPage.jsx
-// Updated handleOrderNow function for DishDetailsPage.jsx
-// Replace the existing handleOrderNow function with this corrected version
-
-const handleOrderNow = async () => {
-  if (!dish || (!dish._id && !dish.id)) {
-    console.error('Invalid dish object:', dish);
-    alert('Error: Invalid dish data');
-    return;
-  }
-
-  console.log('Order now clicked for dish:', dish.name, 'quantity:', quantity);
-  
-  try {
-    // Clean price conversion - handle different price formats
-    let cleanPrice = 0;
-    if (typeof dish.price === 'string') {
-      cleanPrice = parseInt(dish.price.replace(/[^\d]/g, '')) || 0;
-    } else if (typeof dish.price === 'number') {
-      cleanPrice = dish.price;
+  const handleOrderNow = async () => {
+    if (!dish || (!dish._id && !dish.id)) {
+      console.error('Invalid dish object:', dish);
+      alert('Error: Invalid dish data');
+      return;
     }
 
-    // Transform dish data to match AddressPage expectations
-    const orderItem = {
-      id: dish._id || dish.id,
-      dishId: dish._id || dish.id,
-      name: dish.name,
-      restaurant: dish.restaurant || dish.restaurantName || 'Restaurant',
-      restaurantId: dish.restaurantId || dish.restaurant_id,
-      price: `₹${cleanPrice}`, // Format as string for display
-      originalPrice: cleanPrice, // Keep numeric value for calculations
-      currentPrice: dish.currentPrice || `₹${cleanPrice}`,
-      image: dish.image ? `http://localhost:5000${dish.image}` : 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg?auto=compress&cs=tinysrgb&w=400&h=250&dpr=1',
-      rating: dish.rating?.average || reviewStats.average || '4.2',
-      deliveryTime: dish.deliveryTime || '25-30 min',
-      distance: dish.distance || '1.2 km',
-      category: dish.category,
-      type: dish.type,
-      description: dish.description || `Delicious ${dish.name} from ${dish.restaurant || dish.restaurantName || 'our kitchen'}`,
-      ingredients: dish.ingredients,
-      nutritionalInfo: dish.nutritionalInfo,
-      quantity: quantity,
-      itemTotal: cleanPrice * quantity,
-      isVeg: dish.type === 'veg',
-      // Additional metadata for order flow
-      orderType: 'direct',
-      fromDishDetails: true,
-      basePrice: cleanPrice,
-      totalItemPrice: cleanPrice * quantity
-    };
-
-    console.log('Navigating to address page with order data:', orderItem);
+    console.log('Order now clicked for dish:', dish.name, 'quantity:', quantity);
     
-    // Navigate to address page with the properly formatted item data
-    navigate('/address', { 
-      state: { 
-        // Pass the single item that matches AddressPage expectations
-        item: orderItem,
-        
-        // Additional context for the order flow
+    try {
+      let cleanPrice = 0;
+      if (typeof dish.price === 'string') {
+        cleanPrice = parseInt(dish.price.replace(/[^\d]/g, '')) || 0;
+      } else if (typeof dish.price === 'number') {
+        cleanPrice = dish.price;
+      }
+
+      const orderItem = {
+        id: dish._id || dish.id,
+        dishId: dish._id || dish.id,
+        name: dish.name,
+        restaurant: dish.restaurant || dish.restaurantName || 'Restaurant',
+        restaurantId: dish.restaurantId || dish.restaurant_id || dish.seller || dish.seller?._id,
+        price: `₹${cleanPrice}`,
+        originalPrice: cleanPrice,
+        currentPrice: dish.currentPrice || `₹${cleanPrice}`,
+        image: dish.image ? `http://localhost:5000${dish.image}` : 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg?auto=compress&cs=tinysrgb&w=400&h=250&dpr=1',
+        rating: dish.rating?.average || reviewStats.average || '4.2',
+        deliveryTime: dish.deliveryTime || '25-30 min',
+        distance: dish.distance || '1.2 km',
+        category: dish.category,
+        type: dish.type,
+        description: dish.description || `Delicious ${dish.name} from ${dish.restaurant || dish.restaurantName || 'our kitchen'}`,
+        ingredients: dish.ingredients,
+        nutritionalInfo: dish.nutritionalInfo,
+        quantity: quantity,
+        itemTotal: cleanPrice * quantity,
+        isVeg: dish.type === 'veg',
         orderType: 'direct',
         fromDishDetails: true,
-        quantity: quantity,
-        
-        // Restaurant info
-        restaurantId: dish.restaurantId || dish.restaurant_id,
-        restaurantName: dish.restaurant || dish.restaurantName,
-        
-        // Navigation context
-        previousPage: 'dish-details',
-        dishId: dish._id || dish.id
-      } 
-    });
-    
-  } catch (error) {
-    console.error('Order now error:', error);
-    alert(`Failed to process order: ${error.message || 'Unknown error'}`);
-  }
-};
+        basePrice: cleanPrice,
+        totalItemPrice: cleanPrice * quantity
+      };
 
-// Also ensure the calculateOrderTotal function in AddressPage can handle the data structure
-// Add this helper function to AddressPage.jsx if it doesn't exist:
-
-const calculateOrderTotal = (item) => {
-  // Handle different price formats from dish details
-  let itemPrice = 0;
-  
-  if (item.originalPrice) {
-    // Use the numeric price if available
-    itemPrice = item.originalPrice;
-  } else if (typeof item.price === 'string') {
-    // Extract number from string format like "₹299"
-    itemPrice = parseInt(item.price.replace(/[^\d]/g, '')) || 0;
-  } else if (typeof item.price === 'number') {
-    itemPrice = item.price;
-  }
-  
-  const deliveryFee = 25;
-  const platformFee = 5;
-  const gst = Math.round(itemPrice * 0.05);
-  
-  return {
-    itemPrice,
-    deliveryFee,
-    platformFee,
-    gst,
-    total: itemPrice + deliveryFee + platformFee + gst
+      console.log('Navigating to address page with order data:', orderItem);
+      
+      navigate('/address', { 
+        state: { 
+          item: orderItem,
+          orderType: 'direct',
+          fromDishDetails: true,
+          quantity: quantity,
+          restaurantId: dish.restaurantId || dish.restaurant_id || dish.seller || dish.seller?._id,
+          restaurantName: dish.restaurant || dish.restaurantName,
+          previousPage: 'dish-details',
+          dishId: dish._id || dish.id
+        } 
+      });
+      
+    } catch (error) {
+      console.error('Order now error:', error);
+      alert(`Failed to process order: ${error.message || 'Unknown error'}`);
+    }
   };
-};
-  // Handle back navigation
+
   const handleBack = () => {
     if (onBack) {
       onBack();
     } else if (location.state?.from) {
       navigate(location.state.from);
     } else {
-      navigate(-1); // Go back to previous page
+      navigate(-1);
     }
   };
 
@@ -594,6 +548,18 @@ const calculateOrderTotal = (item) => {
         </div>
       )}
 
+      {/* Restaurant Offline Banner */}
+      {!isSellerOnline && (
+        <div className="bg-red-50 dark:bg-red-900 border-b-2 border-red-200 dark:border-red-700 px-4 py-3">
+          <div className="max-w-4xl mx-auto flex items-center space-x-2">
+            <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
+            <p className="text-red-800 dark:text-red-200 font-medium">
+              This restaurant is currently closed. You cannot place orders at this time.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 sticky top-0 z-40">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
@@ -682,7 +648,7 @@ const calculateOrderTotal = (item) => {
                 </h1>
                 <div className="flex items-center space-x-2 text-gray-600 dark:text-gray-400 mb-4">
                   <MapPin className="w-4 h-4" />
-                  <span className="text-lg">{dish.restaurant}</span>
+                  <span className="text-lg">{dish.restaurant || dish.restaurantName}</span>
                   {dish.isVerified && (
                     <CheckCircle className="w-4 h-4 text-green-500" title="Verified Restaurant" />
                   )}
@@ -757,18 +723,16 @@ const calculateOrderTotal = (item) => {
                 <div className="text-center">
                   <p className="text-sm text-gray-500 dark:text-gray-500">Status</p>
                   <div className="flex items-center justify-center space-x-1">
-                    {dish.isOpenNow === true ? (
+                    {isSellerOnline ? (
                       <>
                         <div className="w-2 h-2 bg-green-500 rounded-full"></div>
                         <span className="text-sm font-medium text-green-600">Open</span>
                       </>
-                    ) : dish.isOpenNow === false ? (
+                    ) : (
                       <>
                         <div className="w-2 h-2 bg-red-500 rounded-full"></div>
                         <span className="text-sm font-medium text-red-600">Closed</span>
                       </>
-                    ) : (
-                      <span className="text-sm font-medium text-gray-500">Unknown</span>
                     )}
                   </div>
                 </div>
@@ -832,8 +796,12 @@ const calculateOrderTotal = (item) => {
                 <div className="flex space-x-4">
                   <button 
                     onClick={handleAddToCart}
-                    disabled={cartLoading || addingToCart}
-                    className="flex-1 flex items-center justify-center space-x-3 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white font-semibold py-4 px-6 rounded-xl transition-colors duration-200 text-lg"
+                    disabled={cartLoading || addingToCart || !isSellerOnline}
+                    className={`flex-1 flex items-center justify-center space-x-3 py-4 px-6 rounded-xl font-semibold text-lg transition-colors ${
+                      !isSellerOnline
+                        ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
+                        : 'bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white'
+                    }`}
                   >
                     {addingToCart ? (
                       <>
@@ -843,19 +811,30 @@ const calculateOrderTotal = (item) => {
                     ) : (
                       <>
                         <ShoppingCart className="w-6 h-6" />
-                        <span>Add to Cart</span>
+                        <span>{isSellerOnline ? 'Add to Cart' : 'Restaurant Closed'}</span>
                       </>
                     )}
                   </button>
                   <button 
                     onClick={handleOrderNow}
-                    disabled={addingToCart}
-                    className="flex items-center justify-center space-x-3 bg-orange-600 hover:bg-orange-700 disabled:bg-orange-400 text-white font-semibold py-4 px-6 rounded-xl transition-colors duration-200 text-lg"
+                    disabled={addingToCart || !isSellerOnline}
+                    className={`flex items-center justify-center space-x-3 py-4 px-6 rounded-xl font-semibold text-lg transition-colors ${
+                      !isSellerOnline
+                        ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
+                        : 'bg-orange-600 hover:bg-orange-700 disabled:bg-orange-400 text-white'
+                    }`}
                   >
                     <Zap className="w-6 h-6" />
                     <span>Order Now</span>
                   </button>
                 </div>
+
+                {/* Warning message below buttons when restaurant is closed */}
+                {!isSellerOnline && (
+                  <p className="text-center text-sm text-red-600 dark:text-red-400 mt-3">
+                    The restaurant is currently closed. Orders will be available when they come back online.
+                  </p>
+                )}
 
                 {/* Total Price Display */}
                 <div className="mt-4 text-center">
@@ -933,7 +912,7 @@ const calculateOrderTotal = (item) => {
                     <select
                       value={reviewFilter}
                       onChange={(e) => setReviewFilter(e.target.value)}
-                      className="text-sm border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                      className="text-sm border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                     >
                       <option value="all">All ratings</option>
                       <option value="5">5 stars</option>
@@ -947,7 +926,7 @@ const calculateOrderTotal = (item) => {
                   <select
                     value={sortBy}
                     onChange={(e) => setSortBy(e.target.value)}
-                    className="text-sm border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                    className="text-sm border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 focus:border-orange-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                   >
                     <option value="newest">Newest first</option>
                     <option value="oldest">Oldest first</option>
@@ -961,59 +940,7 @@ const calculateOrderTotal = (item) => {
                   {filteredAndSortedReviews.length} of {reviews.length} reviews
                 </div>
               </div>
- <div className="min-h-screen bg-gray-50">
-      {/* Restaurant Status Banner */}
-      {!isSellerOnline && (
-        <div className="bg-red-50 border-b-2 border-red-200 px-4 py-3">
-          <div className="max-w-4xl mx-auto flex items-center space-x-2">
-            <AlertCircle className="w-5 h-5 text-red-600" />
-            <p className="text-red-800 font-medium">
-              This restaurant is currently closed. You cannot place orders at this time.
-            </p>
-          </div>
-        </div>
-      )}
 
-      {/* Dish Content */}
-      {dish && (
-        <div className="max-w-4xl mx-auto px-4 py-8">
-          {/* Action Buttons - Disabled when offline */}
-          <div className="flex space-x-4">
-            <button 
-              onClick={handleAddToCart}
-              disabled={!isSellerOnline}
-              className={`flex-1 flex items-center justify-center space-x-3 py-4 px-6 rounded-xl font-semibold text-lg transition-colors ${
-                !isSellerOnline
-                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  : 'bg-orange-500 hover:bg-orange-600 text-white'
-              }`}
-            >
-              <ShoppingCart className="w-6 h-6" />
-              <span>{isSellerOnline ? 'Add to Cart' : 'Restaurant Closed'}</span>
-            </button>
-            
-            <button 
-              onClick={handleOrderNow}
-              disabled={!isSellerOnline}
-              className={`flex items-center justify-center space-x-3 py-4 px-6 rounded-xl font-semibold text-lg transition-colors ${
-                !isSellerOnline
-                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  : 'bg-orange-600 hover:bg-orange-700 text-white'
-              }`}
-            >
-              <Zap className="w-6 h-6" />
-              <span>Order Now</span>
-            </button>
-          </div>
-
-          {!isSellerOnline && (
-            <p className="text-center text-sm text-red-600 mt-3">
-              The restaurant dashboard is currently offline. Orders will be available when they come back online.
-            </p>
-          )}
-        </div>
-      )}
-    </div>
               {/* Review Form */}
               {showReviewForm && (
                 <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-6 mb-8">
@@ -1167,7 +1094,7 @@ const calculateOrderTotal = (item) => {
                               <User className="w-3 h-3 text-blue-600 dark:text-blue-400" />
                             </div>
                             <span className="font-medium text-blue-900 dark:text-blue-300">
-                              Response from {dish.restaurant}
+                              Response from {dish.restaurant || dish.restaurantName}
                             </span>
                             <span className="text-sm text-blue-600 dark:text-blue-400">
                               {new Date(review.restaurantResponse.respondedAt).toLocaleDateString()}
@@ -1223,7 +1150,7 @@ const calculateOrderTotal = (item) => {
                   <div className="flex-shrink-0">
                     <img
                       src={`http://localhost:5000${dish.restaurantLogo}`}
-                      alt={`${dish.restaurant} logo`}
+                      alt={`${dish.restaurant || dish.restaurantName} logo`}
                       className="w-16 h-16 rounded-lg object-cover border border-gray-200 dark:border-gray-600"
                       onError={(e) => e.target.style.display = 'none'}
                     />
@@ -1233,7 +1160,7 @@ const calculateOrderTotal = (item) => {
                 <div className="flex-1">
                   <div className="flex items-center space-x-2 mb-2">
                     <h3 className="text-xl font-bold text-gray-900 dark:text-white">
-                      {dish.restaurant}
+                      {dish.restaurant || dish.restaurantName}
                     </h3>
                     {dish.isVerified && (
                       <CheckCircle className="w-5 h-5 text-green-500" title="Verified Restaurant" />

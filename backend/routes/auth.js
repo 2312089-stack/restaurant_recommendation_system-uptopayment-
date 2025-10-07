@@ -5,7 +5,8 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import User from '../models/User.js';
-
+import { authenticateToken } from '../middleware/authMiddleware.js';
+import { getProfile } from '../controllers/authController.js';
 const router = express.Router();
 
 // Login Route
@@ -83,6 +84,80 @@ router.post('/login', async (req, res) => {
     });
   }
 });
+// ✅ ADD THIS - Signin alias pointing to the same handler
+router.post('/signin', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Email and password are required'
+      });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        error: 'Password must be at least 6 characters long'
+      });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    
+    const user = await User.findOne({ emailId: cleanEmail }).select('+passwordHash');
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid email or password'
+      });
+    }
+
+    if (!user.passwordHash) {
+      console.error('User found but passwordHash is missing for:', user.emailId);
+      return res.status(500).json({
+        success: false,
+        error: 'Account configuration error. Please contact support.'
+      });
+    }
+
+    const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
+
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid email or password'
+      });
+    }
+
+    const token = jwt.sign(
+      { id: user._id, userId: user._id, emailId: user.emailId, email: user.emailId },
+      process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: '7d' }
+    );
+
+    res.json({
+      success: true,
+      message: 'Login successful',
+      token,
+      user: {
+        id: user._id,
+        emailId: user.emailId,
+        name: user.name,
+        onboardingCompleted: user.onboardingCompleted || false
+      }
+    });
+
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Network error. Please try again.'
+    });
+  }
+});
+router.get('/profile', authenticateToken, getProfile);
 
 // Forgot Password Route
 router.post('/forgot-password', async (req, res) => {

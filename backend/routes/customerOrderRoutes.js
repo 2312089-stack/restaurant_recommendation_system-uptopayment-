@@ -1,160 +1,123 @@
-// routes/customerOrderRoutes.js - COMPLETE ORDER MANAGEMENT
+// backend/routes/customerOrderRoutes.js - FIXED WITH BETTER EMAIL MATCHING
 import express from 'express';
 import Order from '../models/Order.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
-import { createOrder } from '../controllers/orderController.js';
 
 const router = express.Router();
 
-// ==================== CREATE ORDER ====================
-router.post('/create', authenticateToken, createOrder);
-
-// ==================== ORDER HISTORY ====================
-
-// GET /api/orders/history - Get customer's order history
+// ==================== GET ORDER HISTORY ====================
 router.get('/history', authenticateToken, async (req, res) => {
   try {
-    const user = req.user;
-    const { 
-      status = 'all', 
-      page = 1, 
-      limit = 10,
-      sortBy = 'createdAt',
-      sortOrder = 'desc'
-    } = req.query;
-
-    console.log('=== FETCHING ORDER HISTORY ===');
-    console.log('User:', { email: user.email, phone: user.phone });
-
-    // Build query with email/phone matching
-    const orConditions = [];
+    // ✅ Try multiple email field variations
+    const customerEmail = req.user?.email || req.user?.emailId || req.user?.userEmail;
     
-    if (user.email) {
-      orConditions.push({ customerEmail: user.email });
-    }
-    
-    if (user.phone) {
-      const cleanPhone = user.phone.replace(/\D/g, '');
-      if (cleanPhone.length >= 10) {
-        orConditions.push({ customerPhone: cleanPhone });
-      }
-    }
+    console.log('🔍 DEBUG - Auth user object:', JSON.stringify(req.user, null, 2));
+    console.log('📧 Fetching order history for email:', customerEmail);
 
-    if (orConditions.length === 0) {
+    if (!customerEmail) {
+      console.error('❌ No email found in token. User object:', req.user);
       return res.status(400).json({
         success: false,
-        error: 'No user identification found'
+        error: 'Customer email not found in authentication token',
+        debug: {
+          userObject: req.user,
+          availableFields: Object.keys(req.user || {})
+        }
       });
     }
 
-    const query = { $or: orConditions };
+    // ✅ Query using case-insensitive email match
+    const orders = await Order.find({ 
+      customerEmail: { $regex: new RegExp(`^${customerEmail}$`, 'i') }
+    })
+      .populate({
+        path: 'dish',
+        select: 'name image category type price description'
+      })
+      .populate({
+        path: 'seller',
+        select: 'businessName businessDetails.logo address'
+      })
+      .sort('-createdAt')
+      .lean();
 
-    // Apply status filter
-    if (status !== 'all') {
-      if (status === 'completed') {
-        query.orderStatus = 'delivered';
-      } else if (status === 'cancelled') {
-        query.orderStatus = 'cancelled';
-      } else if (status === 'active') {
-        query.orderStatus = { 
-          $in: ['confirmed', 'pending', 'preparing', 'ready', 'out_for_delivery'] 
-        };
-      } else {
-        query.orderStatus = status;
+    console.log(`✅ Found ${orders.length} orders for ${customerEmail}`);
+    
+    if (orders.length === 0) {
+      // Additional debug: check if ANY orders exist for similar email
+      const allOrderEmails = await Order.distinct('customerEmail');
+      console.log('📊 All customer emails in database:', allOrderEmails);
+      
+      const similarEmails = allOrderEmails.filter(email => 
+        email?.toLowerCase().includes(customerEmail.toLowerCase().split('@')[0])
+      );
+      
+      if (similarEmails.length > 0) {
+        console.log('⚠️ Found similar emails:', similarEmails);
+        console.log('⚠️ Email mismatch detected! Token email:', customerEmail);
       }
     }
 
-    console.log('Query:', JSON.stringify(query, null, 2));
-
-    // Count total
-    const total = await Order.countDocuments(query);
-    console.log(`Total orders: ${total}`);
-
-    // Fetch orders
-    const orders = await Order.find(query)
-      .populate('dish', 'name image category type price')
-      .populate('seller', 'businessName email phone')
-      .sort({ [sortBy]: sortOrder === 'desc' ? -1 : 1 })
-      .limit(parseInt(limit))
-      .skip((parseInt(page) - 1) * parseInt(limit))
-      .lean();
-
-    console.log(`Fetched ${orders.length} orders`);
-
-    // Transform for frontend
-    const transformedOrders = orders.map(order => {
-      const itemPrice = order.item?.price || order.orderBreakdown?.itemPrice || 0;
-      const deliveryFee = order.orderBreakdown?.deliveryFee || 25;
-      const gst = order.orderBreakdown?.gst || Math.round(itemPrice * 0.05);
+    // Transform orders for frontend
+    const transformedOrders = orders.map(order => ({
+      _id: order._id.toString(),
+      orderId: order.orderId,
+      orderStatus: order.orderStatus,
+      status: order.orderStatus,
+      paymentStatus: order.paymentStatus,
+      paymentMethod: order.paymentMethod,
       
-      return {
-        _id: order._id,
-        orderId: order.orderId,
-        restaurantName: order.item?.restaurant || order.seller?.businessName || 'TasteSphere',
-        
-        // ✅ PRIMARY STATUS FIELD
-        status: order.orderStatus,
-        orderStatus: order.orderStatus,
-        
-        paymentStatus: order.paymentStatus,
-        paymentMethod: order.paymentMethod,
-        paymentId: order.razorpayPaymentId,
-        
-        createdAt: order.createdAt,
-        updatedAt: order.updatedAt,
-        deliveredAt: order.actualDeliveryTime,
-        cancelledAt: order.cancelledAt,
-        cancellationReason: order.cancellationReason,
-        
-        canReorder: order.orderStatus === 'delivered',
-        canRate: order.orderStatus === 'delivered' && !order.rating,
-        canCancel: ['confirmed', 'pending', 'preparing'].includes(order.orderStatus),
-        
-        items: [{
-          dishId: order.dish?._id || order.item?.dishId,
-          dishName: order.item?.name || 'Food Item',
-          quantity: order.item?.quantity || 1,
-          price: itemPrice,
-          dishImage: order.item?.image || order.dish?.image,
-          category: order.item?.category || order.dish?.category,
-          type: order.item?.type || order.dish?.type
-        }],
-        
-        total: order.totalAmount,
-        subtotal: itemPrice,
-        deliveryFee: deliveryFee,
-        taxes: gst,
-        discount: 0,
-        
-        deliveryAddress: {
-          address: order.deliveryAddress || 'N/A',
-          phoneNumber: order.customerPhone
-        },
-        
-        estimatedDelivery: order.estimatedDelivery,
-        customerName: order.customerName,
-        customerEmail: order.customerEmail,
-        
-        rating: order.rating,
-        review: order.review,
-        ratedAt: order.ratedAt
-      };
-    });
+      customerEmail: order.customerEmail,
+      customerPhone: order.customerPhone,
+      customerName: order.customerName,
+      
+      totalAmount: order.totalAmount,
+      
+      item: {
+        name: order.item?.name || order.dish?.name || 'Food Item',
+        quantity: order.item?.quantity || 1,
+        price: order.item?.price || order.dish?.price || order.totalAmount,
+        image: order.item?.image || order.dish?.image,
+        restaurant: order.seller?.businessName || order.item?.restaurant || 'Restaurant',
+        category: order.item?.category || order.dish?.category,
+        type: order.item?.type || order.dish?.type
+      },
+      
+      deliveryAddress: order.deliveryAddress,
+      estimatedDelivery: order.estimatedDelivery,
+      actualDeliveryTime: order.actualDeliveryTime,
+      
+      // Cancellation info
+      cancellationReason: order.cancellationReason,
+      cancelledBy: order.cancelledBy,
+      cancelledAt: order.cancelledAt,
+      
+      // Refund info
+      refundStatus: order.refundStatus,
+      refundAmount: order.refundAmount,
+      
+      orderBreakdown: order.orderBreakdown,
+      orderTimeline: order.orderTimeline || [],
+      
+      rating: order.rating,
+      review: order.review,
+      ratedAt: order.ratedAt,
+      
+      createdAt: order.createdAt,
+      updatedAt: order.updatedAt
+    }));
 
     res.json({
       success: true,
       orders: transformedOrders,
-      count: transformedOrders.length,
-      pagination: {
-        total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        pages: Math.ceil(total / parseInt(limit))
+      debug: {
+        queriedEmail: customerEmail,
+        totalFound: orders.length
       }
     });
 
   } catch (error) {
-    console.error('❌ ORDER HISTORY ERROR:', error);
+    console.error('❌ Get order history error:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to fetch order history',
@@ -163,57 +126,65 @@ router.get('/history', authenticateToken, async (req, res) => {
   }
 });
 
-// GET /api/orders/stats/summary - Get order statistics
+// ==================== DEBUG ENDPOINT - Check database directly ====================
+router.get('/debug/all-orders', authenticateToken, async (req, res) => {
+  try {
+    const allOrders = await Order.find({}).limit(10).lean();
+    const orderEmails = await Order.distinct('customerEmail');
+    
+    res.json({
+      success: true,
+      debug: {
+        tokenEmail: req.user?.email || req.user?.emailId,
+        tokenUser: req.user,
+        totalOrdersInDB: await Order.countDocuments({}),
+        allCustomerEmails: orderEmails,
+        sampleOrders: allOrders.map(o => ({
+          orderId: o.orderId,
+          customerEmail: o.customerEmail,
+          customerName: o.customerName,
+          status: o.orderStatus,
+          createdAt: o.createdAt
+        }))
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ==================== GET ORDER STATISTICS ====================
 router.get('/stats/summary', authenticateToken, async (req, res) => {
   try {
-    const user = req.user;
-    
-    const orConditions = [];
-    if (user.email) orConditions.push({ customerEmail: user.email });
-    if (user.phone) {
-      const cleanPhone = user.phone.replace(/\D/g, '');
-      if (cleanPhone.length >= 10) {
-        orConditions.push({ customerPhone: cleanPhone });
-      }
-    }
+    const customerEmail = req.user?.email || req.user?.emailId;
 
-    if (orConditions.length === 0) {
-      return res.json({
-        success: true,
-        stats: { total: 0, completed: 0, active: 0, cancelled: 0, totalSpent: 0 }
-      });
-    }
-
-    const query = { $or: orConditions };
-    
-    const [totalOrders, completedOrders, activeOrders, cancelledOrders, totalSpentResult] = 
-      await Promise.all([
-        Order.countDocuments(query),
-        Order.countDocuments({ ...query, orderStatus: 'delivered' }),
-        Order.countDocuments({ 
-          ...query, 
-          orderStatus: { $in: ['confirmed', 'pending', 'preparing', 'ready', 'out_for_delivery'] }
-        }),
-        Order.countDocuments({ ...query, orderStatus: 'cancelled' }),
-        Order.aggregate([
-          { $match: { ...query, orderStatus: 'delivered' } },
-          { $group: { _id: null, total: { $sum: '$totalAmount' } } }
-        ])
-      ]);
+    const [total, completed, active, cancelled, totalSpent] = await Promise.all([
+      Order.countDocuments({ customerEmail }),
+      Order.countDocuments({ customerEmail, orderStatus: 'delivered' }),
+      Order.countDocuments({
+        customerEmail,
+        orderStatus: { $in: ['confirmed', 'preparing', 'ready', 'out_for_delivery'] }
+      }),
+      Order.countDocuments({ customerEmail, orderStatus: 'cancelled' }),
+      Order.aggregate([
+        { $match: { customerEmail, orderStatus: 'delivered' } },
+        { $group: { _id: null, total: { $sum: '$totalAmount' } } }
+      ])
+    ]);
 
     res.json({
       success: true,
       stats: {
-        total: totalOrders,
-        completed: completedOrders,
-        active: activeOrders,
-        cancelled: cancelledOrders,
-        totalSpent: totalSpentResult[0]?.total || 0
+        total,
+        completed,
+        active,
+        cancelled,
+        totalSpent: totalSpent[0]?.total || 0
       }
     });
 
   } catch (error) {
-    console.error('❌ STATS ERROR:', error);
+    console.error('Get stats error:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to fetch statistics'
@@ -221,37 +192,21 @@ router.get('/stats/summary', authenticateToken, async (req, res) => {
   }
 });
 
-// GET /api/orders/:orderId - Get single order
+// ==================== GET SINGLE ORDER ====================
 router.get('/:orderId', authenticateToken, async (req, res) => {
   try {
     const { orderId } = req.params;
-    const user = req.user;
-
-    const orderIdQuery = {
-      $or: [
-        { orderId: orderId },
-        { _id: orderId.match(/^[0-9a-fA-F]{24}$/) ? orderId : null }
-      ].filter(q => q._id !== null)
-    };
-
-    const userQuery = { $or: [] };
-    if (user.email) userQuery.$or.push({ customerEmail: user.email });
-    if (user.phone) {
-      const cleanPhone = user.phone.replace(/\D/g, '');
-      if (cleanPhone.length >= 10) {
-        userQuery.$or.push({ customerPhone: cleanPhone });
-      }
-    }
-
-    if (userQuery.$or.length === 0) {
-      return res.status(403).json({ success: false, error: 'Access denied' });
-    }
+    const customerEmail = req.user?.email || req.user?.emailId;
 
     const order = await Order.findOne({
-      $and: [orderIdQuery, userQuery]
+      $or: [
+        { orderId: orderId },
+        { _id: orderId }
+      ],
+      customerEmail: customerEmail
     })
-      .populate('dish', 'name image category type price')
-      .populate('seller', 'businessName email phone')
+      .populate('dish', 'name image category type price description')
+      .populate('seller', 'businessName businessDetails address')
       .lean();
 
     if (!order) {
@@ -261,10 +216,24 @@ router.get('/:orderId', authenticateToken, async (req, res) => {
       });
     }
 
-    res.json({ success: true, order });
+    const transformedOrder = {
+      ...order,
+      _id: order._id.toString(),
+      status: order.orderStatus,
+      item: {
+        ...order.item,
+        image: order.item?.image || order.dish?.image,
+        restaurant: order.seller?.businessName || order.item?.restaurant
+      }
+    };
+
+    res.json({
+      success: true,
+      order: transformedOrder
+    });
 
   } catch (error) {
-    console.error('❌ GET ORDER ERROR:', error);
+    console.error('Get order error:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to fetch order'
@@ -272,31 +241,23 @@ router.get('/:orderId', authenticateToken, async (req, res) => {
   }
 });
 
-// PATCH /api/orders/:orderId/cancel - Cancel order
-router.patch('/:orderId/cancel', authenticateToken, async (req, res) => {
+// ==================== RATE ORDER ====================
+router.post('/:orderId/rate', authenticateToken, async (req, res) => {
   try {
     const { orderId } = req.params;
-    const { reason } = req.body;
-    const user = req.user;
+    const { rating, review } = req.body;
+    const customerEmail = req.user?.email || req.user?.emailId;
 
-    const orderIdQuery = {
-      $or: [
-        { orderId: orderId },
-        { _id: orderId.match(/^[0-9a-fA-F]{24}$/) ? orderId : null }
-      ].filter(q => q._id !== null)
-    };
-
-    const userQuery = { $or: [] };
-    if (user.email) userQuery.$or.push({ customerEmail: user.email });
-    if (user.phone) {
-      const cleanPhone = user.phone.replace(/\D/g, '');
-      if (cleanPhone.length >= 10) {
-        userQuery.$or.push({ customerPhone: cleanPhone });
-      }
+    if (!rating || rating < 1 || rating > 5) {
+      return res.status(400).json({
+        success: false,
+        error: 'Rating must be between 1 and 5'
+      });
     }
 
     const order = await Order.findOne({
-      $and: [orderIdQuery, userQuery]
+      $or: [{ orderId }, { _id: orderId }],
+      customerEmail
     });
 
     if (!order) {
@@ -306,47 +267,53 @@ router.patch('/:orderId/cancel', authenticateToken, async (req, res) => {
       });
     }
 
-    await order.cancelOrder(reason || 'Cancelled by customer', 'customer');
+    if (order.orderStatus !== 'delivered') {
+      return res.status(400).json({
+        success: false,
+        error: 'Can only rate delivered orders'
+      });
+    }
+
+    if (order.rating) {
+      return res.status(400).json({
+        success: false,
+        error: 'Order already rated'
+      });
+    }
+
+    order.rating = rating;
+    order.review = review || '';
+    order.ratedAt = new Date();
+    await order.save();
 
     res.json({
       success: true,
-      message: 'Order cancelled successfully',
-      order
+      message: 'Rating submitted successfully',
+      order: {
+        orderId: order.orderId,
+        rating: order.rating,
+        review: order.review
+      }
     });
 
   } catch (error) {
-    console.error('❌ CANCEL ORDER ERROR:', error);
+    console.error('Add rating error:', error);
     res.status(500).json({
       success: false,
-      error: error.message || 'Failed to cancel order'
+      error: 'Failed to submit rating'
     });
   }
 });
 
-// POST /api/orders/:orderId/reorder - Reorder
+// ==================== REORDER ====================
 router.post('/:orderId/reorder', authenticateToken, async (req, res) => {
   try {
     const { orderId } = req.params;
-    const user = req.user;
-
-    const orderIdQuery = {
-      $or: [
-        { orderId: orderId },
-        { _id: orderId.match(/^[0-9a-fA-F]{24}$/) ? orderId : null }
-      ].filter(q => q._id !== null)
-    };
-
-    const userQuery = { $or: [] };
-    if (user.email) userQuery.$or.push({ customerEmail: user.email });
-    if (user.phone) {
-      const cleanPhone = user.phone.replace(/\D/g, '');
-      if (cleanPhone.length >= 10) {
-        userQuery.$or.push({ customerPhone: cleanPhone });
-      }
-    }
+    const customerEmail = req.user?.email || req.user?.emailId;
 
     const order = await Order.findOne({
-      $and: [orderIdQuery, userQuery]
+      orderId: orderId,
+      customerEmail: customerEmail
     }).populate('dish');
 
     if (!order) {
@@ -363,26 +330,111 @@ router.post('/:orderId/reorder', authenticateToken, async (req, res) => {
       });
     }
 
+    if (!order.dish.availability) {
+      return res.status(400).json({
+        success: false,
+        error: 'This dish is currently unavailable'
+      });
+    }
+
     res.json({
       success: true,
-      message: 'Order items ready for reorder',
       items: [{
-        dishId: order.dish._id,
-        dishName: order.item?.name || order.dish.name,
-        price: order.item?.price || order.dish.price,
-        quantity: order.item?.quantity || 1,
-        image: order.item?.image || order.dish.image,
-        restaurantName: order.item?.restaurant
+        id: order.dish._id,
+        name: order.item.name,
+        image: order.item.image,
+        price: order.dish.price,
+        restaurant: order.item.restaurant,
+        description: order.dish.description,
+        category: order.dish.category,
+        type: order.dish.type
       }]
     });
 
   } catch (error) {
-    console.error('❌ REORDER ERROR:', error);
+    console.error('Reorder error:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to reorder'
+      error: 'Failed to process reorder'
     });
   }
 });
 
+// ==================== CANCEL ORDER ====================
+router.patch('/:orderId/cancel', authenticateToken, async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { reason } = req.body;
+    const customerEmail = req.user?.email || req.user?.emailId;
+
+    const order = await Order.findOne({
+      $or: [{ orderId }, { _id: orderId }],
+      customerEmail
+    });
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        error: 'Order not found'
+      });
+    }
+
+    if (!['confirmed', 'pending', 'preparing'].includes(order.orderStatus)) {
+      return res.status(400).json({
+        success: false,
+        error: `Cannot cancel order with status: ${order.orderStatus}`
+      });
+    }
+
+    order.orderStatus = 'cancelled';
+    order.cancelledAt = new Date();
+    order.cancelledBy = 'customer';
+    order.cancellationReason = reason || 'Cancelled by customer';
+    
+    order.orderTimeline.push({
+      status: 'cancelled',
+      timestamp: new Date(),
+      actor: 'customer',
+      message: order.cancellationReason
+    });
+
+    await order.save();
+
+    res.json({
+      success: true,
+      message: 'Order cancelled successfully',
+      order: {
+        orderId: order.orderId,
+        orderStatus: order.orderStatus,
+        cancellationReason: order.cancellationReason
+      }
+    });
+
+  } catch (error) {
+    console.error('Cancel order error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to cancel order'
+    });
+  }
+});
+// Add to customerOrderRoutes.js temporarily
+router.get('/debug/check-emails', async (req, res) => {
+  const allEmails = await Order.distinct('customerEmail');
+  const token = req.headers.authorization?.split(' ')[1];
+  let tokenEmail = 'No token';
+  
+  if (token) {
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      tokenEmail = payload.email || payload.emailId;
+    } catch (e) {}
+  }
+  
+  res.json({
+    tokenEmail,
+    allOrderEmails: allEmails,
+    totalOrders: await Order.countDocuments({})
+  });
+});
 export default router;

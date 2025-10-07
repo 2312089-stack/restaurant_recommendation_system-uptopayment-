@@ -1,4 +1,5 @@
-// PaymentPage.jsx - FIXED VERSION with proper data flow
+// PaymentPage.jsx - COMPLETE FIXED VERSION
+// Now navigates to /payment-success with proper data structure
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -67,31 +68,24 @@ const PaymentPage = () => {
     }
   };
 
-  // FIXED: Create order details object with proper data structure
-// FIXED: Create order details object with proper data structure INCLUDING dishId
- // FIXED: Create order details object with proper data structure INCLUDING dishId
+  // Create order details object with proper data structure INCLUDING dishId
   const createOrderDetails = () => {
     // Validate email before proceeding
     if (!customerEmail || !validateEmail(customerEmail)) {
       throw new Error('Valid email address is required');
     }
 
-    // FIXED: Clean phone number properly
+    // Clean phone number properly
     const cleanPhone = selectedAddress.phoneNumber.replace(/\D/g, '');
     
-    // FIXED: Extract dishId from item
+    // Extract dishId from item
     const dishId = item._id || item.id || item.dishId;
     
     if (!dishId) {
       console.error('WARNING: No dishId found in item:', item);
     }
     
-    console.log('Creating order details with dishId:', dishId, {
-      customerName: selectedAddress.fullName,
-      customerEmail: customerEmail,
-      customerPhone: cleanPhone,
-      deliveryAddress: selectedAddress.address
-    });
+    console.log('Creating order details with dishId:', dishId);
 
     return {
       orderId: `ORDER_${Date.now()}`,
@@ -102,12 +96,12 @@ const PaymentPage = () => {
         price: typeof item.price === 'string' ? parseInt(item.price.replace(/[^\d]/g, '')) : item.price,
         image: item.image || '',
         description: item.description || '',
-        dishId: dishId // Also include in item object
+        dishId: dishId
       },
       totalAmount: orderTotal.total,
       customerName: selectedAddress.fullName,
-      customerEmail: customerEmail, // FIXED: Use collected email
-      customerPhone: cleanPhone, // FIXED: Clean phone number
+      customerEmail: customerEmail,
+      customerPhone: cleanPhone,
       deliveryAddress: selectedAddress.address,
       selectedAddress: selectedAddress,
       orderBreakdown: orderTotal,
@@ -117,7 +111,6 @@ const PaymentPage = () => {
 
   // Handle Razorpay payment
   const handleRazorpayPayment = async () => {
-    // Validate email first
     if (!customerEmail || !validateEmail(customerEmail)) {
       setEmailError('Please enter a valid email address');
       return;
@@ -129,7 +122,7 @@ const PaymentPage = () => {
     try {
       const orderDetails = createOrderDetails();
       
-      console.log('📝 Creating Razorpay order with details:', orderDetails);
+      console.log('Creating Razorpay order');
 
       // Create Razorpay order
       const orderResponse = await fetch('/api/payment/create-order', {
@@ -150,7 +143,7 @@ const PaymentPage = () => {
         throw new Error(orderData.message || 'Failed to create payment order');
       }
 
-      console.log('✅ Razorpay order created:', orderData.order.id);
+      console.log('Razorpay order created:', orderData.order.id);
 
       // Configure Razorpay options
       const razorpayOptions = {
@@ -193,12 +186,12 @@ const PaymentPage = () => {
     }
   };
 
-  // FIXED: Verify payment with proper data passing
+  // Verify payment and navigate to PaymentSuccessPage
   const verifyPayment = async (razorpayResponse, order, orderDetails) => {
     setOrderProcessing(true);
 
     try {
-      console.log('🔍 Verifying payment for customer:', orderDetails.customerName, orderDetails.customerEmail, orderDetails.customerPhone);
+      console.log('Verifying payment');
 
       const verifyResponse = await fetch('/api/payment/verify-payment', {
         method: 'POST',
@@ -209,27 +202,41 @@ const PaymentPage = () => {
           razorpay_payment_id: razorpayResponse.razorpay_payment_id,
           razorpay_order_id: razorpayResponse.razorpay_order_id,
           razorpay_signature: razorpayResponse.razorpay_signature,
-          orderDetails: orderDetails, // FIXED: Pass complete order details with customer info
+          orderDetails: orderDetails,
         }),
       });
 
       const verifyData = await verifyResponse.json();
-if (verifyData.success) {
-  console.log('✅ Payment verified, order created:', verifyData.order);
-  navigate('/confirmation', {
-    state: {
-      item,
-      selectedAddress,
-      addresses,
-      orderTotal,
-      orderId: verifyData.order.orderId,
-      paymentMethod: 'razorpay',
-      customerEmail: customerEmail,
-      paymentId: razorpayResponse.razorpay_payment_id,
-      orderData: verifyData.order // CRITICAL: Full order with _id
-    },
-  });
-} else {
+      
+      if (verifyData.success) {
+        console.log('Payment verified, order created:', verifyData.order);
+        
+        // Navigate to PaymentSuccessPage with proper data structure
+        navigate('/payment-success', { 
+          state: { 
+            order: {
+              orderId: verifyData.order.orderId,
+              dishId: orderDetails.dishId,
+              totalAmount: orderDetails.totalAmount,
+              customerName: orderDetails.customerName,
+              customerEmail: orderDetails.customerEmail,
+              customerPhone: orderDetails.customerPhone,
+              deliveryAddress: orderDetails.deliveryAddress,
+              paymentMethod: 'razorpay',
+              razorpayPaymentId: razorpayResponse.razorpay_payment_id,
+              orderStatus: verifyData.order.orderStatus || 'Confirmed',
+              estimatedDelivery: orderDetails.estimatedDelivery,
+              item: orderDetails.item
+            },
+            notifications: verifyData.notifications || {
+              email: verifyData.emailSent ? 'sent' : 'failed',
+              whatsapp: verifyData.whatsappSent ? 'sent' : 'failed',
+              summary: 'Order confirmation sent via email and WhatsApp'
+            }
+          },
+          replace: true
+        });
+      } else {
         throw new Error(verifyData.message || 'Payment verification failed');
       }
 
@@ -242,66 +249,77 @@ if (verifyData.success) {
     }
   };
 
-  // FIXED: Handle Cash on Delivery with proper data
-  const handleCODPayment = async () => {
-    // Validate email first
+  // Handle Cash on Delivery and navigate to PaymentSuccessPage
+  const handleCODOrder = async () => {
     if (!customerEmail || !validateEmail(customerEmail)) {
       setEmailError('Please enter a valid email address');
       return;
     }
 
-    setLoading(true);
-    setError('');
-    setOrderProcessing(true);
-
     try {
+      setLoading(true);
+      setError('');
+
       const orderDetails = createOrderDetails();
       
-      console.log('📦 Creating COD order for customer:', orderDetails.customerName, orderDetails.customerEmail, orderDetails.customerPhone);
+      console.log('Creating COD order');
       
-      // FIXED: Add COD fee to total amount and prepare proper data
-      const codOrderDetails = {
-        ...orderDetails,
-        totalAmount: orderDetails.totalAmount + 10, // Add ₹10 COD fee
-        paymentMethod: 'cod'
-      };
-
       const response = await fetch('/api/payment/create-cod-order', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          orderDetails: codOrderDetails, // FIXED: Pass complete order details
-        }),
+          orderDetails: {
+            orderId: orderDetails.orderId,
+            dishId: orderDetails.dishId,
+            customerName: orderDetails.customerName,
+            customerEmail: orderDetails.customerEmail,
+            customerPhone: orderDetails.customerPhone,
+            item: orderDetails.item,
+            deliveryAddress: orderDetails.deliveryAddress,
+            totalAmount: orderDetails.totalAmount + 10,
+            estimatedDelivery: orderDetails.estimatedDelivery
+          }
+        })
       });
 
       const data = await response.json();
-      if (data.success) {
-  console.log('✅ COD order created:', data.order);
-  navigate('/confirmation', {
-    state: {
-      item,
-      selectedAddress,
-      addresses,
-      orderTotal,
-      orderId: data.order.orderId,
-      paymentMethod: 'cod',
-      customerEmail: customerEmail,
-      orderData: data.order // CRITICAL: Full order with _id
-    },
-  });
-}
- else {
-        throw new Error(data.message || 'COD order creation failed');
-      }
+      console.log('COD order response:', data);
 
+      if (data.success && data.order) {
+        console.log('COD order created:', data.order);
+        
+        // Navigate to PaymentSuccessPage with proper data structure
+        navigate('/payment-success', { 
+          state: { 
+            order: {
+              orderId: data.order.orderId,
+              dishId: orderDetails.dishId,
+              totalAmount: orderDetails.totalAmount + 10,
+              customerName: orderDetails.customerName,
+              customerEmail: orderDetails.customerEmail,
+              customerPhone: orderDetails.customerPhone,
+              deliveryAddress: orderDetails.deliveryAddress,
+              paymentMethod: 'cod',
+              orderStatus: data.order.orderStatus || 'Confirmed',
+              estimatedDelivery: orderDetails.estimatedDelivery,
+              item: orderDetails.item
+            },
+            notifications: data.notifications || {
+              email: data.emailSent ? 'sent' : 'failed',
+              whatsapp: data.whatsappSent ? 'sent' : 'failed',
+              summary: 'COD order confirmation sent via email and WhatsApp'
+            }
+          },
+          replace: true
+        });
+      } else {
+        throw new Error(data.message || 'COD order failed');
+      }
     } catch (error) {
       console.error('COD order error:', error);
-      setError(error.message || 'COD order creation failed');
+      setError(error.message || 'Order failed');
     } finally {
       setLoading(false);
-      setOrderProcessing(false);
     }
   };
 
@@ -310,7 +328,7 @@ if (verifyData.success) {
     if (paymentMethod === 'razorpay') {
       handleRazorpayPayment();
     } else if (paymentMethod === 'cod') {
-      handleCODPayment();
+      handleCODOrder();
     }
   };
 
@@ -377,15 +395,9 @@ if (verifyData.success) {
                 <p className="text-sm text-gray-600">Phone</p>
                 <p className="font-medium text-gray-800">{selectedAddress.phoneNumber}</p>
               </div>
-              {selectedAddress.alternatePhone && (
-                <div>
-                  <p className="text-sm text-gray-600">Alternate Phone</p>
-                  <p className="font-medium text-gray-800">{selectedAddress.alternatePhone}</p>
-                </div>
-              )}
             </div>
 
-            {/* FIXED: Email Collection with better validation feedback */}
+            {/* Email Collection */}
             <div className="mb-6">
               <label className="block text-sm text-gray-600 mb-2">
                 Email Address *
@@ -401,10 +413,10 @@ if (verifyData.success) {
                 }`}
               />
               {emailError && (
-                <p className="text-red-500 text-sm mt-1">⚠️ {emailError}</p>
+                <p className="text-red-500 text-sm mt-1">{emailError}</p>
               )}
               {customerEmail && !emailError && (
-                <p className="text-green-600 text-sm mt-1">✅ Email looks good!</p>
+                <p className="text-green-600 text-sm mt-1">Email looks good!</p>
               )}
             </div>
 
@@ -457,11 +469,7 @@ if (verifyData.success) {
 
             {error && (
               <div className="bg-red-50 border-l-4 border-red-400 p-4 mb-6">
-                <div className="flex">
-                  <div className="ml-3">
-                    <p className="text-sm text-red-700">❌ {error}</p>
-                  </div>
-                </div>
+                <p className="text-sm text-red-700">{error}</p>
               </div>
             )}
 
@@ -558,29 +566,17 @@ if (verifyData.success) {
               )}
             </button>
 
-            {/* Email Required Notice */}
             {!customerEmail && (
               <div className="mt-2 text-center">
-                <p className="text-xs text-red-500">📧 Email address is required to proceed</p>
+                <p className="text-xs text-red-500">Email address is required to proceed</p>
               </div>
             )}
 
-            {/* Security Note */}
             <div className="mt-4 text-center">
               <p className="text-xs text-gray-500">
-                🔒 Your payment information is secure and encrypted
+                Your payment information is secure and encrypted
               </p>
             </div>
-
-            {/* Debug Info (remove in production) */}
-            {process.env.NODE_ENV === 'development' && customerEmail && (
-              <div className="mt-4 p-2 bg-gray-100 rounded text-xs text-gray-600">
-                <p>Debug - Customer Data:</p>
-                <p>Name: {selectedAddress.fullName}</p>
-                <p>Email: {customerEmail}</p>
-                <p>Phone: {selectedAddress.phoneNumber}</p>
-              </div>
-            )}
 
           </div>
         </div>

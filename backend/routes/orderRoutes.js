@@ -1,5 +1,17 @@
 // routes/orderRoutes.js
+import express from 'express';
 import { authenticateToken } from '../middleware/authMiddleware.js';
-import { createOrder } from '../controllers/orderController.js';
+import { createOrder, getCustomerOrders, getOrderById } from '../controllers/orderController.js';
 
-router.post('/create', authenticateToken, createOrder);
+const router = express.Router();
+
+// ✅ Create order (pending_seller status)
+router.post('/', authenticateToken, createOrder);
+
+// Get customer order history
+router.get('/history', authenticateToken, getCustomerOrders);
+
+// Get single order
+router.get('/:orderId', authenticateToken, getOrderById);
+
+export default router;

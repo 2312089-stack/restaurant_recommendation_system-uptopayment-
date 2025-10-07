@@ -22,9 +22,10 @@ import {
   ArrowRight
 } from 'lucide-react';
 import { useCart } from '../contexts/CartContext';
-
+import { useAuth } from '../contexts/AuthContext';
 const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, onOpenOrderHistory, onLogout }) => {
-  // Location state - Fixed: Added missing location state
+  const { logout } = useAuth(); // ADD THIS LINE
+
   const [location, setLocation] = useState("Detecting location...");
   const [isLocationDropdownOpen, setIsLocationDropdownOpen] = useState(false);
   const [isNotificationDropdownOpen, setIsNotificationDropdownOpen] = useState(false);
@@ -154,11 +155,12 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
     if (onOpenOrderHistory) onOpenOrderHistory();
   };
 
-  const handleLogout = () => {
-    setUser(null);
-    setIsAccountDropdownOpen(false);
-    if (onLogout) onLogout();
-    console.log('User logged out');
+   const handleLogout = async () => {
+    if (window.confirm('Are you sure you want to logout?')) {
+      await logout(); // Use AuthContext logout
+      setIsAccountDropdownOpen(false);
+      if (onLogout) onLogout();
+    }
   };
 
   const handleDiscoverClick = (e) => {

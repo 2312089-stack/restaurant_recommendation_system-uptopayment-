@@ -39,6 +39,7 @@ import { SocketProvider } from './contexts/SocketContext';
 import { CartProvider } from "./contexts/CartContext";
 import { WishlistProvider } from "./contexts/WishlistContext";
 import { LocationProvider } from "./contexts/LocationContext";
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 
 // Seller components
 import SellerLogin from "./components/seller/auth/SellerLogin";
@@ -111,6 +112,32 @@ class ErrorBoundary extends React.Component {
   }
 }
 
+const ProtectedMainView = ({ currentView, renderMainView, setCurrentView }) => {
+  const { isAuthenticated, loading } = useAuth();
+
+  useEffect(() => {
+    // Redirect to login if not authenticated and trying to access protected views
+    const protectedViews = ['main', 'settings', 'discovery', 'dish-details', 'cart', 'wishlist', 'order-history'];
+    
+    if (!loading && !isAuthenticated && protectedViews.includes(currentView)) {
+      console.log('Not authenticated, redirecting to login');
+      setCurrentView('login');
+    }
+  }, [isAuthenticated, loading, currentView, setCurrentView]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-white">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return renderMainView();
+};
 function App() {
   const [currentView, setCurrentView] = useState("splash");
   const [selectedDishId, setSelectedDishId] = useState(null);
@@ -227,18 +254,12 @@ function App() {
     setCurrentView("discovery");
   };
 
-  const handleLogout = () => {
-    console.log("handleLogout called, clearing auth and going to login");
-    try {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      localStorage.removeItem('sellerToken');
-      localStorage.removeItem('wishlist');
-    } catch (error) {
-      console.warn('Error clearing localStorage:', error);
-    }
+  const handleLogout = async () => {
+    console.log("handleLogout called");
+    // Let AuthContext handle the logout
     setCurrentView("login");
   };
+
 
   // Protected route wrapper
   const ProtectedSellerRoute = ({ children }) => {
@@ -296,13 +317,13 @@ function App() {
           );
 
         case "order-history":
-          return (
-            <OrderHistory 
-              authToken={localStorage.getItem('token')}
-              onBack={handleCloseOrderHistory}
-              onNavigateBack={handleCloseOrderHistory}
-            />
-          );
+  return (
+    <OrderHistory 
+      authToken={localStorage.getItem('token')}
+      onBack={handleCloseOrderHistory}
+      onNavigateBack={handleCloseOrderHistory}
+    />
+  );
 
         case "main":
           console.log("Rendering main home page with all components");
@@ -373,6 +394,7 @@ function App() {
 
   return (
     <ErrorBoundary>
+      <AuthProvider>
       {/* Socket.IO Provider - HIGHEST LEVEL for real-time notifications */}
       <SocketProvider>
         <Router>
@@ -404,112 +426,95 @@ function App() {
                       </div>
                     }
                   >
-                    <Routes>
-                      {/* Customer reset password routes */}
-                      <Route path="/reset-password/:token" element={<ResetPasswordScreen />} />
-                      <Route path="/reset-password-settings/:token" element={<ResetPasswordFromSettings />} />
-                      
-                      {/* Customer email verification route */}
-                      <Route path="/verify-email-change" element={<VerifyEmailChange />} />
-                      
-                      {/* Customer order flow routes */}
-                      <Route path="/address" element={<AddressPage />} />
-                      <Route path="/order-summary" element={<OrderSummaryPage />} />
-                      <Route path="/payment" element={<PaymentPage />} />
-                      <Route path="/confirmation" element={<ConfirmationPage />} />
-                      <Route path="/payment-success" element={<PaymentSuccessPage />} />
 
-                      {/* Order History route */}
-                     
-                      <Route 
-  path="/order-history" 
-  element={
-    <OrderHistory 
-      onBack={() => {
-        // Navigate back to home
-        window.history.back();
-      }}
-      onNavigateBack={() => {
-        // Alternative: use React Router navigation
-        window.location.href = '/';
-      }}
-    />
-  } 
-/>
-                      {/* Dish Details Route */}
-                      <Route 
-                        path="/dish/:dishId" 
-                        element={<DishDetailsPage />} 
-                      />
+<Routes>
+  {/* Customer reset password routes */}
+  <Route path="/reset-password/:token" element={<ResetPasswordScreen />} />
+  <Route path="/reset-password-settings/:token" element={<ResetPasswordFromSettings />} />
+  
+  {/* Customer email verification route */}
+  <Route path="/verify-email-change" element={<VerifyEmailChange />} />
+  
+  {/* Customer order flow routes - MUST be in this sequence */}
+  <Route path="/address" element={<AddressPage />} />
+  <Route path="/order-summary" element={<OrderSummaryPage />} />
+  <Route path="/confirmation" element={<ConfirmationPage />} />
+  <Route path="/payment" element={<PaymentPage />} />
+  <Route path="/payment-success" element={<PaymentSuccessPage />} />
+  
+  {/* Order history and dish details */}
+  <Route path="/order-history" element={<OrderHistory />} />
+  <Route path="/dish/:dishId" element={<DishDetailsPage />} />
 
-                      {/* Seller routes */}
-                      <Route 
-                        path="/seller/login" 
-                        element={
-                          <SellerLogin 
-                            onLoginComplete={() => {
-                              console.log('Login successful, redirecting to dashboard');
-                              window.location.href = '/seller/dashboard';
-                            }}
-                            onForgotPassword={() => {
-                              console.log('Navigating to forgot password');
-                              window.location.href = '/seller/forgot-password';
-                            }}
-                            onCreateAccount={() => {
-                              console.log('Navigating to signup');
-                              window.location.href = '/seller/signup';
-                            }}
-                          />
-                        } 
-                      />
-                      <Route 
-                        path="/seller/signup" 
-                        element={
-                          <SellerSignup 
-                            onBackToLogin={() => {
-                              console.log('Navigating back to login');
-                              window.location.href = '/seller/login';
-                            }}
-                            onSignupComplete={() => {
-                              console.log('Signup complete, redirecting to dashboard');
-                              window.location.href = '/seller/dashboard';
-                            }}
-                          />
-                        } 
-                      />
-                      <Route 
-                        path="/seller/forgot-password" 
-                        element={
-                          <SellerForgotPassword 
-                            onBackToLogin={() => {
-                              console.log('Navigating back to login');
-                              window.location.href = '/seller/login';
-                            }}
-                          />
-                        } 
-                      />
-                      <Route path="/seller/reset-password/:token" element={<SellerResetPassword />} />
+  {/* Seller routes */}
+  <Route 
+    path="/seller/login" 
+    element={
+      <SellerLogin 
+        onLoginComplete={() => {
+          console.log('Login successful, redirecting to dashboard');
+          window.location.href = '/seller/dashboard';
+        }}
+        onForgotPassword={() => {
+          console.log('Navigating to forgot password');
+          window.location.href = '/seller/forgot-password';
+        }}
+        onCreateAccount={() => {
+          console.log('Navigating to signup');
+          window.location.href = '/seller/signup';
+        }}
+      />
+    } 
+  />
+  <Route 
+    path="/seller/signup" 
+    element={
+      <SellerSignup 
+        onBackToLogin={() => {
+          console.log('Navigating back to login');
+          window.location.href = '/seller/login';
+        }}
+        onSignupComplete={() => {
+          console.log('Signup complete, redirecting to dashboard');
+          window.location.href = '/seller/dashboard';
+        }}
+      />
+    } 
+  />
+  <Route 
+    path="/seller/forgot-password" 
+    element={
+      <SellerForgotPassword 
+        onBackToLogin={() => {
+          console.log('Navigating back to login');
+          window.location.href = '/seller/login';
+        }}
+      />
+    } 
+  />
+  <Route path="/seller/reset-password/:token" element={<SellerResetPassword />} />
 
-                      {/* Protected seller dashboard route */}
-                      <Route 
-                        path="/seller/dashboard" 
-                        element={
-                          <ProtectedSellerRoute>
-                            <SellerDashboard />
-                          </ProtectedSellerRoute>
-                        } 
-                      />
+  {/* Protected seller dashboard route */}
+  <Route 
+    path="/seller/dashboard" 
+    element={
+      <ProtectedSellerRoute>
+        <SellerDashboard />
+      </ProtectedSellerRoute>
+    } 
+  />
 
-                      {/* Main app route */}
-                      <Route path="*" element={<MainViewComponent />} />
-                    </Routes>
+  {/* Main app route - MUST be last */}
+  <Route path="*" element={<MainViewComponent />} />
+</Routes>
                   </React.Suspense>
                 </div>
               </WishlistProvider>
             </CartProvider>
           </LocationProvider>
-        </Router>
+        </Router> 
       </SocketProvider>
+      </AuthProvider> 
     </ErrorBoundary>
   );
 }

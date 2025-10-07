@@ -38,16 +38,20 @@ export const getCart = async (req, res) => {
     const userId = req.user.id;
     console.log('🛒 Getting cart for user:', userId);
 
-    const cart = await Cart.findOne({ userId })
-      .populate({
-        path: 'items.dishId',
-        select: 'name price image category type availability',
-        match: { availability: true } // Only populate available dishes
-      })
-      .populate({
-        path: 'items.restaurantId',
-        select: 'businessName address phone'
-      });
+const cart = await Cart.findOne({ userId })
+  .populate({
+    path: 'items.dishId',
+    select: 'name price image category type availability seller restaurantId',
+    match: { availability: true },
+    populate: {
+      path: 'seller',
+      select: 'businessName address phone'
+    }
+  })
+  .populate({
+    path: 'items.restaurantId',
+    select: 'businessName address phone'
+  });
 
     console.log('🛒 Raw cart from DB:', cart ? 'Found' : 'Not found');
 

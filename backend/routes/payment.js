@@ -36,9 +36,9 @@ const initializeAllServices = async () => {
         key_id: process.env.RAZORPAY_KEY_ID.trim(),
         key_secret: process.env.RAZORPAY_KEY_SECRET.trim(),
       });
-      console.log('Razorpay initialized');
+      console.log('✅ Razorpay initialized');
     } else {
-      console.error('Razorpay credentials missing');
+      console.error('❌ Razorpay credentials missing');
       return false;
     }
 
@@ -66,9 +66,9 @@ const initializeAllServices = async () => {
 
       try {
         await emailTransporter.verify();
-        console.log('Email service verified and ready');
+        console.log('✅ Email service verified');
       } catch (emailError) {
-        console.error('Email verification failed:', emailError.message);
+        console.error('❌ Email verification failed:', emailError.message);
         emailTransporter = null;
       }
     } else {
@@ -86,20 +86,9 @@ const initializeAllServices = async () => {
       
       try {
         const account = await twilioClient.api.accounts(process.env.TWILIO_ACCOUNT_SID.trim()).fetch();
-        console.log('Twilio service initialized - Account:', account.friendlyName);
-        
-        if (process.env.TWILIO_WHATSAPP_FROM) {
-          console.log('Production WhatsApp number:', process.env.TWILIO_WHATSAPP_FROM);
-        } else if (process.env.TWILIO_WHATSAPP_NUMBER) {
-          console.log('Sandbox WhatsApp number:', process.env.TWILIO_WHATSAPP_NUMBER);
-        }
-        
-        if (process.env.TWILIO_PHONE_NUMBER) {
-          console.log('SMS phone number configured:', process.env.TWILIO_PHONE_NUMBER);
-        }
-        
+        console.log('✅ Twilio service initialized:', account.friendlyName);
       } catch (twilioError) {
-        console.error('Twilio verification failed:', twilioError.message);
+        console.error('❌ Twilio verification failed:', twilioError.message);
         twilioClient = null;
       }
     } else {
@@ -107,11 +96,11 @@ const initializeAllServices = async () => {
     }
 
     servicesInitialized = true;
-    console.log('Service initialization completed');
+    console.log('✅ Service initialization completed');
     return true;
     
   } catch (error) {
-    console.error('Service initialization failed:', error.message);
+    console.error('❌ Service initialization failed:', error.message);
     servicesInitialized = false;
     return false;
   }
@@ -161,7 +150,6 @@ ${orderDetails.paymentMethod === 'cod' ? `Cash on Delivery Note:
 Please keep exact change ready. Our delivery partner will collect ${appConfig.currency === 'INR' ? '₹' : appConfig.currency}${orderDetails.totalAmount} when your order arrives.
 
 ` : ''}Thank you for choosing ${appConfig.businessName}!
-We're preparing your meal with love
 
 This is an automated message from ${appConfig.businessName}`,
 
@@ -179,7 +167,7 @@ Address: ${orderDetails.deliveryAddress}
 
 ${orderDetails.paymentMethod === 'cod' ? `COD: Please keep exact change ready (${appConfig.currency === 'INR' ? '₹' : appConfig.currency}${orderDetails.totalAmount})` : ''}
 
-Thank you for choosing ${appConfig.businessName}!`
+Thank you!`
   };
 
   return templates[messageType] || templates.sms;
@@ -192,13 +180,12 @@ const sendMessageNotification = async (orderDetails, preferWhatsApp = true) => {
   if (!twilioClient) {
     return { 
       success: false, 
-      error: 'Messaging service not configured',
-      suggestion: 'Configure Twilio credentials in environment variables'
+      error: 'Messaging service not configured'
     };
   }
 
   if (!orderDetails.customerPhone) {
-    console.error('No customer phone provided:', orderDetails);
+    console.error('No customer phone provided');
     return { 
       success: false, 
       error: 'Customer phone number not provided' 
@@ -226,7 +213,6 @@ const sendMessageNotification = async (orderDetails, preferWhatsApp = true) => {
       
       try {
         console.log('Attempting WhatsApp to:', `whatsapp:${customerPhone}`);
-        console.log('From number:', `whatsapp:${fromWhatsAppNumber}`);
         
         const message = await twilioClient.messages.create({
           from: `whatsapp:${fromWhatsAppNumber}`,
@@ -234,21 +220,17 @@ const sendMessageNotification = async (orderDetails, preferWhatsApp = true) => {
           body: whatsappMessage
         });
 
-        console.log('WhatsApp sent successfully to:', customerPhone);
+        console.log('✅ WhatsApp sent successfully');
         messageResult = { 
           success: true, 
           sid: message.sid,
-          method: 'whatsapp',
-          details: 'WhatsApp notification sent successfully',
-          phoneNumber: customerPhone,
-          fromNumber: fromWhatsAppNumber
+          method: 'whatsapp'
         };
         
       } catch (whatsappError) {
         console.log('WhatsApp failed, trying SMS fallback...');
-        console.error('WhatsApp error:', whatsappError.message);
         
-        // Fallback to SMS if WhatsApp fails
+        // Fallback to SMS
         if (process.env.TWILIO_PHONE_NUMBER) {
           try {
             const smsMessage = generateMessageTemplate(orderDetails, 'sms');
@@ -259,38 +241,27 @@ const sendMessageNotification = async (orderDetails, preferWhatsApp = true) => {
               body: smsMessage
             });
 
-            console.log('SMS fallback sent successfully to:', customerPhone);
+            console.log('✅ SMS fallback sent successfully');
             messageResult = { 
               success: true, 
               sid: smsResult.sid,
-              method: 'sms_fallback',
-              details: 'SMS notification sent (WhatsApp fallback)',
-              phoneNumber: customerPhone,
-              fromNumber: process.env.TWILIO_PHONE_NUMBER,
-              whatsappError: whatsappError.message
+              method: 'sms_fallback'
             };
             
           } catch (smsError) {
-            console.error('SMS fallback also failed:', smsError.message);
+            console.error('❌ SMS fallback also failed:', smsError.message);
             messageResult = {
               success: false,
-              error: `Both WhatsApp and SMS failed. WhatsApp: ${whatsappError.message}, SMS: ${smsError.message}`
+              error: `Both WhatsApp and SMS failed`
             };
           }
-        } else {
-          messageResult = {
-            success: false,
-            error: `WhatsApp failed and no SMS fallback configured. Error: ${whatsappError.message}`
-          };
         }
       }
     } 
-    // Direct SMS if WhatsApp not preferred or not configured
+    // Direct SMS if WhatsApp not preferred
     else if (process.env.TWILIO_PHONE_NUMBER) {
       try {
         const smsMessage = generateMessageTemplate(orderDetails, 'sms');
-        
-        console.log('Sending SMS to:', customerPhone);
         
         const message = await twilioClient.messages.create({
           from: process.env.TWILIO_PHONE_NUMBER,
@@ -298,39 +269,29 @@ const sendMessageNotification = async (orderDetails, preferWhatsApp = true) => {
           body: smsMessage
         });
 
-        console.log('SMS sent successfully to:', customerPhone);
+        console.log('✅ SMS sent successfully');
         messageResult = { 
           success: true, 
           sid: message.sid,
-          method: 'sms',
-          details: 'SMS notification sent successfully',
-          phoneNumber: customerPhone,
-          fromNumber: process.env.TWILIO_PHONE_NUMBER
+          method: 'sms'
         };
         
       } catch (smsError) {
-        console.error('SMS sending failed:', smsError.message);
+        console.error('❌ SMS sending failed:', smsError.message);
         messageResult = {
           success: false,
-          error: smsError.message,
-          code: smsError.code
+          error: smsError.message
         };
       }
-    } else {
-      messageResult = {
-        success: false,
-        error: 'No messaging service configured (WhatsApp or SMS)'
-      };
     }
     
     return messageResult;
     
   } catch (error) {
-    console.error('Message notification failed:', error);
+    console.error('❌ Message notification failed:', error);
     return { 
       success: false, 
-      error: error.message,
-      code: error.code
+      error: error.message
     };
   }
 };
@@ -413,7 +374,7 @@ const generateEmailTemplate = (orderDetails) => {
           
           <div style="text-align: center; margin-top: 30px; padding: 25px; background: #f0f8ff; border-radius: 8px;">
             <h3 style="color: #ff6b35; margin: 0 0 10px 0; font-size: 22px;">Thank You!</h3>
-            <p style="margin: 0; color: #666; line-height: 1.5;">Your delicious meal is being prepared right now with love</p>
+            <p style="margin: 0; color: #666; line-height: 1.5;">Your delicious meal is being prepared right now</p>
           </div>
         </div>
         
@@ -436,13 +397,12 @@ const sendEmailNotification = async (orderDetails) => {
   if (!emailTransporter) {
     return { 
       success: false, 
-      error: 'Email service not configured',
-      suggestion: 'Configure email credentials in environment variables'
+      error: 'Email service not configured'
     };
   }
 
   if (!orderDetails.customerEmail) {
-    console.error('No customer email provided:', orderDetails);
+    console.error('No customer email provided');
     return { 
       success: false, 
       error: 'Customer email not provided' 
@@ -487,76 +447,22 @@ For support: ${appConfig.supportEmail}
     console.log('Sending email to:', orderDetails.customerEmail);
     const info = await emailTransporter.sendMail(mailOptions);
     
-    console.log('Email sent successfully to:', orderDetails.customerEmail);
+    console.log('✅ Email sent successfully');
     
     return { 
       success: true, 
-      messageId: info.messageId,
-      details: 'Email notification sent successfully',
-      recipientEmail: orderDetails.customerEmail
+      messageId: info.messageId
     };
     
   } catch (error) {
-    console.error('Email sending failed:', error);
+    console.error('❌ Email sending failed:', error);
     
     return { 
       success: false, 
-      error: error.message,
-      code: error.code,
-      recipientEmail: orderDetails.customerEmail
+      error: error.message
     };
   }
 };
-
-// Dynamic configuration update endpoint
-router.post('/update-config', (req, res) => {
-  const allowedFields = [
-    'businessName', 'supportEmail', 'deliveryTimeDefault', 
-    'codFee', 'currency', 'countryCode', 'timezone'
-  ];
-  
-  const updates = {};
-  let hasUpdates = false;
-  
-  for (const [key, value] of Object.entries(req.body)) {
-    if (allowedFields.includes(key) && value !== undefined) {
-      updates[key] = value;
-      appConfig[key] = value;
-      hasUpdates = true;
-    }
-  }
-  
-  if (!hasUpdates) {
-    return res.status(400).json({
-      success: false,
-      message: 'No valid configuration fields provided',
-      allowedFields: allowedFields,
-      currentConfig: appConfig
-    });
-  }
-  
-  res.json({
-    success: true,
-    message: 'Configuration updated successfully',
-    updatedFields: updates,
-    currentConfig: appConfig
-  });
-});
-
-// Get current configuration
-router.get('/config', (req, res) => {
-  res.json({
-    success: true,
-    config: appConfig,
-    serviceStatus: {
-      razorpay: !!razorpay,
-      email: !!emailTransporter,
-      twilio: !!twilioClient,
-      whatsapp: !!(process.env.TWILIO_WHATSAPP_FROM || process.env.TWILIO_WHATSAPP_NUMBER),
-      sms: !!process.env.TWILIO_PHONE_NUMBER
-    }
-  });
-});
 
 // Middleware to ensure services are initialized
 const ensureServicesReady = async (req, res, next) => {
@@ -567,15 +473,14 @@ const ensureServicesReady = async (req, res, next) => {
     if (!success || !razorpay) {
       return res.status(503).json({
         success: false,
-        message: 'Payment services are temporarily unavailable',
-        error: 'Critical services failed to initialize'
+        message: 'Payment services are temporarily unavailable'
       });
     }
   }
   next();
 };
 
-// Enhanced health check
+// Health check
 router.get('/health', async (req, res) => {
   if (!servicesInitialized) {
     await initializeAllServices();
@@ -589,19 +494,6 @@ router.get('/health', async (req, res) => {
       razorpay: razorpay ? 'initialized' : 'not initialized',
       email: emailTransporter ? 'initialized' : 'not configured',
       twilio: twilioClient ? 'initialized' : 'not configured'
-    },
-    messaging_options: {
-      whatsapp_production: !!process.env.TWILIO_WHATSAPP_FROM,
-      whatsapp_sandbox: !!process.env.TWILIO_WHATSAPP_NUMBER,
-      sms: !!process.env.TWILIO_PHONE_NUMBER,
-      preferred_method: process.env.TWILIO_WHATSAPP_FROM ? 'whatsapp_production' : 
-                       process.env.TWILIO_WHATSAPP_NUMBER ? 'whatsapp_sandbox' :
-                       process.env.TWILIO_PHONE_NUMBER ? 'sms' : 'none'
-    },
-    environment_variables: {
-      razorpay_configured: !!(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET),
-      email_configured: !!(process.env.EMAIL_USER && process.env.EMAIL_PASS),
-      twilio_configured: !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN)
     },
     timestamp: new Date().toISOString()
   };
@@ -629,7 +521,7 @@ router.post('/create-order', ensureServicesReady, async (req, res) => {
     };
 
     const order = await razorpay.orders.create(options);
-    console.log('Razorpay order created:', order.id);
+    console.log('✅ Razorpay order created:', order.id);
 
     res.json({
       success: true,
@@ -642,7 +534,7 @@ router.post('/create-order', ensureServicesReady, async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error creating Razorpay order:', error);
+    console.error('❌ Error creating Razorpay order:', error);
     res.status(500).json({
       success: false,
       message: 'Error creating payment order',
@@ -651,7 +543,7 @@ router.post('/create-order', ensureServicesReady, async (req, res) => {
   }
 });
 
-  // Verify payment and send notifications
+// Verify payment endpoint
 router.post('/verify-payment', ensureServicesReady, async (req, res) => {
   try {
     const {
@@ -661,23 +553,9 @@ router.post('/verify-payment', ensureServicesReady, async (req, res) => {
       orderDetails,
     } = req.body;
 
-    console.log('Payment verification request received for customer:', orderDetails.customerName, orderDetails.customerEmail, orderDetails.customerPhone);
+    console.log('Payment verification request received');
 
-    if (!razorpay_payment_id || !razorpay_order_id || !razorpay_signature) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required payment parameters'
-      });
-    }
-
-    if (!orderDetails || !orderDetails.customerEmail || !orderDetails.customerPhone) {
-      return res.status(400).json({
-        success: false,
-        message: 'Order details with customer email and phone are required'
-      });
-    }
-
-    // Verify Razorpay signature
+    // Verify signature
     const sign = razorpay_order_id + '|' + razorpay_payment_id;
     const expectedSign = crypto
       .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
@@ -685,48 +563,29 @@ router.post('/verify-payment', ensureServicesReady, async (req, res) => {
       .digest('hex');
 
     if (razorpay_signature !== expectedSign) {
-      console.error('Payment signature verification failed');
       return res.status(400).json({
         success: false,
         message: 'Payment verification failed - Invalid signature'
       });
     }
 
-    console.log('Payment signature verified successfully');
+    console.log('✅ Payment signature verified');
 
-    // CRITICAL: Fetch dish and seller information (same as COD flow)
-    const dishId = orderDetails.dishId || orderDetails.item?.dishId;
-    
-    if (!dishId) {
-      console.error('No dishId provided in orderDetails');
-      return res.status(400).json({
-        success: false,
-        message: 'Dish ID is required for order creation'
-      });
-    }
-
+    // Fetch dish and seller
     const Dish = (await import('../models/Dish.js')).default;
-    const dish = await Dish.findById(dishId).populate('seller');
+    const dish = await Dish.findById(orderDetails.dishId).populate('seller');
 
     if (!dish || !dish.seller) {
-      console.error('Dish or seller not found for dishId:', dishId);
       return res.status(400).json({
         success: false,
         message: 'Unable to link order to restaurant'
       });
     }
 
-    console.log('Dish and seller found:', {
-      dishId: dish._id,
-      dishName: dish.name,
-      sellerId: dish.seller._id,
-      sellerName: dish.seller.businessName
-    });
-
-    // Prepare order data for saving WITH seller linkage
+    // Create order with seller linkage
     const orderDataForSave = {
-      seller: dish.seller._id, // CRITICAL: Link to seller
-      dish: dishId,
+      seller: dish.seller._id,
+      dish: orderDetails.dishId,
       orderId: orderDetails.orderId,
       razorpayPaymentId: razorpay_payment_id,
       razorpayOrderId: razorpay_order_id,
@@ -739,7 +598,7 @@ router.post('/verify-payment', ensureServicesReady, async (req, res) => {
         price: dish.price,
         image: dish.image || '',
         description: dish.description || '',
-        dishId: dishId,
+        dishId: orderDetails.dishId,
         category: dish.category,
         type: dish.type,
         quantity: 1
@@ -748,63 +607,58 @@ router.post('/verify-payment', ensureServicesReady, async (req, res) => {
       totalAmount: orderDetails.totalAmount,
       paymentMethod: 'razorpay',
       paymentStatus: 'completed',
-      orderStatus: 'confirmed',
-      estimatedDelivery: orderDetails.estimatedDelivery || appConfig.deliveryTimeDefault,
+      orderStatus: 'pending_seller',
+      estimatedDelivery: orderDetails.estimatedDelivery || '25-30 minutes',
     };
 
-    // Save order to database
+
+
+
     const newOrder = new Order(orderDataForSave);
     const savedOrder = await newOrder.save();
-    console.log('Order saved to database with seller linkage:', savedOrder.orderId);
-
-    // Send notifications
-    console.log('Sending notifications to customer:', orderDetails.customerEmail, orderDetails.customerPhone);
     
-    const notificationOrderData = {
-      ...orderDetails,
-      paymentMethod: 'razorpay',
-      estimatedDelivery: orderDetails.estimatedDelivery || appConfig.deliveryTimeDefault
-    };
+    console.log('✅ Order saved:', savedOrder.orderId);
 
-    const emailResult = await sendEmailNotification(notificationOrderData);
-    const messageResult = await sendMessageNotification(notificationOrderData, true);
+    // Send notifications (non-blocking)
+    const notificationPromises = [
+      sendEmailNotification(orderDetails).catch(err => {
+        console.error('Email notification failed:', err);
+        return { success: false, error: err.message };
+      }),
+      sendMessageNotification(orderDetails, true).catch(err => {
+        console.error('Message notification failed:', err);
+        return { success: false, error: err.message };
+      })
+    ];
 
-    // Update order with notification status
-    try {
-      if (emailResult.success) {
-        await savedOrder.markNotificationSent('email', emailResult.messageId);
-        console.log('Email notification status updated');
-      }
+    const [emailResult, messageResult] = await Promise.allSettled(notificationPromises);
 
-      if (messageResult.success) {
-        await savedOrder.markNotificationSent('whatsapp', null, messageResult.sid);
-        console.log('Message notification status updated');
-      }
-    } catch (updateError) {
-      console.error('Error updating notification status:', updateError.message);
-    }
-
-    const notificationSummary = `Order confirmed! ${emailResult.success ? 'Email sent' : 'Email failed'}. ${messageResult.success ? `${messageResult.method} sent` : 'Message failed'}.`;
-
+    // Return COMPLETE order data including _id
     res.json({
       success: true,
       message: 'Payment verified and order placed successfully',
-      order: savedOrder,
-      notifications: {
-        email: emailResult.success ? 'sent' : 'failed',
-        message: messageResult.success ? 'sent' : 'failed',
-        message_method: messageResult.method || 'none',
-        summary: notificationSummary,
-        details: {
-          email: emailResult,
-          message: messageResult
-        }
+      order: {
+        _id: savedOrder._id.toString(),
+        orderId: savedOrder.orderId,
+        orderStatus: savedOrder.orderStatus,
+        paymentStatus: savedOrder.paymentStatus,
+        customerEmail: savedOrder.customerEmail,
+        customerPhone: savedOrder.customerPhone,
+        totalAmount: savedOrder.totalAmount,
+        item: savedOrder.item,
+        deliveryAddress: savedOrder.deliveryAddress,
+        estimatedDelivery: savedOrder.estimatedDelivery,
+        createdAt: savedOrder.createdAt,
+        seller: savedOrder.seller.toString()
       },
-      config: appConfig
+      notifications: {
+        email: emailResult.status === 'fulfilled' && emailResult.value.success ? 'sent' : 'failed',
+        message: messageResult.status === 'fulfilled' && messageResult.value.success ? 'sent' : 'failed'
+      }
     });
 
   } catch (error) {
-    console.error('Error verifying payment:', error);
+    console.error('❌ Payment verification error:', error);
     res.status(500).json({
       success: false,
       message: 'Error processing payment verification',
@@ -813,11 +667,12 @@ router.post('/verify-payment', ensureServicesReady, async (req, res) => {
   }
 });
 
-// Create COD order with seller linkage
+// Create COD order - SINGLE FIXED VERSION
 router.post('/create-cod-order', async (req, res) => {
   try {
     const { orderDetails } = req.body;
 
+    // Validation
     if (!orderDetails || !orderDetails.customerEmail || !orderDetails.customerPhone) {
       return res.status(400).json({
         success: false,
@@ -825,51 +680,47 @@ router.post('/create-cod-order', async (req, res) => {
       });
     }
 
-    console.log('Processing COD order for customer:', orderDetails.customerName, orderDetails.customerEmail, orderDetails.customerPhone);
+    console.log('📝 Processing COD order for:', orderDetails.customerName);
 
-    // Fetch dish and seller information
+    // Extract and validate dishId
     const dishId = orderDetails.dishId || orderDetails.item?.dishId;
     
     if (!dishId) {
-      console.error('No dishId provided in orderDetails');
+      console.error('❌ No dishId provided in orderDetails');
       return res.status(400).json({
         success: false,
         message: 'Dish ID is required for order creation'
       });
     }
 
+    // Fetch dish and seller
     const Dish = (await import('../models/Dish.js')).default;
     const dish = await Dish.findById(dishId).populate('seller');
 
     if (!dish || !dish.seller) {
-      console.error('Dish or seller not found for dishId:', dishId);
+      console.error('❌ Dish or seller not found for dishId:', dishId);
       return res.status(400).json({
         success: false,
         message: 'Unable to link order to restaurant'
       });
     }
 
-    console.log('Dish and seller found:', {
-      dishId: dish._id,
+    console.log('✅ Dish and seller found:', {
       dishName: dish.name,
-      sellerId: dish.seller._id,
       sellerName: dish.seller.businessName
     });
 
-    // Process amount conversion
+    // Calculate final amount
     let totalAmount = 0;
-    if (orderDetails.totalAmount) {
-      if (typeof orderDetails.totalAmount === 'string') {
-        totalAmount = parseInt(orderDetails.totalAmount.replace(/[^\d]/g, '')) || 0;
-      } else {
-        totalAmount = orderDetails.totalAmount;
-      }
+    if (typeof orderDetails.totalAmount === 'string') {
+      totalAmount = parseInt(orderDetails.totalAmount.replace(/[^\d]/g, '')) || 0;
+    } else {
+      totalAmount = orderDetails.totalAmount;
     }
 
-    // Add dynamic COD fee
-    const finalAmount = totalAmount + appConfig.codFee;
+    const finalAmount = totalAmount; // COD fee should already be included from frontend
 
-    // Create COD order with seller linkage
+    // Create order with seller linkage
     const orderDataForSave = {
       seller: dish.seller._id,
       dish: dishId,
@@ -892,17 +743,14 @@ router.post('/create-cod-order', async (req, res) => {
       totalAmount: finalAmount,
       paymentMethod: 'cod',
       paymentStatus: 'pending',
-      orderStatus: 'confirmed',
-      estimatedDelivery: orderDetails.estimatedDelivery || appConfig.deliveryTimeDefault,
-      orderBreakdown: orderDetails.orderBreakdown
+      orderStatus: 'seller_accepted',
+      estimatedDelivery: orderDetails.estimatedDelivery || appConfig.deliveryTimeDefault
     };
 
     const newOrder = new Order(orderDataForSave);
     const savedOrder = await newOrder.save();
-    console.log('COD order saved with seller linkage:', {
-      orderId: savedOrder.orderId,
-      seller: savedOrder.seller
-    });
+    
+    console.log('✅ COD order saved with ID:', savedOrder._id);
 
     // Prepare notification data
     const notificationData = {
@@ -921,55 +769,46 @@ router.post('/create-cod-order', async (req, res) => {
       estimatedDelivery: orderDetails.estimatedDelivery || appConfig.deliveryTimeDefault
     };
 
-    // Send notifications to customer
-    console.log('Sending COD order notifications to customer:', notificationData.customerEmail, notificationData.customerPhone);
-    const emailResult = await sendEmailNotification(notificationData);
-    const messageResult = await sendMessageNotification(notificationData, true);
+    // Send notifications (non-blocking)
+    const notificationPromises = [
+      sendEmailNotification(notificationData).catch(err => {
+        console.error('Email notification failed:', err);
+        return { success: false, error: err.message };
+      }),
+      sendMessageNotification(notificationData, true).catch(err => {
+        console.error('Message notification failed:', err);
+        return { success: false, error: err.message };
+      })
+    ];
 
-    // Update order with notification status
-    try {
-      if (emailResult.success) {
-        await savedOrder.markNotificationSent('email', emailResult.messageId);
-        console.log('Email notification status updated for COD order');
-      }
+    const [emailResult, messageResult] = await Promise.allSettled(notificationPromises);
 
-      if (messageResult.success) {
-        await savedOrder.markNotificationSent('whatsapp', null, messageResult.sid);
-        console.log('Message notification status updated for COD order');
-      }
-    } catch (updateError) {
-      console.error('Error updating COD notification status:', updateError.message);
-    }
-
-    const notificationSummary = `COD Order confirmed! ${emailResult.success ? 'Email sent' : 'Email failed'}. ${messageResult.success ? `${messageResult.method} sent` : 'Message failed'}.`;
-
+    // CRITICAL: Return COMPLETE order data including _id for socket rooms
     res.json({
       success: true,
       message: 'COD order placed successfully',
-      order: savedOrder,
-      notifications: {
-        customer: {
-          email: emailResult.success ? 'sent' : 'failed',
-          message: messageResult.success ? 'sent' : 'failed',
-          message_method: messageResult.method || 'none'
-        },
-        summary: notificationSummary,
-        details: {
-          email: emailResult,
-          message: messageResult
-        }
+      order: {
+        _id: savedOrder._id.toString(),  // CRITICAL FOR SOCKET ROOMS
+        orderId: savedOrder.orderId,
+        orderStatus: savedOrder.orderStatus,
+        paymentStatus: savedOrder.paymentStatus,
+        customerEmail: savedOrder.customerEmail,
+        customerPhone: savedOrder.customerPhone,
+        totalAmount: savedOrder.totalAmount,
+        item: savedOrder.item,
+        deliveryAddress: savedOrder.deliveryAddress,
+        estimatedDelivery: savedOrder.estimatedDelivery,
+        createdAt: savedOrder.createdAt,
+        seller: savedOrder.seller.toString()
       },
-      config: appConfig,
-      pricing: {
-        originalAmount: totalAmount,
-        codFee: appConfig.codFee,
-        finalAmount: finalAmount,
-        currency: appConfig.currency
+      notifications: {
+        email: emailResult.status === 'fulfilled' && emailResult.value.success ? 'sent' : 'failed',
+        message: messageResult.status === 'fulfilled' && messageResult.value.success ? 'sent' : 'failed'
       }
     });
 
   } catch (error) {
-    console.error('Error creating COD order:', error);
+    console.error('❌ COD order error:', error);
     res.status(500).json({
       success: false,
       message: 'Error creating COD order',
@@ -983,8 +822,7 @@ router.post('/test-message', async (req, res) => {
   const { 
     phoneNumber, 
     customerName = 'Test Customer', 
-    preferWhatsApp = true,
-    customMessage 
+    preferWhatsApp = true
   } = req.body;
   
   if (!phoneNumber) {
@@ -1006,7 +844,7 @@ router.post('/test-message', async (req, res) => {
       name: 'Test Margherita Pizza',
       restaurant: 'Test Pizzeria'
     },
-    deliveryAddress: '123 Test Street, Test City, Test State - 123456',
+    deliveryAddress: '123 Test Street, Test City',
     totalAmount: 299,
     paymentMethod: 'test',
     estimatedDelivery: appConfig.deliveryTimeDefault
@@ -1017,14 +855,7 @@ router.post('/test-message', async (req, res) => {
   res.json({
     success: messageResult.success,
     message: messageResult.success ? 'Test message sent successfully' : 'Message sending failed',
-    result: messageResult,
-    config: appConfig,
-    test_details: {
-      phone_number: phoneNumber,
-      formatted_phone: formatPhoneNumber(phoneNumber),
-      prefer_whatsapp: preferWhatsApp,
-      messaging_method: messageResult.method
-    }
+    result: messageResult
   });
 });
 
@@ -1033,8 +864,7 @@ router.post('/test-notifications', async (req, res) => {
   const { 
     customerEmail, 
     customerPhone, 
-    customerName = 'Test Customer',
-    customOrderData = {}
+    customerName = 'Test Customer'
   } = req.body;
   
   if (!customerEmail && !customerPhone) {
@@ -1055,39 +885,28 @@ router.post('/test-notifications', async (req, res) => {
     customerPhone: customerPhone,
     item: {
       name: 'Test Margherita Pizza',
-      restaurant: 'Test Pizzeria',
-      ...customOrderData.item
+      restaurant: 'Test Pizzeria'
     },
-    deliveryAddress: '123 Test Street, Test City, Test State - 123456',
+    deliveryAddress: '123 Test Street, Test City',
     totalAmount: 299,
     paymentMethod: 'test',
-    estimatedDelivery: appConfig.deliveryTimeDefault,
-    ...customOrderData
+    estimatedDelivery: appConfig.deliveryTimeDefault
   };
 
   const results = {};
   
   if (customerEmail) {
-    console.log('Testing email notification...');
     results.email = await sendEmailNotification(testOrderDetails);
   }
   
   if (customerPhone) {
-    console.log('Testing message notification...');
     results.message = await sendMessageNotification(testOrderDetails, true);
   }
 
   res.json({
     success: true,
     message: 'Notification test completed',
-    results: results,
-    config: appConfig,
-    service_status: {
-      email_configured: !!emailTransporter,
-      twilio_configured: !!twilioClient,
-      whatsapp_available: !!(process.env.TWILIO_WHATSAPP_FROM || process.env.TWILIO_WHATSAPP_NUMBER),
-      sms_available: !!process.env.TWILIO_PHONE_NUMBER
-    }
+    results: results
   });
 });
 
