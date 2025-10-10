@@ -1,196 +1,100 @@
-// diagnostic.js - Standalone script to test notification services
+// backend/diagnostic.js - Run this to check your setup
 import dotenv from 'dotenv';
-import nodemailer from 'nodemailer';
-import twilio from 'twilio';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import { existsSync } from 'fs';
 
-// Load environment
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
-console.log('🔍 TasteSphere Notification Service Diagnostic');
+console.log('🔍 TasteSphere Backend Diagnostic Check\n');
 console.log('='.repeat(50));
 
-// Test email service
-const testEmail = async () => {
-  console.log('\n📧 Testing Email Service...');
-  
-  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-    console.log('❌ Email credentials missing');
-    console.log('EMAIL_USER:', !!process.env.EMAIL_USER);
-    console.log('EMAIL_PASS:', !!process.env.EMAIL_PASS);
-    return false;
-  }
+// 1. Check .env file
+console.log('\n📁 Checking .env file...');
+const envPath = join(__dirname, '.env');
+if (existsSync(envPath)) {
+  console.log('✅ .env file found at:', envPath);
+} else {
+  console.log('❌ .env file NOT found at:', envPath);
+  console.log('   Create a .env file in your backend root directory');
+  process.exit(1);
+}
 
-  try {
-    console.log('📧 Email User:', process.env.EMAIL_USER);
-    
-    const transporter = nodemailer.createTransporter({
-      service: 'gmail',
-      host: 'smtp.gmail.com',
-      port: 587,
-      secure: false,
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
-      tls: {
-        rejectUnauthorized: false
-      }
-    });
+// 2. Load environment variables
+dotenv.config();
 
-    console.log('🔍 Verifying email connection...');
-    await transporter.verify();
-    console.log('✅ Email service: WORKING');
-    
-    // Send test email
-    console.log('📤 Sending test email...');
-    const info = await transporter.sendMail({
-      from: `TasteSphere Test <${process.env.EMAIL_USER}>`,
-      to: process.env.EMAIL_USER, // Send to self for testing
-      subject: '🧪 TasteSphere Email Test',
-      html: `
-        <h2>✅ Email Service Test Successful!</h2>
-        <p>This email confirms that your TasteSphere email service is working correctly.</p>
-        <p><strong>Timestamp:</strong> ${new Date().toISOString()}</p>
-      `
-    });
-    
-    console.log('✅ Test email sent successfully');
-    console.log('📧 Message ID:', info.messageId);
-    return true;
-    
-  } catch (error) {
-    console.log('❌ Email service error:', error.message);
-    
-    if (error.message.includes('Invalid login')) {
-      console.log('💡 Solution: Check if you need an App Password for Gmail');
-      console.log('   1. Go to Google Account settings');
-      console.log('   2. Security > App passwords');
-      console.log('   3. Generate app password for "Mail"');
-      console.log('   4. Use that password in EMAIL_PASS');
-    }
-    
-    return false;
-  }
-};
+// 3. Check Razorpay credentials
+console.log('\n💳 Checking Razorpay Configuration...');
+if (process.env.RAZORPAY_KEY_ID) {
+  console.log('✅ RAZORPAY_KEY_ID found:', process.env.RAZORPAY_KEY_ID.substring(0, 15) + '...');
+} else {
+  console.log('❌ RAZORPAY_KEY_ID is missing');
+}
 
-// Test WhatsApp service
-const testWhatsApp = async () => {
-  console.log('\n📱 Testing WhatsApp Service...');
-  
-  if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !process.env.TWILIO_WHATSAPP_NUMBER) {
-    console.log('❌ Twilio credentials missing');
-    console.log('TWILIO_ACCOUNT_SID:', !!process.env.TWILIO_ACCOUNT_SID);
-    console.log('TWILIO_AUTH_TOKEN:', !!process.env.TWILIO_AUTH_TOKEN);
-    console.log('TWILIO_WHATSAPP_NUMBER:', !!process.env.TWILIO_WHATSAPP_NUMBER);
-    return false;
-  }
+if (process.env.RAZORPAY_KEY_SECRET) {
+  console.log('✅ RAZORPAY_KEY_SECRET found: (hidden)');
+} else {
+  console.log('❌ RAZORPAY_KEY_SECRET is missing');
+}
 
-  try {
-    console.log('📱 Account SID:', process.env.TWILIO_ACCOUNT_SID.substring(0, 8) + '...');
-    console.log('📱 WhatsApp Number:', process.env.TWILIO_WHATSAPP_NUMBER);
-    
-    const client = twilio(
-      process.env.TWILIO_ACCOUNT_SID,
-      process.env.TWILIO_AUTH_TOKEN
-    );
+// 4. Check Email credentials
+console.log('\n📧 Checking Email Configuration...');
+if (process.env.EMAIL_USER) {
+  console.log('✅ EMAIL_USER found:', process.env.EMAIL_USER);
+} else {
+  console.log('⚠️  EMAIL_USER is missing (optional)');
+}
 
-    console.log('🔍 Testing Twilio connection...');
-    const account = await client.api.accounts(process.env.TWILIO_ACCOUNT_SID).fetch();
-    console.log('✅ Twilio connection: WORKING');
-    console.log('📱 Account Name:', account.friendlyName);
-    console.log('📱 Account Status:', account.status);
-    
-    // Note: We can't send a test WhatsApp without a valid recipient
-    console.log('⚠️ WhatsApp test requires a valid recipient number');
-    console.log('💡 Use the /api/payment/test-notifications endpoint to test with real numbers');
-    
-    return true;
-    
-  } catch (error) {
-    console.log('❌ WhatsApp service error:', error.message);
-    
-    if (error.message.includes('credentials')) {
-      console.log('💡 Solution: Check your Twilio credentials');
-      console.log('   1. Go to Twilio Console');
-      console.log('   2. Verify Account SID and Auth Token');
-      console.log('   3. Check WhatsApp Sandbox number');
-    }
-    
-    return false;
-  }
-};
+if (process.env.EMAIL_PASS) {
+  console.log('✅ EMAIL_PASS found: (hidden)');
+} else {
+  console.log('⚠️  EMAIL_PASS is missing (optional)');
+}
 
-// Test Razorpay
-const testRazorpay = async () => {
-  console.log('\n💳 Testing Razorpay Service...');
-  
-  if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
-    console.log('❌ Razorpay credentials missing');
-    return false;
-  }
+// 5. Check other important variables
+console.log('\n🔧 Checking Other Configuration...');
+console.log('MONGODB_URI:', process.env.MONGODB_URI ? '✅ Found' : '❌ Missing');
+console.log('JWT_SECRET:', process.env.JWT_SECRET ? '✅ Found' : '❌ Missing');
+console.log('PORT:', process.env.PORT || '5000 (default)');
 
+// 6. Test Razorpay initialization
+console.log('\n🧪 Testing Razorpay Initialization...');
+if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
   try {
     const Razorpay = (await import('razorpay')).default;
     const razorpay = new Razorpay({
-      key_id: process.env.RAZORPAY_KEY_ID,
-      key_secret: process.env.RAZORPAY_KEY_SECRET,
+      key_id: process.env.RAZORPAY_KEY_ID.trim(),
+      key_secret: process.env.RAZORPAY_KEY_SECRET.trim()
     });
+    console.log('✅ Razorpay instance created successfully');
     
-    console.log('💳 Key ID:', process.env.RAZORPAY_KEY_ID.substring(0, 8) + '...');
-    
-    // Create a test order (but don't process it)
-    const options = {
-      amount: 100, // ₹1 in paise
+    // Try creating a test order
+    console.log('   Testing order creation...');
+    razorpay.orders.create({
+      amount: 100,
       currency: 'INR',
-      receipt: 'test_receipt_' + Date.now(),
-      payment_capture: 1,
-    };
-
-    const order = await razorpay.orders.create(options);
-    console.log('✅ Razorpay service: WORKING');
-    console.log('💳 Test Order ID:', order.id);
-    return true;
-    
+      receipt: 'diagnostic_test'
+    }).then(() => {
+      console.log('✅ Razorpay API connection successful!');
+      console.log('\n' + '='.repeat(50));
+      console.log('✅ ALL CHECKS PASSED - Your setup is correct!');
+      console.log('='.repeat(50));
+    }).catch((err) => {
+      console.log('❌ Razorpay API call failed:', err.message);
+      console.log('\n❌ POSSIBLE ISSUES:');
+      console.log('   1. Invalid API credentials');
+      console.log('   2. No internet connection');
+      console.log('   3. Razorpay account not activated');
+    });
   } catch (error) {
-    console.log('❌ Razorpay service error:', error.message);
-    return false;
+    console.log('❌ Failed to initialize Razorpay:', error.message);
   }
-};
+} else {
+  console.log('❌ Cannot test - Razorpay credentials missing');
+  console.log('\n❌ SETUP INCOMPLETE - Add Razorpay credentials to .env');
+}
 
-// Run all tests
-const runDiagnostic = async () => {
-  console.log('Starting comprehensive diagnostic...\n');
-  
-  const results = {
-    email: await testEmail(),
-    whatsapp: await testWhatsApp(),
-    razorpay: await testRazorpay()
-  };
-  
-  console.log('\n' + '='.repeat(50));
-  console.log('📊 DIAGNOSTIC RESULTS');
-  console.log('='.repeat(50));
-  console.log('📧 Email Service:', results.email ? '✅ WORKING' : '❌ FAILED');
-  console.log('📱 WhatsApp Service:', results.whatsapp ? '✅ WORKING' : '❌ FAILED');
-  console.log('💳 Razorpay Service:', results.razorpay ? '✅ WORKING' : '❌ FAILED');
-  
-  const workingServices = Object.values(results).filter(Boolean).length;
-  const totalServices = Object.keys(results).length;
-  
-  console.log('\n📈 Overall Status:', `${workingServices}/${totalServices} services working`);
-  
-  if (workingServices === totalServices) {
-    console.log('🎉 All services are working correctly!');
-  } else {
-    console.log('⚠️ Some services need attention. Check the errors above.');
-  }
-  
-  console.log('\n💡 Next Steps:');
-  console.log('1. Fix any failing services using the solutions provided');
-  console.log('2. Restart your server after fixing credentials');
-  console.log('3. Test notifications using /api/payment/test-notifications');
-  console.log('4. Place a test order to verify everything works end-to-end');
-};
-
-// Run the diagnostic
-runDiagnostic().catch(console.error);
+console.log('\n' + '='.repeat(50));
+console.log('Diagnostic complete.');
+console.log('='.repeat(50) + '\n');

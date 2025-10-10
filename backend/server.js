@@ -1,7 +1,33 @@
-// server.js - CORRECTED VERSION
+// server.js - CRITICAL FIX: Load environment variables FIRST
 import dotenv from 'dotenv';
-dotenv.config();
 
+// ⚠️ CRITICAL: Load .env BEFORE any other imports
+const envResult = dotenv.config();
+
+if (envResult.error) {
+  console.error('❌ CRITICAL: Failed to load .env file:', envResult.error);
+  process.exit(1);
+}
+
+// Verify critical variables are loaded
+console.log('\n🔍 Environment Variable Check:');
+console.log('✓ MONGODB_URI:', process.env.MONGODB_URI ? 'LOADED' : '❌ MISSING');
+console.log('✓ RAZORPAY_KEY_ID:', process.env.RAZORPAY_KEY_ID ? 'LOADED' : '❌ MISSING');
+console.log('✓ RAZORPAY_KEY_SECRET:', process.env.RAZORPAY_KEY_SECRET ? 'LOADED' : '❌ MISSING');
+console.log('✓ JWT_SECRET:', process.env.JWT_SECRET ? 'LOADED' : '❌ MISSING');
+console.log('✓ EMAIL_USER:', process.env.EMAIL_USER ? 'LOADED' : '⚠️  OPTIONAL');
+console.log('✓ TWILIO_ACCOUNT_SID:', process.env.TWILIO_ACCOUNT_SID ? 'LOADED' : '⚠️  OPTIONAL\n');
+
+// Verify Razorpay credentials specifically
+if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+  console.error('❌ CRITICAL: Razorpay credentials missing!');
+  console.error('Please check your .env file contains:');
+  console.error('  RAZORPAY_KEY_ID=rzp_test_...');
+  console.error('  RAZORPAY_KEY_SECRET=...\n');
+  process.exit(1);
+}
+
+// NOW import everything else
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
@@ -10,7 +36,6 @@ import { fileURLToPath } from 'url';
 import { createServer } from 'http';
 import { initializeSocket } from './config/socket.js';
 import connectDB from './connectDB.js';
-import sellerStatusManager from './utils/sellerStatusManager.js';
 
 // Import customer routes
 import userRouter from './routes/userRouter.js';
@@ -28,6 +53,8 @@ import orderRoutes from './routes/orderRoutes.js';
 import customerOrderRoutes from './routes/customerOrderRoutes.js';
 import sellerStatusRoutes from './routes/sellerStatus.js';
 import customerDiscoveryRoutes from './routes/customerDiscovery.js';
+import orderHistoryRoutes from './routes/orderHistoryRoutes.js';
+import settlementRoutes from './routes/settlementRoutes.js';
 
 // Import seller routes
 import sellerAuthRoutes from './routes/sellerAuth.js';
@@ -45,7 +72,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const httpServer = createServer(app);
 
-// Initialize Socket.IO and attach to app
+// Initialize Socket.IO
 const io = initializeSocket(httpServer);
 app.set('io', io);
 
@@ -53,8 +80,6 @@ app.set('io', io);
 connectDB();
 
 // ==================== MIDDLEWARE ====================
-
-// CORS configuration
 app.use(cors({
   origin: ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:5174'],
   credentials: true,
@@ -62,11 +87,10 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-// Body parsers
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Request logging middleware
+// Request logging
 app.use((req, res, next) => {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] ${req.method} ${req.path}`);
@@ -74,7 +98,6 @@ app.use((req, res, next) => {
 });
 
 // ==================== STATIC FILES ====================
-
 const uploadsDir = path.join(__dirname, 'uploads');
 const sellersDir = path.join(uploadsDir, 'sellers');
 const dishesDir = path.join(uploadsDir, 'dishes');
@@ -88,41 +111,6 @@ const dishesDir = path.join(uploadsDir, 'dishes');
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// ==================== SELLER STATUS MANAGEMENT ====================
-
-setInterval(() => {
-  const inactiveCount = sellerStatusManager.cleanupInactiveSellers(30);
-  if (inactiveCount > 0) {
-    console.log(`Cleaned up ${inactiveCount} inactive sellers`);
-  }
-}, 10 * 60 * 1000);
-
-// ==================== HEALTH CHECK ROUTES ====================
-
-app.get('/', (req, res) => {
-  res.json({ 
-    success: true, 
-    message: 'TasteSphere API is running!',
-    version: '1.0.0',
-    timestamp: new Date().toISOString()
-  });
-});
-
-app.get('/health', (req, res) => {
-  const dbStatus = global.mongoose?.connection?.readyState === 1;
-  
-  res.json({
-    success: true,
-    message: 'TasteSphere API Health Check',
-    timestamp: new Date().toISOString(),
-    services: {
-      database: dbStatus ? 'connected' : 'disconnected',
-      socket: 'enabled',
-      api: 'operational'
-    }
-  });
-});
-
 // ==================== API ROUTES ====================
 
 // Customer Authentication & User Management
@@ -130,6 +118,10 @@ app.use('/api/auth', authRouter);
 app.use('/api/users', userRouter);
 app.use('/api/otp', otpRouter);
 app.use('/api/settings-auth', settingsAuthRoutes);
+app.use('/api/settlement', settlementRoutes);
+
+// Order history route
+app.use('/api/order-history', orderHistoryRoutes);
 
 // Customer Features
 app.use('/api/upload', uploadRoutes);
@@ -141,10 +133,10 @@ app.use('/api/discovery', customerDiscoveryRoutes);
 app.use('/api/dishes', dishRoutes);
 app.use('/api/reviews', reviewRoutes);
 
-// Order routes MUST come before payment routes
+// Order routes
 app.use('/api/orders', orderRoutes);
 
-// Payment routes
+// ⚠️ CRITICAL: Payment routes MUST come after .env is loaded
 app.use('/api/payment', paymentRoutes);
 
 // Seller Status
@@ -196,20 +188,20 @@ const PORT = process.env.PORT || 5000;
 
 httpServer.listen(PORT, '0.0.0.0', () => {
   console.log('\n========================================');
-  console.log('TasteSphere Server Started');
+  console.log('🍽️  TasteSphere Server Started');
   console.log('========================================');
-  console.log(`Server: http://localhost:${PORT}`);
-  console.log(`Socket.IO: Enabled`);
-  console.log(`Database: ${global.mongoose?.connection?.readyState === 1 ? 'Connected' : 'Connecting...'}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log('\nSeller Order Endpoints:');
-  console.log('  POST   /api/seller/orders/:orderId/accept   - Accept order');
-  console.log('  POST   /api/seller/orders/:orderId/reject   - Reject order');
-  console.log('  PATCH  /api/seller/orders/:orderId/status   - Update status');
-  console.log('\nCustomer Order Endpoints:');
-  console.log('  POST   /api/orders              - Create order');
-  console.log('  GET    /api/orders/history      - Order history');
-  console.log('  GET    /api/orders/:orderId     - Single order');
+  console.log(`🌐 Server: http://localhost:${PORT}`);
+  console.log(`🔌 Socket.IO: Enabled`);
+  console.log(`💾 Database: ${global.mongoose?.connection?.readyState === 1 ? 'Connected ✅' : 'Connecting...'}`);
+  console.log(`📦 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`💳 Razorpay: ${process.env.RAZORPAY_KEY_ID ? 'Configured ✅' : 'Missing ❌'}`);
+  console.log('========================================');
+  console.log('\n📋 Key Endpoints:');
+  console.log('  GET    /api/payment/health             - Payment service status');
+  console.log('  POST   /api/payment/create-order       - Create Razorpay order');
+  console.log('  POST   /api/payment/verify-payment     - Verify payment');
+  console.log('  POST   /api/payment/create-cod-order   - Create COD order');
+  console.log('  GET    /api/order-history              - Get all orders');
   console.log('========================================\n');
 });
 

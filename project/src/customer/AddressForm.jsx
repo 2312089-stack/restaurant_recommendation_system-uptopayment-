@@ -32,7 +32,6 @@ const AddressForm = ({
       [field]: value
     }));
     
-    // Clear error when user starts typing
     if (errors[field]) {
       setErrors(prev => ({
         ...prev,
@@ -44,7 +43,6 @@ const AddressForm = ({
   const validateForm = () => {
     const newErrors = {};
 
-    // Required field validations
     if (!formData.fullName.trim()) {
       newErrors.fullName = 'Full name is required';
     } else if (formData.fullName.trim().length < 2) {
@@ -59,7 +57,6 @@ const AddressForm = ({
       newErrors.phoneNumber = 'Please enter a valid phone number (10-15 digits)';
     }
 
-    // Alternate phone validation (only if provided)
     if (formData.alternatePhone && formData.alternatePhone.trim()) {
       if (!/^[+]?[\d\s-()]{10,15}$/.test(formData.alternatePhone.replace(/\s/g, ''))) {
         newErrors.alternatePhone = 'Please enter a valid alternate phone number';
@@ -100,7 +97,6 @@ const AddressForm = ({
       newErrors.roadArea = 'Road/Area is too long';
     }
 
-    // Optional field validations
     if (formData.landmark && formData.landmark.length > 200) {
       newErrors.landmark = 'Landmark is too long';
     }
@@ -120,7 +116,6 @@ const AddressForm = ({
     setIsSubmitting(true);
     
     try {
-      // Clean and prepare data for API
       const cleanedData = {
         fullName: formData.fullName.trim(),
         phoneNumber: formData.phoneNumber.trim(),
@@ -140,7 +135,6 @@ const AddressForm = ({
     } catch (error) {
       console.error('Form submission error:', error);
       
-      // Handle specific validation errors from backend
       if (error.message && error.message.includes('validation')) {
         setErrors({ general: error.message });
       } else {
@@ -152,13 +146,10 @@ const AddressForm = ({
   };
 
   const handleUseLocation = () => {
-    // Simulate location detection - In real app, you would use geolocation API
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
-          // In a real app, you'd reverse geocode these coordinates
           console.log('Location detected:', position.coords);
-          // For demo, just fill some sample data
           setFormData(prev => ({
             ...prev,
             pincode: '400001',
@@ -168,7 +159,6 @@ const AddressForm = ({
         },
         (error) => {
           console.error('Location error:', error);
-          // Fallback to sample data
           setFormData(prev => ({
             ...prev,
             pincode: '400001',
@@ -178,7 +168,6 @@ const AddressForm = ({
         }
       );
     } else {
-      // Fallback for browsers that don't support geolocation
       setFormData(prev => ({
         ...prev,
         pincode: '400001',
@@ -193,36 +182,35 @@ const AddressForm = ({
       <div className="flex items-center space-x-4">
         <button
           onClick={onCancel}
-          className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
           type="button"
         >
-          <ArrowLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+          <ArrowLeft className="w-5 h-5 text-gray-600" />
         </button>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+        <h1 className="text-2xl font-bold text-gray-900">
           {isEdit ? 'Edit Address' : 'Add New Address'}
         </h1>
       </div>
 
-      {/* Display general errors */}
       {errors.general && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
           <p className="text-sm">{errors.general}</p>
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+      <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
         <div className="space-y-6">
           {/* Full Name */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
               Full Name <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
               value={formData.fullName}
               onChange={(e) => handleInputChange('fullName', e.target.value)}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white ${
-                errors.fullName ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${
+                errors.fullName ? 'border-red-500' : 'border-gray-300'
               }`}
               placeholder="Enter your full name"
               maxLength={100}
@@ -232,15 +220,15 @@ const AddressForm = ({
 
           {/* Phone Number */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
               Phone Number <span className="text-red-500">*</span>
             </label>
             <input
               type="tel"
               value={formData.phoneNumber}
               onChange={(e) => handleInputChange('phoneNumber', e.target.value)}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white ${
-                errors.phoneNumber ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${
+                errors.phoneNumber ? 'border-red-500' : 'border-gray-300'
               }`}
               placeholder="Enter your phone number"
               maxLength={15}
@@ -263,7 +251,7 @@ const AddressForm = ({
           {showAlternatePhone && (
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                <label className="block text-sm font-medium text-gray-700">
                   Alternate Phone Number
                 </label>
                 <button
@@ -281,8 +269,8 @@ const AddressForm = ({
                 type="tel"
                 value={formData.alternatePhone}
                 onChange={(e) => handleInputChange('alternatePhone', e.target.value)}
-                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white ${
-                  errors.alternatePhone ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${
+                  errors.alternatePhone ? 'border-red-500' : 'border-gray-300'
                 }`}
                 placeholder="Enter alternate phone number"
                 maxLength={15}
@@ -294,15 +282,15 @@ const AddressForm = ({
           {/* Pincode and Location */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
                 Pincode <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
                 value={formData.pincode}
                 onChange={(e) => handleInputChange('pincode', e.target.value.replace(/\D/g, ''))}
-                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white ${
-                  errors.pincode ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${
+                  errors.pincode ? 'border-red-500' : 'border-gray-300'
                 }`}
                 placeholder="Enter pincode"
                 maxLength={6}
@@ -314,7 +302,7 @@ const AddressForm = ({
               <button
                 type="button"
                 onClick={handleUseLocation}
-                className="flex items-center space-x-2 px-4 py-2 bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-300 rounded-lg hover:bg-orange-200 dark:hover:bg-orange-800 transition-colors"
+                className="flex items-center space-x-2 px-4 py-2 bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200 transition-colors"
               >
                 <Locate className="w-4 h-4" />
                 <span>Use My Location</span>
@@ -325,15 +313,15 @@ const AddressForm = ({
           {/* State and City */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
                 State <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
                 value={formData.state}
                 onChange={(e) => handleInputChange('state', e.target.value)}
-                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white ${
-                  errors.state ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${
+                  errors.state ? 'border-red-500' : 'border-gray-300'
                 }`}
                 placeholder="Enter state"
                 maxLength={50}
@@ -342,15 +330,15 @@ const AddressForm = ({
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
                 City <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
                 value={formData.city}
                 onChange={(e) => handleInputChange('city', e.target.value)}
-                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white ${
-                  errors.city ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${
+                  errors.city ? 'border-red-500' : 'border-gray-300'
                 }`}
                 placeholder="Enter city"
                 maxLength={50}
@@ -361,15 +349,15 @@ const AddressForm = ({
 
           {/* House Number */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
               House No., Building Name <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
               value={formData.houseNo}
               onChange={(e) => handleInputChange('houseNo', e.target.value)}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white ${
-                errors.houseNo ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${
+                errors.houseNo ? 'border-red-500' : 'border-gray-300'
               }`}
               placeholder="House No., Building Name"
               maxLength={200}
@@ -379,15 +367,15 @@ const AddressForm = ({
 
           {/* Road/Area */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
               Road name, Area, Colony <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
               value={formData.roadArea}
               onChange={(e) => handleInputChange('roadArea', e.target.value)}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white ${
-                errors.roadArea ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${
+                errors.roadArea ? 'border-red-500' : 'border-gray-300'
               }`}
               placeholder="Road name, Area, Colony"
               maxLength={200}
@@ -410,7 +398,7 @@ const AddressForm = ({
           {showLandmark && (
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                <label className="block text-sm font-medium text-gray-700">
                   Nearby Famous Shop/Mall/Landmark
                 </label>
                 <button
@@ -428,8 +416,8 @@ const AddressForm = ({
                 type="text"
                 value={formData.landmark}
                 onChange={(e) => handleInputChange('landmark', e.target.value)}
-                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white ${
-                  errors.landmark ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent ${
+                  errors.landmark ? 'border-red-500' : 'border-gray-300'
                 }`}
                 placeholder="e.g., Near Phoenix Mall, Opposite McDonald's"
                 maxLength={200}
@@ -440,7 +428,7 @@ const AddressForm = ({
 
           {/* Address Type */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+            <label className="block text-sm font-medium text-gray-700 mb-3">
               Type of Address
             </label>
             <div className="flex space-x-4">
@@ -449,8 +437,8 @@ const AddressForm = ({
                 onClick={() => handleInputChange('type', 'home')}
                 className={`flex items-center space-x-2 px-4 py-3 border-2 rounded-lg transition-colors ${
                   formData.type === 'home' 
-                    ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300' 
-                    : 'border-gray-300 dark:border-gray-600 hover:border-orange-300 text-gray-700 dark:text-gray-300'
+                    ? 'border-orange-500 bg-orange-50 text-orange-700' 
+                    : 'border-gray-300 hover:border-orange-300 text-gray-700'
                 }`}
               >
                 <Home className="w-5 h-5" />
@@ -462,8 +450,8 @@ const AddressForm = ({
                 onClick={() => handleInputChange('type', 'work')}
                 className={`flex items-center space-x-2 px-4 py-3 border-2 rounded-lg transition-colors ${
                   formData.type === 'work' 
-                    ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300' 
-                    : 'border-gray-300 dark:border-gray-600 hover:border-orange-300 text-gray-700 dark:text-gray-300'
+                    ? 'border-orange-500 bg-orange-50 text-orange-700' 
+                    : 'border-gray-300 hover:border-orange-300 text-gray-700'
                 }`}
               >
                 <Briefcase className="w-5 h-5" />
@@ -475,8 +463,8 @@ const AddressForm = ({
                 onClick={() => handleInputChange('type', 'other')}
                 className={`flex items-center space-x-2 px-4 py-3 border-2 rounded-lg transition-colors ${
                   formData.type === 'other' 
-                    ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300' 
-                    : 'border-gray-300 dark:border-gray-600 hover:border-orange-300 text-gray-700 dark:text-gray-300'
+                    ? 'border-orange-500 bg-orange-50 text-orange-700' 
+                    : 'border-gray-300 hover:border-orange-300 text-gray-700'
                 }`}
               >
                 <span className="font-medium">Other</span>
@@ -491,16 +479,16 @@ const AddressForm = ({
               id="isDefault"
               checked={formData.isDefault}
               onChange={(e) => handleInputChange('isDefault', e.target.checked)}
-              className="w-4 h-4 text-orange-600 bg-gray-100 border-gray-300 rounded focus:ring-orange-500 dark:focus:ring-orange-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
+              className="w-4 h-4 text-orange-600 bg-gray-100 border-gray-300 rounded focus:ring-orange-500"
             />
-            <label htmlFor="isDefault" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
+            <label htmlFor="isDefault" className="text-sm font-medium text-gray-700 cursor-pointer">
               Set as default address
             </label>
           </div>
         </div>
 
         {/* Form Actions */}
-        <div className="flex space-x-4 pt-6 mt-6 border-t border-gray-200 dark:border-gray-700">
+        <div className="flex space-x-4 pt-6 mt-6 border-t border-gray-200">
           <button
             type="submit"
             disabled={isSubmitting}
@@ -523,7 +511,7 @@ const AddressForm = ({
             type="button"
             onClick={onCancel}
             disabled={isSubmitting}
-            className="px-6 py-3 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Cancel
           </button>

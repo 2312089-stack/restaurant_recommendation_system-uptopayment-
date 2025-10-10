@@ -861,7 +861,9 @@ const fetchDishes = async (reset = false) => {
         )}
       </div>
 
-      <style jsx>{`
+
+      {/* ✅ FIXED: Removed jsx attribute from style tag */}
+      <style>{`
         @keyframes slide-down {
           from {
             transform: translate(-50%, -100%);
@@ -926,3 +928,4 @@ const fetchDishes = async (reset = false) => {
 };
 
 export default DiscoveryPage;
+    

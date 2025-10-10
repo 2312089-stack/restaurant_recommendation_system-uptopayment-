@@ -3,10 +3,11 @@ import {
   Menu, X, Home, User, ChefHat, ShoppingBag, Calendar, CreditCard,
   BarChart3, Star, Tag, Settings, Upload, Plus, Edit3, Trash2, Bell,
   DollarSign, AlertCircle, CheckCircle, Loader2, Camera, Save, Building,
-  MessageCircle
+  MessageCircle, XCircle  // ← Add XCircle here
 } from 'lucide-react';
 import NotificationPanel from './NotificationPanel';
 import { useSocket } from '../../contexts/SocketContext';
+import PaymentSettlementPage from './PaymentSettlementPage';
 
 const API_BASE = 'http://localhost:5000/api';
 
@@ -29,7 +30,9 @@ const SellerDashboard = () => {
   const [success, setSuccess] = useState('');
   const [showNotifications, setShowNotifications] = useState(false);
   const [dashboardStatus, setDashboardStatus] = useState('online');
-
+// Add these states with your other states
+const [showRejectionModal, setShowRejectionModal] = useState(false);
+const [rejectingOrder, setRejectingOrder] = useState(null);
   // Data States
   const [sellerData, setSellerData] = useState(null);
   const [stats, setStats] = useState(null);
@@ -217,12 +220,52 @@ const SellerDashboard = () => {
       return () => clearTimeout(timer);
     }
   }, [error]);
+// Add this useEffect in SellerDashboard.jsx
+useEffect(() => {
+  loadSellerData();
+  loadStats();
+  loadDishes(); // ← MISSING!
+}, []);
+// Add this useEffect
+useEffect(() => {
+  if (activeSection === 'menu') {
+    loadDishes();
+  }
+}, [activeSection]);
+// In SellerDashboard component, add these useEffects:
 
-  // API Calls
-  const loadSellerData = async () => {
-    try {
-      const token = getAuthToken();
-      if (!token) {
+// Load initial data on mount
+useEffect(() => {
+  const initializeDashboard = async () => {
+    await loadSellerData();
+    await loadStats();
+    await loadDishes(); // ← Load dishes on mount
+  };
+  
+  initializeDashboard();
+}, []);
+
+// Reload dishes when menu section is active
+useEffect(() => {
+  if (activeSection === 'menu') {
+    console.log('📋 Menu section active - loading dishes');
+    loadDishes();
+  }
+}, [activeSection]);
+
+// Reload dishes after dish operations
+useEffect(() => {
+  if (success && success.includes('Dish')) {
+    console.log('✅ Dish operation successful - reloading');
+    loadDishes();
+  }
+}, [success]);
+
+// API Calls
+const loadSellerData = async () => {
+  try {
+    const token = getAuthToken();
+    if (!token) {
         setError('Please login to continue');
         return;
       }
@@ -285,11 +328,170 @@ const SellerDashboard = () => {
       setOrdersLoading(false);
     }
   };
+// Add this before the SellerDashboard component
+const RejectionModal = ({ order, onClose, onConfirm, loading }) => {
+  const [reason, setReason] = useState('');
+  const [customReason, setCustomReason] = useState('');
+  const [error, setError] = useState('');
 
- // SellerDashboard.jsx - Update handleAcceptOrder
+  const predefinedReasons = [
+    'Out of stock',
+    'Restaurant too busy',
+    'Delivery area not serviceable',
+    'Technical issues',
+    'Closing soon',
+    'Unable to prepare this dish',
+    'Price incorrect',
+    'Other (specify below)'
+  ];
+
+  const handleSubmit = () => {
+    let finalReason = reason;
+    
+    if (reason === 'Other (specify below)') {
+      if (!customReason || customReason.trim() === '') {
+        setError('Please specify the reason');
+        return;
+      }
+      finalReason = customReason.trim();
+    } else if (!reason) {
+      setError('Please select a reason');
+      return;
+    }
+
+    onConfirm(order._id, finalReason);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl max-w-md w-full shadow-2xl">
+        {/* Header */}
+        <div className="bg-red-50 border-b border-red-100 p-6 rounded-t-xl">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+              <AlertCircle className="w-6 h-6 text-red-600" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">Reject Order?</h3>
+              <p className="text-sm text-gray-600">Order #{order.orderId || order._id?.slice(-8)}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="p-6">
+          <div className="mb-4">
+            <p className="text-sm text-gray-700 mb-2">
+              <span className="font-medium">Customer:</span> {order.customerName}
+            </p>
+            <p className="text-sm text-gray-700 mb-2">
+              <span className="font-medium">Item:</span> {order.item?.name}
+            </p>
+            <p className="text-sm text-gray-700">
+              <span className="font-medium">Amount:</span> ₹{order.totalAmount}
+            </p>
+          </div>
+
+          {error && (
+            <div className="mb-4 p-3 bg-red-50 border-l-4 border-red-500 rounded">
+              <p className="text-sm text-red-700">{error}</p>
+            </div>
+          )}
+
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-3">
+              Please select a reason for rejection:
+            </label>
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {predefinedReasons.map((r) => (
+                <label
+                  key={r}
+                  className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-all ${
+                    reason === r 
+                      ? 'border-red-500 bg-red-50' 
+                      : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="reason"
+                    value={r}
+                    checked={reason === r}
+                    onChange={(e) => {
+                      setReason(e.target.value);
+                      setError('');
+                    }}
+                    className="mt-0.5 text-red-600 focus:ring-red-500"
+                  />
+                  <span className="text-sm text-gray-700 flex-1">{r}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Custom Reason Input */}
+          {reason === 'Other (specify below)' && (
+            <div className="mb-4">
+              <textarea
+                value={customReason}
+                onChange={(e) => {
+                  setCustomReason(e.target.value);
+                  setError('');
+                }}
+                placeholder="Please specify the reason..."
+                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                rows={3}
+              />
+            </div>
+          )}
+
+          {/* Warning Message */}
+          <div className="bg-yellow-50 border-l-4 border-yellow-400 p-3 rounded mb-4">
+            <p className="text-xs text-yellow-800">
+              ⚠️ <strong>Important:</strong> The customer will be notified immediately with your reason. 
+              {order.paymentStatus === 'completed' && ' Payment will be refunded within 5-7 business days.'}
+            </p>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="bg-gray-50 px-6 py-4 rounded-b-xl flex gap-3">
+          <button
+            onClick={onClose}
+            disabled={loading}
+            className="flex-1 px-4 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={!reason || loading}
+            className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {loading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Rejecting...
+              </>
+            ) : (
+              <>
+                <XCircle className="w-4 h-4" />
+                Reject Order
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+// In SellerDashboard.jsx - handleAcceptOrder
 const handleAcceptOrder = async (orderId) => {
   try {
+    setLoading(true);
     const token = getAuthToken();
+
+    console.log('🔄 Accepting order:', orderId);
 
     const response = await fetch(`${API_BASE}/seller/orders/${orderId}/accept`, {
       method: 'POST',
@@ -302,60 +504,58 @@ const handleAcceptOrder = async (orderId) => {
     const data = await response.json();
     
     if (response.ok && data.success) {
+      console.log('✅ Order accepted successfully');
       setSuccess('✅ Order accepted! Customer notified.');
       
-      // ✅ EMIT SOCKET EVENT
-      if (socket && connected) {
-        socket.emit('seller-accepted-order', {
-          orderId: data.order.orderId,
-          orderMongoId: data.order._id,
-          _id: data.order._id,
-          orderStatus: 'seller_accepted',
-          customerEmail: data.order.customerEmail
-        });
-      }
-      
+      // Backend handles socket emission
+      // Just reload orders to update UI
       loadOrders();
     } else {
+      console.error('❌ Failed to accept order:', data.error);
       setError(data.error || 'Failed to accept order');
     }
   } catch (err) {
     console.error('❌ Accept order error:', err);
     setError('Failed to accept order: ' + err.message);
+  } finally {
+    setLoading(false);
   }
 };
 
+  const handleRejectOrder = async (orderId, reason) => {
+  try {
+    setLoading(true);
+    const token = getAuthToken();
 
-  const handleRejectOrder = async (orderId) => {
-    const reason = prompt('Please provide a reason for rejecting this order:');
-    if (!reason || reason.trim() === '') {
-      alert('Please provide a reason for rejection');
-      return;
+    console.log('❌ Rejecting order:', orderId, 'Reason:', reason);
+
+    const response = await fetch(`${API_BASE}/seller/orders/${orderId}/reject`, {
+      method: 'POST',
+      headers: { 
+        'Authorization': `Bearer ${token}`, 
+        'Content-Type': 'application/json' 
+      },
+      body: JSON.stringify({ reason })
+    });
+
+    const data = await response.json();
+    
+    if (response.ok && data.success) {
+      console.log('✅ Order rejected successfully');
+      setSuccess('Order rejected. Customer has been notified.');
+      setShowRejectionModal(false);
+      setRejectingOrder(null);
+      loadOrders();
+    } else {
+      setError(data.error || 'Failed to reject order');
     }
-
-    try {
-      setLoading(true);
-      const token = getAuthToken();
-
-      const response = await fetch(`${API_BASE}/seller/orders/${orderId}/status`, {
-        method: 'PATCH',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'seller_rejected', cancellationReason: reason })
-      });
-
-      const data = await response.json();
-      if (response.ok) {
-        setSuccess('Order rejected. Customer has been notified.');
-        loadOrders();
-      } else {
-        setError(data.error || 'Failed to reject order');
-      }
-    } catch (err) {
-      setError('Failed to reject order: ' + err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  } catch (err) {
+    console.error('❌ Reject order error:', err);
+    setError('Failed to reject order: ' + err.message);
+  } finally {
+    setLoading(false);
+  }
+};
 
   const updateOrderStatus = async (orderId, newStatus) => {
     try {
@@ -398,21 +598,39 @@ const handleAcceptOrder = async (orderId) => {
     }
   };
 
-  const loadDishes = async () => {
-    try {
-      const token = getAuthToken();
-      const response = await fetch(`${API_BASE}/seller/menu/dishes`, {
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
-      });
-
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Failed to load dishes');
-      setDishes(data.dishes || []);
-    } catch (err) {
-      console.error('Load dishes error:', err);
-      setError('Failed to load dishes');
+ const loadDishes = async () => {
+  try {
+    console.log('🍽️ Loading dishes for seller...');
+    const token = getAuthToken();
+    
+    if (!token) {
+      console.error('❌ No auth token found');
+      setError('Please login to view dishes');
+      return;
     }
-  };
+
+    const response = await fetch(`${API_BASE}/seller/menu/dishes`, {
+      headers: { 
+        'Authorization': `Bearer ${token}`, 
+        'Content-Type': 'application/json' 
+      }
+    });
+
+    const data = await response.json();
+    console.log('📊 Dishes response:', data);
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to load dishes');
+    }
+
+    setDishes(data.dishes || []);
+    console.log(`✅ Loaded ${data.dishes?.length || 0} dishes`);
+
+  } catch (err) {
+    console.error('❌ Load dishes error:', err);
+    setError('Failed to load dishes: ' + err.message);
+  }
+};
 
   const loadReviews = async () => {
     try {
@@ -610,196 +828,263 @@ const handleAcceptOrder = async (orderId) => {
   );
 
   // Render Functions
-  const renderOrders = () => {
-    const getOrdersByStatus = (status) => {
-      return orders.filter(order => {
-        const orderStatus = order.orderStatus || order.status;
-        if (status === 'pending_seller') return orderStatus === 'pending_seller';
-        if (status === 'new') return ['confirmed', 'pending', 'seller_accepted'].includes(orderStatus);
-        if (status === 'preparing') return orderStatus === 'preparing';
-        if (status === 'ready') return orderStatus === 'ready';
-        if (status === 'out_for_delivery') return orderStatus === 'out_for_delivery';
-        if (status === 'delivered') return ['delivered', 'completed'].includes(orderStatus);
-        return false;
-      });
-    };
+  // In SellerDashboard.jsx - Replace the renderOrders function
 
-    const OrderCard = ({ order, status }) => (
-      <div className="bg-white rounded-lg border border-gray-200 p-4 mb-4 hover:shadow-md transition-shadow">
-        <div className="space-y-3">
-          <div>
+const renderOrders = () => {
+  const getOrdersByStatus = (status) => {
+    return orders.filter(order => {
+      const orderStatus = order.orderStatus || order.status;
+      if (status === 'pending_seller') return orderStatus === 'pending_seller';
+      if (status === 'new') return ['confirmed', 'pending', 'seller_accepted'].includes(orderStatus);
+      if (status === 'preparing') return orderStatus === 'preparing';
+      if (status === 'ready') return orderStatus === 'ready';
+      if (status === 'out_for_delivery') return orderStatus === 'out_for_delivery';
+      if (status === 'delivered') return ['delivered', 'completed'].includes(orderStatus);
+      return false;
+    });
+  };
+
+  const OrderCard = ({ order, status }) => (
+    <div className="bg-white rounded-lg border border-gray-200 p-4 mb-4 hover:shadow-md transition-shadow">
+      <div className="space-y-3">
+        {/* Dish image + Customer info */}
+        <div className="flex items-start gap-3">
+          {order.item?.image && (
+            <img 
+              src={getImageUrl(order.item.image)} 
+              alt={order.item?.name}
+              className="w-16 h-16 rounded-lg object-cover"
+              onError={(e) => { e.target.style.display = 'none'; }}
+            />
+          )}
+          <div className="flex-1">
             <p className="text-sm text-gray-500">Order ID: #{order.orderId || order._id?.slice(-8)}</p>
             <p className="font-semibold text-gray-900 mt-1">Customer: {order.customerName}</p>
           </div>
-          <div>
-            <p className="text-sm text-gray-600">Item: {order.item?.name} (x{order.item?.quantity || 1})</p>
-            <p className="text-sm text-gray-600 mt-1">Delivery Time: {order.estimatedDelivery || '25-30 minutes'}</p>
-            <p className="text-sm font-semibold text-gray-900 mt-1">Total: ₹{order.totalAmount}</p>
-          </div>
-          <div className="flex space-x-2 pt-2">
+        </div>
+        
+        {/* Order Details */}
+        <div>
+          <p className="text-sm text-gray-600">
+            <span className="font-medium">Item:</span> {order.item?.name} (x{order.item?.quantity || 1})
+          </p>
+          {order.item?.description && (
+            <p className="text-xs text-gray-500 mt-1 line-clamp-1">{order.item.description}</p>
+          )}
+          <p className="text-sm text-gray-600 mt-1">
+            <span className="font-medium">Delivery:</span> {order.estimatedDelivery || '25-30 minutes'}
+          </p>
+          <p className="text-sm font-semibold text-gray-900 mt-1">
+            <span className="font-medium">Total:</span> ₹{order.totalAmount}
+          </p>
+          <p className="text-xs text-gray-500 mt-1">
+            Payment: {order.paymentMethod === 'razorpay' ? '✅ Paid Online' : '💵 COD'}
+            {order.paymentStatus === 'completed' ? ' (Completed)' : ' (Pending)'}
+          </p>
+          <p className="text-xs text-gray-500 mt-1">
+            Phone: {order.customerPhone}
+          </p>
+        </div>
+        
+        {/* Action Buttons Based on Status */}
+        <div className="flex space-x-2 pt-2 border-t border-gray-100">
+      
             {status === 'pending_seller' && (
-              <>
-                <button onClick={() => handleAcceptOrder(order._id)} disabled={loading}
-                  className="flex-1 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 font-medium transition-colors disabled:opacity-50">
-                  {loading ? 'Processing...' : '✓ Accept Order'}
-                </button>
-                <button onClick={() => handleRejectOrder(order._id)} disabled={loading}
-                  className="px-4 py-2 border-2 border-red-500 text-red-500 rounded-lg hover:bg-red-50 font-medium transition-colors disabled:opacity-50">
-                  ✗ Reject
-                </button>
-              </>
-            )}
-            {status === 'new' && (
-              <>
-                <button onClick={() => updateOrderStatus(order._id, 'preparing')} disabled={loading}
-                  className="flex-1 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-medium transition-colors disabled:opacity-50">
-                  Start Preparing
-                </button>
-                <button onClick={() => updateOrderStatus(order._id, 'cancelled')} disabled={loading}
-                  className="px-4 py-2 border-2 border-red-500 text-red-500 rounded-lg hover:bg-red-50 font-medium transition-colors disabled:opacity-50">
-                  Cancel
-                </button>
-              </>
-            )}
-            {status === 'preparing' && (
-              <button onClick={() => updateOrderStatus(order._id, 'ready')} disabled={loading}
-                className="flex-1 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-medium transition-colors disabled:opacity-50">
-                Mark as Ready
-              </button>
-            )}
-            {status === 'ready' && (
-              <button onClick={() => updateOrderStatus(order._id, 'out_for_delivery')} disabled={loading}
-                className="flex-1 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-medium transition-colors disabled:opacity-50">
-                Out for Delivery
-              </button>
-            )}
-            {status === 'out_for_delivery' && (
-              <button onClick={() => updateOrderStatus(order._id, 'delivered')} disabled={loading}
-                className="flex-1 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 font-medium transition-colors disabled:opacity-50">
-                Mark as Delivered
-              </button>
-            )}
-            {status === 'delivered' && (
-              <button disabled className="flex-1 px-4 py-2 bg-gray-300 text-gray-500 rounded-lg cursor-not-allowed font-medium">
-                ✓ Delivered
-              </button>
-            )}
-          </div>
+  <>
+    <button
+      onClick={() => handleAcceptOrder(order._id)}
+      disabled={loading}
+      className="flex-1 bg-green-500 hover:bg-green-600 text-white font-medium py-2 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+    >
+      {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+      Accept
+    </button>
+    <button
+      onClick={() => {
+        setRejectingOrder(order);
+        setShowRejectionModal(true);
+      }}
+      disabled={loading}
+      className="flex-1 bg-red-500 hover:bg-red-600 text-white font-medium py-2 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+    >
+      {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
+      Reject
+    </button>
+  </>
+)}
+          {status === 'new' && (
+            <button
+              onClick={() => updateOrderStatus(order._id, 'preparing')}
+              disabled={loading}
+              className="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 rounded-lg transition-colors disabled:opacity-50"
+            >
+              {loading ? 'Updating...' : 'Start Preparing'}
+            </button>
+          )}
+
+          {status === 'preparing' && (
+            <button
+              onClick={() => updateOrderStatus(order._id, 'ready')}
+              disabled={loading}
+              className="flex-1 bg-green-500 hover:bg-green-600 text-white font-medium py-2 rounded-lg transition-colors disabled:opacity-50"
+            >
+              {loading ? 'Updating...' : 'Mark as Ready'}
+            </button>
+          )}
+
+          {status === 'ready' && (
+            <button
+              onClick={() => updateOrderStatus(order._id, 'out_for_delivery')}
+              disabled={loading}
+              className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-medium py-2 rounded-lg transition-colors disabled:opacity-50"
+            >
+              {loading ? 'Updating...' : 'Out for Delivery'}
+            </button>
+          )}
+
+          {status === 'out_for_delivery' && (
+            <button
+              onClick={() => updateOrderStatus(order._id, 'delivered')}
+              disabled={loading}
+              className="flex-1 bg-green-500 hover:bg-green-600 text-white font-medium py-2 rounded-lg transition-colors disabled:opacity-50"
+            >
+              {loading ? 'Updating...' : 'Mark as Delivered'}
+            </button>
+          )}
+
+          {status === 'delivered' && (
+            <div className="flex-1 flex items-center justify-center gap-2 text-green-600">
+              <CheckCircle className="w-4 h-4" />
+              <span className="text-sm font-medium">Completed</span>
+            </div>
+          )}
+
+
         </div>
       </div>
-    );
+    </div>
+  );
 
-    const pendingSellerOrders = getOrdersByStatus('pending_seller');
-    const newOrders = getOrdersByStatus('new');
-    const preparingOrders = getOrdersByStatus('preparing');
-    const readyOrders = getOrdersByStatus('ready');
-    const outForDeliveryOrders = getOrdersByStatus('out_for_delivery');
-    const deliveredOrders = getOrdersByStatus('delivered');
+  const pendingSellerOrders = getOrdersByStatus('pending_seller');
+  const newOrders = getOrdersByStatus('new');
+  const preparingOrders = getOrdersByStatus('preparing');
+  const readyOrders = getOrdersByStatus('ready');
+  const outForDeliveryOrders = getOrdersByStatus('out_for_delivery');
+  const deliveredOrders = getOrdersByStatus('delivered');
 
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-bold text-gray-900">Order Management</h2>
-          <div className="flex items-center space-x-2 px-3 py-2 bg-gray-50 rounded-lg">
-            <div className={`w-3 h-3 rounded-full ${dashboardStatus === 'online' ? 'bg-green-500' : dashboardStatus === 'busy' ? 'bg-yellow-500' : 'bg-red-500'}`}></div>
-            <select value={dashboardStatus} onChange={(e) => toggleDashboardStatus(e.target.value)}
-              className="text-sm border-none bg-transparent focus:ring-0 cursor-pointer" disabled={!connected}>
-              <option value="online">Online</option>
-              <option value="busy">Busy</option>
-              <option value="offline">Offline</option>
-            </select>
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold text-gray-900">Order Management</h2>
+        <div className="flex items-center space-x-2 px-3 py-2 bg-gray-50 rounded-lg">
+          <div className={`w-3 h-3 rounded-full ${dashboardStatus === 'online' ? 'bg-green-500' : dashboardStatus === 'busy' ? 'bg-yellow-500' : 'bg-red-500'}`}></div>
+          <select value={dashboardStatus} onChange={(e) => toggleDashboardStatus(e.target.value)}
+            className="text-sm border-none bg-transparent focus:ring-0 cursor-pointer" disabled={!connected}>
+            <option value="online">Online</option>
+            <option value="busy">Busy</option>
+            <option value="offline">Offline</option>
+          </select>
+        </div>
+      </div>
+
+      {dashboardStatus === 'offline' && (
+        <div className="bg-red-50 border-l-4 border-red-500 p-4">
+          <div className="flex items-center">
+            <AlertCircle className="w-5 h-5 text-red-600 mr-2" />
+            <p className="text-red-800 font-medium">Your restaurant is currently offline. Customers cannot place new orders.</p>
           </div>
         </div>
+      )}
 
-        {dashboardStatus === 'offline' && (
-          <div className="bg-red-50 border-l-4 border-red-500 p-4">
-            <div className="flex items-center">
-              <AlertCircle className="w-5 h-5 text-red-600 mr-2" />
-              <p className="text-red-800 font-medium">Your restaurant is currently offline. Customers cannot place new orders.</p>
+      {ordersLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-6 h-6 animate-spin text-orange-500" />
+          <span className="ml-2 text-gray-500">Loading orders...</span>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {/* Awaiting Confirmation Section */}
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">⏳ Awaiting Your Confirmation</h3>
+              {pendingSellerOrders.length > 0 && (
+                <span className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full text-sm font-medium animate-pulse">
+                  {pendingSellerOrders.length} pending
+                </span>
+              )}
             </div>
-          </div>
-        )}
-
-        {ordersLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-6 h-6 animate-spin text-orange-500" />
-            <span className="ml-2 text-gray-500">Loading orders...</span>
-          </div>
-        ) : (
-          <div className="space-y-6">
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-900">Awaiting Your Confirmation</h3>
-                {pendingSellerOrders.length > 0 && (
-                  <span className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full text-sm font-medium">
-                    {pendingSellerOrders.length} pending
-                  </span>
-                )}
+            {pendingSellerOrders.length > 0 ? (
+              pendingSellerOrders.map(order => <OrderCard key={order._id} order={order} status="pending_seller" />)
+            ) : (
+              <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">
+                ✓ No orders awaiting confirmation
               </div>
-              {pendingSellerOrders.length > 0 ? (
-                pendingSellerOrders.map(order => <OrderCard key={order._id} order={order} status="pending_seller" />)
-              ) : (
-                <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">No orders awaiting confirmation</div>
-              )}
-            </div>
-
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Confirmed Orders</h3>
-              {newOrders.length > 0 ? (
-                newOrders.map(order => <OrderCard key={order._id} order={order} status="new" />)
-              ) : (
-                <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">No confirmed orders</div>
-              )}
-            </div>
-
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Preparing</h3>
-              {preparingOrders.length > 0 ? (
-                preparingOrders.map(order => <OrderCard key={order._id} order={order} status="preparing" />)
-              ) : (
-                <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">No orders being prepared</div>
-              )}
-            </div>
-
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Ready for Pickup</h3>
-              {readyOrders.length > 0 ? (
-                readyOrders.map(order => <OrderCard key={order._id} order={order} status="ready" />)
-              ) : (
-                <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">No orders ready</div>
-              )}
-            </div>
-
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Out for Delivery</h3>
-              {outForDeliveryOrders.length > 0 ? (
-                outForDeliveryOrders.map(order => <OrderCard key={order._id} order={order} status="out_for_delivery" />)
-              ) : (
-                <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">No orders out for delivery</div>
-              )}
-            </div>
-
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Delivered</h3>
-              {deliveredOrders.length > 0 ? (
-                deliveredOrders.map(order => <OrderCard key={order._id} order={order} status="delivered" />)
-              ) : (
-                <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">No delivered orders</div>
-              )}
-            </div>
+            )}
           </div>
-        )}
 
-        {!ordersLoading && orders.length === 0 && (
-          <div className="text-center py-12">
-            <ShoppingBag className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-500 mb-2">No orders yet</h3>
-            <p className="text-gray-400">Orders from customers will appear here</p>
+          {/* Confirmed Orders */}
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">✅ Confirmed Orders</h3>
+            {newOrders.length > 0 ? (
+              newOrders.map(order => <OrderCard key={order._id} order={order} status="new" />)
+            ) : (
+              <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">No confirmed orders</div>
+            )}
           </div>
-        )}
-      </div>
-    );
-  };
+
+          {/* Preparing */}
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">👨‍🍳 Preparing</h3>
+            {preparingOrders.length > 0 ? (
+              preparingOrders.map(order => <OrderCard key={order._id} order={order} status="preparing" />)
+            ) : (
+              <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">No orders being prepared</div>
+            )}
+          </div>
+
+          {/* Ready for Pickup */}
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">📦 Ready for Pickup</h3>
+            {readyOrders.length > 0 ? (
+              readyOrders.map(order => <OrderCard key={order._id} order={order} status="ready" />)
+            ) : (
+              <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">No orders ready</div>
+            )}
+          </div>
+
+          {/* Out for Delivery */}
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">🚗 Out for Delivery</h3>
+            {outForDeliveryOrders.length > 0 ? (
+              outForDeliveryOrders.map(order => <OrderCard key={order._id} order={order} status="out_for_delivery" />)
+            ) : (
+              <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">No orders out for delivery</div>
+            )}
+          </div>
+
+          {/* Delivered */}
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">🎉 Delivered</h3>
+            {deliveredOrders.length > 0 ? (
+              deliveredOrders.map(order => <OrderCard key={order._id} order={order} status="delivered" />)
+            ) : (
+              <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">No delivered orders</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!ordersLoading && orders.length === 0 && (
+        <div className="text-center py-12">
+          <ShoppingBag className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-500 mb-2">No orders yet</h3>
+          <p className="text-gray-400">Orders from customers will appear here</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
 
   const renderProfile = () => (
     <div className="space-y-8">
@@ -1186,7 +1471,7 @@ const handleAcceptOrder = async (orderId) => {
       case 'reviews': return renderReviews();
       case 'orders': return renderOrders();
       case 'reservations': return renderPlaceholder('Reservations', Calendar);
-      case 'payments': return renderPlaceholder('Payments', CreditCard);
+    case 'payments': return <PaymentSettlementPage />; // ✅ Add this
       case 'analytics': return renderPlaceholder('Analytics', BarChart3);
       case 'offers': return renderPlaceholder('Offers', Tag);
       case 'settings': return renderPlaceholder('Settings', Settings);
@@ -1380,6 +1665,18 @@ const handleAcceptOrder = async (orderId) => {
           </div>
         </div>
       )}
+      {/* Add this before the final closing </div> */}
+{showRejectionModal && rejectingOrder && (
+  <RejectionModal
+    order={rejectingOrder}
+    onClose={() => {
+      setShowRejectionModal(false);
+      setRejectingOrder(null);
+    }}
+    onConfirm={handleRejectOrder}
+    loading={loading}
+  />
+)}
     </div>
   );
 };

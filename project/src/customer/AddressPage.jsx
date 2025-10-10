@@ -6,7 +6,9 @@ import AddressForm from './AddressForm';
 const AddressPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const selectedItem = location.state?.item;
+  
+  // Extract order data from location state
+  const { item, orderType, fromCart } = location.state || {};
   
   const [selectedAddress, setSelectedAddress] = useState('');
   const [showAddAddressForm, setShowAddAddressForm] = useState(false);
@@ -14,48 +16,60 @@ const AddressPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // API base URL - adjust according to your backend setup
-  const API_BASE_URL = 'http://localhost:5000/api'; // Backend running on port 5000
-const calculateOrderTotal = (item) => {
-  // Handle different price formats from dish details
-  let itemPrice = 0;
-  
-  if (item.originalPrice) {
-    // Use the numeric price if available
-    itemPrice = item.originalPrice;
-  } else if (typeof item.price === 'string') {
-    // Extract number from string format like "₹299"
-    itemPrice = parseInt(item.price.replace(/[^\d]/g, '')) || 0;
-  } else if (typeof item.price === 'number') {
-    itemPrice = item.price;
-  }
-  
-  const deliveryFee = 25;
-  const platformFee = 5;
-  const gst = Math.round(itemPrice * 0.05);
-  
-  return {
-    itemPrice,
-    deliveryFee,
-    platformFee,
-    gst,
-    total: itemPrice + deliveryFee + platformFee + gst
+  const API_BASE_URL = 'http://localhost:5000/api';
+
+  // Check if this is a cart order or single dish order
+  const isCartOrder = orderType === 'cart' || fromCart === true;
+
+  const calculateOrderTotal = (orderItem) => {
+    // Handle cart orders (multiple items)
+    if (isCartOrder && orderItem.items) {
+      const subtotal = orderItem.subtotal || orderItem.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+      const deliveryFee = orderItem.deliveryFee || 25;
+      const platformFee = orderItem.platformFee || 5;
+      const gst = orderItem.gst || Math.round(subtotal * 0.05);
+      
+      return {
+        itemPrice: subtotal,
+        deliveryFee,
+        platformFee,
+        gst,
+        total: orderItem.total || (subtotal + deliveryFee + platformFee + gst)
+      };
+    }
+    
+    // Handle single dish order
+    let itemPrice = 0;
+    if (orderItem.originalPrice) {
+      itemPrice = orderItem.originalPrice;
+    } else if (typeof orderItem.price === 'string') {
+      itemPrice = parseInt(orderItem.price.replace(/[^\d]/g, '')) || 0;
+    } else if (typeof orderItem.price === 'number') {
+      itemPrice = orderItem.price;
+    }
+    
+    const deliveryFee = 25;
+    const platformFee = 5;
+    const gst = Math.round(itemPrice * 0.05);
+    
+    return {
+      itemPrice,
+      deliveryFee,
+      platformFee,
+      gst,
+      total: itemPrice + deliveryFee + platformFee + gst
+    };
   };
-};
-  // Helper function to check and get auth token
+
   const getAuthToken = () => {
     const token = localStorage.getItem('authToken') || localStorage.getItem('token');
-    if (!token) {
-      console.log('No auth token found');
-      return null;
-    }
+    if (!token) return null;
     
     try {
       const payload = JSON.parse(atob(token.split('.')[1]));
       const currentTime = Date.now() / 1000;
       
       if (payload.exp && payload.exp < currentTime) {
-        console.log('Token expired');
         localStorage.removeItem('authToken');
         localStorage.removeItem('token');
         return null;
@@ -63,26 +77,20 @@ const calculateOrderTotal = (item) => {
       
       return token;
     } catch (error) {
-      console.log('Token parsing error:', error);
       localStorage.removeItem('authToken');
       localStorage.removeItem('token');
       return null;
     }
   };
 
-  // Fetch addresses from backend
   const fetchAddresses = async () => {
     try {
       setLoading(true);
       setError(null);
-      console.log('Fetching addresses...');
       
       const token = getAuthToken();
-      console.log('Token found:', !!token);
       
       if (!token) {
-        console.log('No valid auth token found, using fallback addresses');
-        // Fallback to original hardcoded addresses if no token
         const fallbackAddresses = [
           { 
             id: '1', 
@@ -101,19 +109,10 @@ const calculateOrderTotal = (item) => {
             fullName: 'Raja Varsheni', 
             phoneNumber: '9514526109',
             isDefault: false
-          },
-          { 
-            id: '3', 
-            type: 'Other', 
-            address: '789 Anna Salai, Chennai - 600002', 
-            landmark: 'Metro Station nearby', 
-            fullName: 'Raja Varsheni', 
-            phoneNumber: '9514526109',
-            isDefault: false
           }
         ];
         setSavedAddresses(fallbackAddresses);
-        setSelectedAddress('1'); // Select first address by default
+        setSelectedAddress('1');
         setLoading(false);
         return;
       }
@@ -126,10 +125,7 @@ const calculateOrderTotal = (item) => {
         },
       });
 
-      console.log('API Response status:', response.status);
-
       if (response.status === 401) {
-        console.log('Unauthorized - clearing tokens');
         localStorage.removeItem('authToken');
         localStorage.removeItem('token');
         throw new Error('Session expired. Please login again.');
@@ -140,26 +136,22 @@ const calculateOrderTotal = (item) => {
       }
 
       const result = await response.json();
-      console.log('API Response:', result);
       
       if (result.success) {
-        // Transform backend data to match frontend expectations
         const transformedAddresses = result.data.map(addr => ({
           id: addr._id,
-          type: addr.type.charAt(0).toUpperCase() + addr.type.slice(1), // Capitalize first letter
+          type: addr.type.charAt(0).toUpperCase() + addr.type.slice(1),
           address: `${addr.houseNo}, ${addr.roadArea}, ${addr.city} - ${addr.pincode}`,
           landmark: addr.landmark,
           fullName: addr.fullName,
           phoneNumber: addr.phoneNumber,
           alternatePhone: addr.alternatePhone,
           isDefault: addr.isDefault,
-          // Keep original data for potential use
           originalData: addr
         }));
         
         setSavedAddresses(transformedAddresses);
         
-        // Auto-select default address if available
         const defaultAddress = transformedAddresses.find(addr => addr.isDefault);
         if (defaultAddress) {
           setSelectedAddress(defaultAddress.id);
@@ -171,9 +163,7 @@ const calculateOrderTotal = (item) => {
       }
     } catch (error) {
       console.error('Error fetching addresses:', error);
-      console.log('Using fallback addresses due to API error');
       
-      // Fallback to hardcoded addresses on API error
       const fallbackAddresses = [
         { 
           id: '1', 
@@ -183,15 +173,6 @@ const calculateOrderTotal = (item) => {
           fullName: 'Raja Varsheni', 
           phoneNumber: '9514526109',
           isDefault: true
-        },
-        { 
-          id: '2', 
-          type: 'Work', 
-          address: '456 IT Park, OMR, Chennai - 600096', 
-          landmark: 'Opposite to Food Court', 
-          fullName: 'Raja Varsheni', 
-          phoneNumber: '9514526109',
-          isDefault: false
         }
       ];
       setSavedAddresses(fallbackAddresses);
@@ -202,7 +183,6 @@ const calculateOrderTotal = (item) => {
     }
   };
 
-  // Create new address via API
   const createAddress = async (addressData) => {
     try {
       const token = getAuthToken();
@@ -211,14 +191,11 @@ const calculateOrderTotal = (item) => {
         throw new Error('Authentication required. Please login.');
       }
       
-      // Clean the address data to avoid validation errors
       const cleanedData = {
         ...addressData,
-        alternatePhone: addressData.alternatePhone || '', // Ensure it's always a string
-        landmark: addressData.landmark || '' // Ensure it's always a string
+        alternatePhone: addressData.alternatePhone || '',
+        landmark: addressData.landmark || ''
       };
-      
-      console.log('Creating address with data:', cleanedData);
       
       const response = await fetch(`${API_BASE_URL}/addresses`, {
         method: 'POST',
@@ -228,8 +205,6 @@ const calculateOrderTotal = (item) => {
         },
         body: JSON.stringify(cleanedData),
       });
-
-      console.log('Create address response status:', response.status);
       
       if (response.status === 401) {
         localStorage.removeItem('authToken');
@@ -238,12 +213,10 @@ const calculateOrderTotal = (item) => {
       }
 
       const result = await response.json();
-      console.log('Create address response:', result);
       
       if (result.success) {
         return result.data;
       } else {
-        // Handle validation errors
         if (result.errors && Array.isArray(result.errors)) {
           const errorMessages = result.errors.map(err => 
             typeof err === 'object' ? err.message || err.msg : err
@@ -258,77 +231,54 @@ const calculateOrderTotal = (item) => {
     }
   };
 
-  // Load addresses on component mount
   useEffect(() => {
-    fetchAddresses();
-  }, []);
-
-  // Redirect if no item selected - use useEffect to avoid navigation warnings
- useEffect(() => {
-  if (!selectedItem) {
-    console.log('No item selected, redirecting to menu');
-    navigate('/menu');
-    return;
-  }
-  
-  // Log the received item for debugging
-  console.log('AddressPage received item:', selectedItem);
-}, [selectedItem, navigate]);
-  
-  // Log the received item for debugging
-  // AddressPage.jsx (Line ~280)
-navigate('/order-summary', { 
-  state: { 
-    item: selectedItem,
-    selectedAddress: selectedAddress, // Pass ID
-    addresses: savedAddresses,        // Pass full array
-    orderTotal: calculateOrderTotal(selectedItem)
-  } 
-});
-  const handleAddressSelection = () => {
-  if (selectedAddress) {
-    const selectedAddressData = savedAddresses.find(addr => addr.id === selectedAddress);
-    
-    if (!selectedAddressData) {
-      console.error('Selected address not found:', selectedAddress);
-      setError('Please select a valid address');
-      return;
+    if (!item) {
+      console.log('No item selected, redirecting to menu');
+      navigate('/menu');
     }
-    
-    console.log('Navigating to order summary with:', { 
-      item: selectedItem, 
-      selectedAddressId: selectedAddress,
-      selectedAddressData: selectedAddressData 
-    });
-    
-    // Calculate order total for the next page
-    const orderSummary = calculateOrderTotal(selectedItem);
-    
-    // Navigate to order summary with all required data
-    navigate('/order-summary', { 
-      state: { 
-        item: selectedItem, 
-        selectedAddress: selectedAddress, // Pass the ID
-        addresses: savedAddresses, // Pass the full addresses array
-        selectedAddressData: selectedAddressData, // Pass the address object for convenience
-        orderTotal: orderSummary // Add calculated totals
-      } 
-    });
-  } else {
-    setError('Please select a delivery address');
-  }
-};
+  }, [item, navigate]);
+
+  useEffect(() => {
+    if (item) {
+      fetchAddresses();
+    }
+  }, [item]);
+
+  const handleAddressSelection = () => {
+    if (selectedAddress) {
+      const selectedAddressData = savedAddresses.find(addr => addr.id === selectedAddress);
+      
+      if (!selectedAddressData) {
+        console.error('Selected address not found:', selectedAddress);
+        setError('Please select a valid address');
+        return;
+      }
+      
+      const orderSummary = calculateOrderTotal(item);
+      
+      navigate('/order-summary', { 
+        state: { 
+          item: item,
+          selectedAddress: selectedAddress,
+          addresses: savedAddresses,
+          selectedAddressData: selectedAddressData,
+          orderTotal: orderSummary,
+          orderType: orderType,
+          fromCart: fromCart,
+          isCartOrder: isCartOrder
+        } 
+      });
+    } else {
+      setError('Please select a delivery address');
+    }
+  };
 
   const handleAddAddress = async (newAddressData) => {
     try {
       setError(null);
-      console.log('Adding new address:', newAddressData);
       
-      // Create address via API
       const createdAddress = await createAddress(newAddressData);
-      console.log('Address created successfully:', createdAddress);
       
-      // Transform the created address
       const transformedAddress = {
         id: createdAddress._id,
         type: createdAddress.type.charAt(0).toUpperCase() + createdAddress.type.slice(1),
@@ -341,9 +291,7 @@ navigate('/order-summary', {
         originalData: createdAddress
       };
       
-      // Update local state
       setSavedAddresses(prev => {
-        // If this is set as default, update other addresses
         const updatedAddresses = createdAddress.isDefault 
           ? prev.map(addr => ({ ...addr, isDefault: false }))
           : prev;
@@ -352,8 +300,6 @@ navigate('/order-summary', {
       
       setSelectedAddress(transformedAddress.id);
       setShowAddAddressForm(false);
-      
-      console.log('Address form closed, staying on address page for user to continue');
       
     } catch (error) {
       console.error('Failed to add address:', error);
@@ -370,12 +316,10 @@ navigate('/order-summary', {
     }
   };
 
-  // Don't render anything if no item (will redirect)
-  if (!selectedItem) {
+  if (!item) {
     return null;
   }
 
-  // Loading state
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 py-8">
@@ -384,42 +328,6 @@ navigate('/order-summary', {
             <div className="flex items-center justify-center py-12">
               <Loader className="w-8 h-8 animate-spin text-orange-500" />
               <span className="ml-2 text-gray-600">Loading addresses...</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Error state
-  if (error && savedAddresses.length === 0) {
-    return (
-      <div className="min-h-screen bg-gray-50 py-8">
-        <div className="max-w-3xl mx-auto px-4">
-          <div className="bg-white rounded-lg shadow-sm p-6">
-            <div className="flex items-center mb-6">
-              <button 
-                onClick={() => navigate('/')}
-                className="mr-4 p-2 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-              <h2 className="text-xl font-semibold text-gray-900">Add delivery address</h2>
-            </div>
-            
-            <div className="text-center py-12">
-              <div className="text-red-500 mb-4">
-                <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-              <p className="text-gray-600 mb-4">{error}</p>
-              <button
-                onClick={fetchAddresses}
-                className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg transition-colors"
-              >
-                Retry
-              </button>
             </div>
           </div>
         </div>
@@ -460,7 +368,6 @@ navigate('/order-summary', {
             <h2 className="text-xl font-semibold text-gray-900">Add delivery address</h2>
           </div>
           
-          {/* Show error message if exists */}
           {error && (
             <div className="mb-4 p-3 bg-yellow-100 border border-yellow-400 text-yellow-700 rounded-lg">
               <p className="text-sm">{error}</p>
@@ -487,21 +394,52 @@ navigate('/order-summary', {
             </div>
           </div>
 
-          {/* Selected Item Display */}
-          {selectedItem && (
+          {/* Order Preview */}
+          {item && (
             <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-6">
-              <div className="flex items-center space-x-3">
-                <img 
-                  src={selectedItem.image} 
-                  alt={selectedItem.name} 
-                  className="w-16 h-16 object-cover rounded-lg" 
-                />
+              {isCartOrder && item.items ? (
                 <div>
-                  <h3 className="font-semibold text-gray-900">{selectedItem.name}</h3>
-                  <p className="text-sm text-gray-600">{selectedItem.restaurant}</p>
-                  <p className="font-bold text-orange-600">{selectedItem.price}</p>
+                  <h3 className="font-semibold text-gray-900 mb-3">Cart Items ({item.itemCount})</h3>
+                  <div className="space-y-2 max-h-40 overflow-y-auto">
+                    {item.items.map((cartItem, index) => (
+                      <div key={index} className="flex items-center space-x-3 text-sm">
+                        <img 
+                          src={cartItem.image || 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg?w=40'} 
+                          alt={cartItem.name} 
+                          className="w-10 h-10 object-cover rounded" 
+                        />
+                        <div className="flex-1">
+                          <p className="font-medium">{cartItem.name}</p>
+                          <p className="text-gray-600">Qty: {cartItem.quantity}</p>
+                        </div>
+                        <p className="font-semibold text-orange-600">₹{cartItem.price * cartItem.quantity}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-3 pt-3 border-t border-orange-200">
+                    <div className="flex justify-between font-bold text-gray-900">
+                      <span>Total</span>
+                      <span className="text-orange-600">₹{item.total}</span>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="flex items-center space-x-3">
+                  <img 
+                    src={item.image} 
+                    alt={item.name} 
+                    className="w-16 h-16 object-cover rounded-lg" 
+                    onError={(e) => {
+                      e.target.src = 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg?w=64';
+                    }}
+                  />
+                  <div>
+                    <h3 className="font-semibold text-gray-900">{item.name}</h3>
+                    <p className="text-sm text-gray-600">{item.restaurant}</p>
+                    <p className="font-bold text-orange-600">{item.price}</p>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -589,50 +527,7 @@ navigate('/order-summary', {
         </div>
       </div>
     </div>
-
   );
 };
-// Update the Selected Item Display section to show better error handling
-const SelectedItemDisplay = () => {
-  if (!selectedItem) {
-    return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-        <div className="flex items-center">
-          <div className="text-red-600 mr-3">⚠️</div>
-          <div>
-            <h3 className="font-semibold text-red-800">No item selected</h3>
-            <p className="text-sm text-red-600">Please select an item from the menu first.</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
-  return (
-    <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-6">
-      <div className="flex items-center space-x-3">
-        <img 
-          src={selectedItem.image || 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg?auto=compress&cs=tinysrgb&w=64&h=64&dpr=1'} 
-          alt={selectedItem.name} 
-          className="w-16 h-16 object-cover rounded-lg" 
-          onError={(e) => {
-            e.target.src = 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg?auto=compress&cs=tinysrgb&w=64&h=64&dpr=1';
-          }}
-        />
-        <div className="flex-1">
-          <h3 className="font-semibold text-gray-900">{selectedItem.name}</h3>
-          <p className="text-sm text-gray-600">{selectedItem.restaurant || 'Restaurant'}</p>
-          <div className="flex items-center space-x-2">
-            <span className="font-bold text-orange-600">
-              {selectedItem.price || `₹${selectedItem.originalPrice || 0}`}
-            </span>
-            {selectedItem.quantity && selectedItem.quantity > 1 && (
-              <span className="text-sm text-gray-500">× {selectedItem.quantity}</span>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
 export default AddressPage;

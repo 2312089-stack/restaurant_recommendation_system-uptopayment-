@@ -170,7 +170,10 @@ export const addDish = async (req, res) => {
 export const getSellerDishes = async (req, res) => {
   try {
     console.log('Fetching dishes for seller:', req.seller.id);
-
+ console.log('🔐 Seller from token:', {
+      id: req.seller.id,
+      email: req.seller.email
+    });
     // Validate seller ID
     if (!req.seller.id || !mongoose.Types.ObjectId.isValid(req.seller.id)) {
       return res.status(400).json({

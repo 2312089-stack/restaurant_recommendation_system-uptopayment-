@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { CheckCircle, Clock, XCircle, CreditCard, AlertCircle, Loader2 } from 'lucide-react';
 import { useSocket } from '../contexts/SocketContext';
@@ -12,14 +12,139 @@ const ConfirmationPage = () => {
   
   const [orderState, setOrderState] = useState(orderData?.orderStatus || 'pending_seller');
   const [cancellationInfo, setCancellationInfo] = useState(null);
-
   
-// ConfirmationPage.jsx - Add this useEffect for auto-navigation
-useEffect(() => {
-  if (orderState === 'seller_accepted' && orderData?._id) {
-    console.log('🎉 Seller accepted! Auto-navigating to payment...');
+  // ✅ Use ref to prevent duplicate navigation
+  const hasNavigated = useRef(false);
+
+  // ✅ Socket listeners with proper cleanup
+  useEffect(() => {
+    if (!socket || !connected || !orderData?._id) {
+      console.log('Socket not ready:', { socket: !!socket, connected, orderId: orderData?._id });
+      return;
+    }
+
+    const orderMongoId = orderData._id;
     
-    setTimeout(() => {
+    console.log('🎯 Setting up socket listeners for order:', orderMongoId);
+    
+    // Join order room
+    socket.emit('join-order-room', orderMongoId);
+    console.log('📥 Joined order room:', orderMongoId);
+
+    // ✅ Handle all status update events
+    const handleStatusUpdate = (data) => {
+      console.log('📦 Received status update:', data);
+      
+      const isOurOrder = 
+        data.orderMongoId === orderMongoId ||
+        data._id === orderMongoId ||
+        data.orderId === orderId;
+      
+      if (!isOurOrder) {
+        console.log('Not our order, ignoring');
+        return;
+      }
+      
+      const newStatus = data.orderStatus || data.status;
+      console.log('✅ Updating order status to:', newStatus);
+      setOrderState(newStatus);
+      
+      // Handle rejection/cancellation
+      if (newStatus === 'seller_rejected' || newStatus === 'cancelled') {
+        setCancellationInfo({
+          reason: data.cancellationReason || 'Restaurant was unable to accept your order',
+          cancelledBy: data.cancelledBy || 'seller'
+        });
+      }
+    };
+
+    // Listen to ALL possible status update events
+    socket.on('seller-accepted-order', handleStatusUpdate);
+    socket.on('order-status-updated', handleStatusUpdate);
+    socket.on('status-update', handleStatusUpdate);
+    socket.on('order-confirmed', handleStatusUpdate);
+
+    // Cleanup
+    return () => {
+      console.log('🧹 Cleaning up socket listeners');
+      socket.off('seller-accepted-order', handleStatusUpdate);
+      socket.off('order-status-updated', handleStatusUpdate);
+      socket.off('status-update', handleStatusUpdate);
+      socket.off('order-confirmed', handleStatusUpdate);
+      socket.emit('leave-order-room', orderMongoId);
+    };
+  }, [socket, connected, orderData?._id, orderId]);
+
+// In ConfirmationPage.jsx - Add polling fallback
+useEffect(() => {
+  if (!orderData?._id) return;
+  
+  let pollCount = 0;
+  const maxPolls = 60; // 5 minutes (5 seconds * 60)
+  
+  const pollInterval = setInterval(async () => {
+    if (hasNavigated.current || pollCount >= maxPolls) {
+      clearInterval(pollInterval);
+      return;
+    }
+    
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:5000/api/orders/${orderData._id}`, {
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      const data = await response.json();
+      
+      if (data.success && data.order) {
+        const newStatus = data.order.orderStatus || data.order.status;
+        console.log(`📊 Poll #${pollCount}: Status = ${newStatus}`);
+        
+        if (newStatus !== orderState) {
+          setOrderState(newStatus);
+        }
+        
+        if (newStatus === 'seller_accepted' && !hasNavigated.current) {
+          console.log('✅ Seller accepted via polling!');
+          hasNavigated.current = true;
+          clearInterval(pollInterval);
+          
+          navigate('/payment', {
+            state: {
+              item,
+              selectedAddress,
+              addresses,
+              orderTotal,
+              orderId,
+              orderData: { ...data.order, orderStatus: 'seller_accepted' }
+            },
+            replace: true
+          });
+        }
+        
+        if (newStatus === 'seller_rejected') {
+          clearInterval(pollInterval);
+          setCancellationInfo({
+            reason: data.order.cancellationReason || 'Restaurant declined your order',
+            cancelledBy: 'seller'
+          });
+        }
+      }
+      
+      pollCount++;
+    } catch (error) {
+      console.error('❌ Polling error:', error);
+    }
+  }, 5000); // Poll every 5 seconds
+  
+  return () => clearInterval(pollInterval);
+}, [orderData?._id, orderState]);
+  const handleManualProceed = () => {
+    if (orderState === 'seller_accepted' && !hasNavigated.current) {
+      hasNavigated.current = true;
       navigate('/payment', {
         state: {
           item,
@@ -27,60 +152,12 @@ useEffect(() => {
           addresses,
           orderTotal,
           orderId,
-          orderData: { 
-            ...orderData, 
-            orderStatus: 'seller_accepted',
-            _id: orderData._id
-          }
+          orderData: { ...orderData, orderStatus: 'seller_accepted' }
         }
-      });
-    }, 2000); // 2 second delay to show success message
-  }
-}, [orderState, orderData, navigate, item, selectedAddress, addresses, orderTotal, orderId]);
-  // Socket listeners
-// ConfirmationPage.jsx - Update useEffect for socket listeners
-
-
-useEffect(() => {
-  if (!socket || !connected || !orderData?._id) return;
-
-  const orderMongoId = orderData._id;
-  
-  // Join order room
-  socket.emit('join-order-room', orderMongoId);
-
-  const handleStatusUpdate = (data) => {
-    const isOurOrder = 
-      data.orderMongoId === orderMongoId ||
-      data._id === orderMongoId ||
-      data.orderId === orderId;
-    
-    if (!isOurOrder) return;
-    
-    const newStatus = data.orderStatus || data.status;
-    setOrderState(newStatus);
-    
-    // Handle rejection
-    if (newStatus === 'seller_rejected' || newStatus === 'cancelled') {
-      setCancellationInfo({
-        reason: data.cancellationReason,
-        cancelledBy: data.cancelledBy
       });
     }
   };
 
-  // Listen to ALL status update events
-  socket.on('seller-accepted-order', handleStatusUpdate);
-  socket.on('order-status-updated', handleStatusUpdate);
-  socket.on('status-update', handleStatusUpdate);
-
-  return () => {
-    socket.off('seller-accepted-order');
-    socket.off('order-status-updated');
-    socket.off('status-update');
-    socket.emit('leave-order-room', orderMongoId);
-  };
-}, [socket, connected, orderData, orderId]);
   const renderContent = () => {
     switch (orderState) {
       case 'pending_seller':
@@ -103,6 +180,16 @@ useEffect(() => {
             <div className="mt-8 flex items-center justify-center space-x-2 text-sm text-gray-500">
               <Loader2 className="w-4 h-4 animate-spin" />
               <span>Waiting for response...</span>
+            </div>
+            
+            {/* Debug Info */}
+            <div className="mt-8 p-4 bg-gray-50 rounded-lg max-w-md mx-auto text-left text-xs">
+              <p className="font-semibold mb-2">Debug Info:</p>
+              <p>Order ID: {orderId}</p>
+              <p>Mongo ID: {orderData?._id}</p>
+              <p>Socket Connected: {connected ? '✅' : '❌'}</p>
+              <p>Current Status: {orderState}</p>
+              <p>Has Navigated: {hasNavigated.current ? '✅' : '❌'}</p>
             </div>
           </div>
         );
@@ -128,17 +215,9 @@ useEffect(() => {
             </div>
 
             <button
-              onClick={() => navigate('/payment', {
-                state: {
-                  item,
-                  selectedAddress,
-                  addresses,
-                  orderTotal,
-                  orderId,
-                  orderData: { ...orderData, orderStatus: 'seller_accepted' }
-                }
-              })}
-              className="px-8 py-4 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white font-bold rounded-xl text-lg flex items-center justify-center mx-auto space-x-3 shadow-lg transform transition hover:scale-105"
+              onClick={handleManualProceed}
+              disabled={hasNavigated.current}
+              className="px-8 py-4 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white font-bold rounded-xl text-lg flex items-center justify-center mx-auto space-x-3 shadow-lg transform transition hover:scale-105 disabled:opacity-50"
             >
               <CreditCard className="w-6 h-6" />
               <span>Proceed to Payment Now</span>
@@ -159,6 +238,11 @@ useEffect(() => {
               <p className="text-red-700">
                 {cancellationInfo?.reason || 'Restaurant was unable to accept your order'}
               </p>
+              {cancellationInfo?.cancelledBy && (
+                <p className="text-red-600 text-sm mt-2">
+                  Cancelled by: {cancellationInfo.cancelledBy === 'seller' ? 'Restaurant' : 'Customer'}
+                </p>
+              )}
             </div>
             <button
               onClick={() => navigate('/')}

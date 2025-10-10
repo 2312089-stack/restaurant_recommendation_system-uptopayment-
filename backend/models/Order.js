@@ -13,6 +13,11 @@ const orderSchema = new mongoose.Schema({
       return `ORDER_${timestamp}_${random}`;
     }
   },
+  customerId: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: 'User',
+  index: true  // For fast customer queries
+},
   dish: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Dish'

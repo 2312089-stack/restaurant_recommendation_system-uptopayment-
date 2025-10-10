@@ -23,8 +23,9 @@ import {
 } from 'lucide-react';
 import { useCart } from '../contexts/CartContext';
 import { useAuth } from '../contexts/AuthContext';
+
 const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, onOpenOrderHistory, onLogout }) => {
-  const { logout } = useAuth(); // ADD THIS LINE
+  const { logout } = useAuth();
 
   const [location, setLocation] = useState("Detecting location...");
   const [isLocationDropdownOpen, setIsLocationDropdownOpen] = useState(false);
@@ -38,7 +39,7 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
     name: 'John Doe'
   });
 
-  // Cart functionality from context
+  // ✅ FIXED: Use refreshCart instead of loadCart
   const {
     items,
     totalAmount,
@@ -46,86 +47,71 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
     loading: cartLoading,
     error: cartError,
     updateQuantity,
-    removeFromCart,
+    removeItem,
     clearCart,
-    loadCart,
-    clearError
+    refreshCart  // ✅ Changed from loadCart to refreshCart
   } = useCart();
 
-  // Fixed: Custom location detection function
+  // ✅ Location detection
   const detectLocation = useCallback(() => {
-    if (navigator.geolocation) {
-      setLocation("Detecting location...");
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          const { latitude, longitude } = position.coords;
-          try {
-            const response = await fetch(
-              `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`
-            );
-            const data = await response.json();
-            const locationString = `${data.locality || data.city || 'Unknown'}, ${data.principalSubdivision}`;
-            setLocation(locationString);
-          } catch (error) {
-            console.error('Error fetching location:', error);
-            setLocation('Location unavailable');
-          }
-        },
-        (error) => {
-          console.error('Error getting location:', error);
-          setLocation('Enable location access');
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
-      );
-    } else {
+    if (!navigator.geolocation) {
       setLocation('Location not supported');
+      return;
     }
+
+    setLocation("Detecting location...");
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        try {
+          const response = await fetch(
+            `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`
+          );
+          const data = await response.json();
+          const locationString = `${data.locality || data.city || 'Unknown'}, ${data.principalSubdivision}`;
+          setLocation(locationString);
+        } catch (error) {
+          console.error('Error fetching location:', error);
+          setLocation('Location unavailable');
+        }
+      },
+      (error) => {
+        console.error('Error getting location:', error);
+        setLocation('Enable location access');
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
+    );
   }, []);
 
-  // Load cart on component mount and set up real-time updates
+  // ✅ FIXED: Load cart once on mount using refreshCart
   useEffect(() => {
     const token = localStorage.getItem('token');
-    if (token) {
-      if (!cartLoading) loadCart();
+    if (token && refreshCart) {
+      refreshCart();
     }
-  }, []);
+  }, [refreshCart]);
 
-  // Listen for cart updates from other components with debouncing
+  // Listen for cart updates
   useEffect(() => {
-    let timeoutId;
     const handleCartUpdate = (event) => {
       console.log('Cart updated, refreshing header cart...', event.detail);
-      if (timeoutId) clearTimeout(timeoutId);
-      timeoutId = setTimeout(() => loadCart(), 100);
+      if (refreshCart) {
+        refreshCart();
+      }
     };
 
     window.addEventListener('cartUpdated', handleCartUpdate);
-    return () => {
-      window.removeEventListener('cartUpdated', handleCartUpdate);
-      if (timeoutId) clearTimeout(timeoutId);
-    };
-  }, [loadCart]);
+    return () => window.removeEventListener('cartUpdated', handleCartUpdate);
+  }, [refreshCart]);
 
-  // Auto-refresh cart periodically for real-time sync
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
-
-    const cartRefreshInterval = setInterval(() => {
-      if (!cartLoading) loadCart(true);
-    }, 30000);
-
-    return () => clearInterval(cartRefreshInterval);
-  }, [cartLoading]);
-
-  // Real-time location detection - Fixed: Uses local detectLocation function
+  // Location detection
   useEffect(() => {
     detectLocation();
     const locationInterval = setInterval(detectLocation, 300000);
     return () => clearInterval(locationInterval);
   }, [detectLocation]);
 
-  // Dark mode persistence
+  // Dark mode
   useEffect(() => {
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
@@ -148,16 +134,14 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
   };
 
   const handleOrderHistoryClick = (e) => {
-    window.location.href = '/order-history';
-
     e.preventDefault();
     console.log('Order History clicked');
     if (onOpenOrderHistory) onOpenOrderHistory();
   };
 
-   const handleLogout = async () => {
+  const handleLogout = async () => {
     if (window.confirm('Are you sure you want to logout?')) {
-      await logout(); // Use AuthContext logout
+      await logout();
       setIsAccountDropdownOpen(false);
       if (onLogout) onLogout();
     }
@@ -174,7 +158,6 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
     console.log('Home clicked');
   };
 
-  // Enhanced cart handlers with error handling
   const handleCartClick = useCallback(() => {
     console.log('Cart clicked - opening cart page with', itemCount, 'items');
     if (onOpenCart) onOpenCart();
@@ -183,57 +166,42 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
 
   const handleQuantityChange = useCallback(async (dishId, newQuantity) => {
     console.log('Updating quantity for dish', dishId, 'to', newQuantity);
-    if (cartError) clearError();
     try {
-      const result = await updateQuantity(dishId, newQuantity);
-      if (result.success) {
-        console.log('Quantity updated successfully');
-      } else {
-        console.error('Failed to update quantity:', result.error);
-      }
+      await updateQuantity(dishId, newQuantity);
+      console.log('Quantity updated successfully');
     } catch (error) {
       console.error('Error updating quantity:', error);
     }
-  }, [updateQuantity, cartError, clearError]);
+  }, [updateQuantity]);
 
   const handleRemoveItem = useCallback(async (dishId, dishName = 'Item') => {
     console.log('Removing item from cart:', dishId);
-    if (cartError) clearError();
     try {
-      const result = await removeFromCart(dishId);
-      if (result.success) {
-        console.log(`${dishName} removed from cart successfully`);
-      } else {
-        console.error('Failed to remove item:', result.error);
-      }
+      await removeItem(dishId);
+      console.log(`${dishName} removed from cart successfully`);
     } catch (error) {
       console.error('Error removing item:', error);
     }
-  }, [removeFromCart, cartError, clearError]);
+  }, [removeItem]);
 
   const handleClearCart = useCallback(async () => {
     if (window.confirm('Are you sure you want to clear your cart?')) {
       console.log('Clearing entire cart');
-      if (cartError) clearError();
       try {
-        const result = await clearCart();
-        if (result.success) {
-          console.log('Cart cleared successfully');
-          setIsCartDropdownOpen(false);
-        } else {
-          console.error('Failed to clear cart:', result.error);
-        }
+        await clearCart();
+        console.log('Cart cleared successfully');
+        setIsCartDropdownOpen(false);
       } catch (error) {
         console.error('Error clearing cart:', error);
       }
     }
-  }, [clearCart, cartError, clearError]);
+  }, [clearCart]);
 
   const handleProceedToOrder = useCallback(() => {
-    console.log('Proceeding to order with', itemCount, 'items, total ₹', totalAmount);
-    window.location.href = 'order-summary';
+    console.log('Proceeding to order with', itemCount, 'items, total', totalAmount);
+    if (onOpenCart) onOpenCart();
     setIsCartDropdownOpen(false);
-  }, [itemCount, totalAmount]);
+  }, [itemCount, totalAmount, onOpenCart]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -255,13 +223,25 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
     { id: 2, message: 'Time to reorder your favorite Biryani!', time: '1 hour ago' },
     { id: 3, message: '50% off on all desserts today!', time: '3 hours ago' },
   ];
-
+const HeaderCartButton = ({ onClick, itemCount }) => (
+  <button
+    onClick={onClick}
+    className="relative p-2 text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors"
+  >
+    <ShoppingCart className="w-6 h-6" />
+    {itemCount > 0 && (
+      <span className="absolute -top-1 -right-1 bg-orange-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+        {itemCount}
+      </span>
+    )}
+  </button>
+);
   return (
     <div className={isDarkMode ? 'dark' : ''}>
       <header className="sticky top-0 z-50 bg-white shadow-md dark:bg-gray-900 transition-colors duration-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
-            {/* Logo - Swiggy Style */}
+            {/* Logo */}
             <div className="flex items-center space-x-3">
               <div className="w-12 h-12 relative">
                 <div className="w-full h-full bg-orange-500 rounded-lg flex items-center justify-center relative overflow-hidden">
@@ -282,7 +262,7 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
             {/* Search & Location */}
             <div className="flex-1 max-w-2xl mx-8">
               <div className="flex space-x-4">
-                {/* Fixed Location Dropdown - Removed nested button structure */}
+                {/* Location Dropdown */}
                 <div className="relative dropdown-container">
                   <button
                     onClick={() => setIsLocationDropdownOpen(!isLocationDropdownOpen)}
@@ -311,10 +291,6 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
                         >
                           <MapPin className="w-4 h-4" />
                           <span>Use current location</span>
-                        </button>
-                        <button onClick={handleOrderHistoryClick}>
-                          <Package className="w-4 h-4" />
-                          <span>Orders</span>
                         </button>
                       </div>
                       <input
@@ -382,7 +358,7 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
                 )}
               </div>
 
-              {/* ENHANCED Cart Button with Real-time Updates and Error Handling */}
+              {/* Cart */}
               <div className="relative dropdown-container">
                 <button
                   onClick={handleCartClick}
@@ -397,7 +373,7 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
                   )}
                   
                   <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                    {cartError ? 'Error loading cart' : itemCount === 0 ? 'Your cart is empty' : `${itemCount} items • ${totalAmount}`}
+                    {cartError ? 'Error loading cart' : itemCount === 0 ? 'Your cart is empty' : `${itemCount} items • ₹${totalAmount}`}
                   </div>
                 </button>
 
@@ -413,133 +389,61 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
                   <ChevronDown className="w-2 h-2" />
                 </button>
 
-                {/* Enhanced Cart Dropdown with Error Handling */}
+                {/* Cart Quick View Dropdown */}
                 {isCartDropdownOpen && (
-                  <div className="absolute top-12 right-0 w-96 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-50 max-h-96 overflow-hidden">
-                    <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-orange-50 dark:bg-orange-900/20">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-2">
-                          <ShoppingCart className="w-5 h-5 text-orange-600" />
-                          <h3 className="font-semibold text-gray-900 dark:text-white">Cart ({itemCount})</h3>
-                          {itemCount > 0 && <span className="text-sm text-orange-600 font-medium">{totalAmount}</span>}
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <button
-                            onClick={handleCartClick}
-                            className="text-orange-500 hover:text-orange-700 text-sm font-medium transition-colors"
-                          >
-                            View Cart
-                          </button>
-                          <button
-                            onClick={() => setIsCartDropdownOpen(false)}
-                            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
+                  <div className="absolute top-12 right-0 w-96 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-50">
+                    <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                      <div className="flex justify-between items-center">
+                        <h3 className="font-semibold text-gray-900 dark:text-white">Cart ({itemCount})</h3>
+                        <button onClick={() => setIsCartDropdownOpen(false)}>
+                          <X className="w-4 h-4 text-gray-500" />
+                        </button>
                       </div>
                     </div>
 
-                    {/* Error State */}
                     {cartError && (
                       <div className="p-4 bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800">
-                        <div className="flex items-center justify-between">
-                          <p className="text-red-600 dark:text-red-400 text-sm">{cartError}</p>
-                          <button
-                            onClick={() => {
-                              clearError();
-                              loadCart();
-                            }}
-                            className="text-red-500 hover:text-red-700 text-xs font-medium"
-                          >
-                            Retry
-                          </button>
-                        </div>
+                        <p className="text-sm text-red-600 dark:text-red-400">{cartError}</p>
                       </div>
                     )}
 
-                    {cartLoading ? (
-                      <div className="p-8 text-center">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500 mx-auto mb-2"></div>
-                        <p className="text-gray-500 text-sm">Updating cart...</p>
-                      </div>
-                    ) : items.length === 0 ? (
-                      <div className="p-8 text-center">
-                        <div className="w-16 h-16 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
-                          <ShoppingCart className="w-8 h-8 text-gray-400" />
+                    <div className="max-h-64 overflow-y-auto p-4">
+                      {cartLoading ? (
+                        <div className="text-center py-8">
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500 mx-auto"></div>
                         </div>
-                        <p className="text-gray-500 dark:text-gray-400 mb-4">Your cart is empty</p>
-                        <button
-                          onClick={handleDiscoverClick}
-                          className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors text-sm"
-                        >
-                          Browse Dishes
-                        </button>
-                      </div>
-                    ) : (
-                      <>
-                        {/* Restaurant Info */}
-                        {items.length > 0 && (
-                          <div className="p-4 bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
-                            <p className="text-sm font-medium text-gray-900 dark:text-white">{items[0]?.restaurantName}</p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400">{itemCount} {itemCount === 1 ? 'item' : 'items'} • {totalAmount}</p>
-                          </div>
-                        )}
-
-                        {/* Cart Items */}
-                        <div className="max-h-60 overflow-y-auto">
-                          {items.slice(0, 3).map((item) => (
-                            <div key={item.dishId?._id || item.dishId} className="p-4 border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                              <div className="flex items-center space-x-3">
-                                <div className="w-12 h-12 bg-gray-200 dark:bg-gray-600 rounded-lg overflow-hidden flex-shrink-0">
-                                  {item.dishImage ? (
-                                    <img
-                                      src={`http://localhost:5000${item.dishImage}`}
-                                      alt={item.dishName}
-                                      className="w-full h-full object-cover"
-                                      onError={(e) => {
-                                        e.target.src = 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg?auto=compress&cs=tinysrgb&w=400&h=250&dpr=1';
-                                      }}
-                                    />
-                                  ) : (
-                                    <div className="w-full h-full flex items-center justify-center">
-                                      <ShoppingCart className="w-4 h-4 text-gray-400" />
-                                    </div>
-                                  )}
-                                </div>
-
-                                <div className="flex-1 min-w-0">
-                                  <h4 className="text-sm font-medium text-gray-900 dark:text-white truncate">{item.dishName}</h4>
-                                  <p className="text-xs text-gray-500 dark:text-gray-400">{item.price} × {item.quantity}</p>
-                                </div>
-
-                                <div className="flex items-center space-x-2">
+                      ) : items && items.length > 0 ? (
+                        <div className="space-y-3">
+                          {items.map((item) => (
+                            <div key={item.dishId} className="flex space-x-3 bg-gray-50 dark:bg-gray-700 rounded-lg p-2">
+                              <img
+                                src={item.dishImage || 'https://via.placeholder.com/60'}
+                                alt={item.dishName}
+                                className="w-16 h-16 object-cover rounded"
+                                onError={(e) => e.target.src = 'https://via.placeholder.com/60'}
+                              />
+                              <div className="flex-1 min-w-0">
+                                <h4 className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                                  {item.dishName}
+                                </h4>
+                                <p className="text-xs text-gray-500 dark:text-gray-400">₹{item.price}</p>
+                                <div className="flex items-center space-x-2 mt-1">
                                   <button
-                                    onClick={() => handleQuantityChange(item.dishId?._id || item.dishId, item.quantity - 1)}
-                                    className="w-6 h-6 flex items-center justify-center rounded-full bg-gray-200 hover:bg-gray-300 dark:bg-gray-600 dark:hover:bg-gray-500 transition-colors disabled:opacity-50"
-                                    disabled={cartLoading}
+                                    onClick={() => handleQuantityChange(item.dishId, item.quantity - 1)}
+                                    className="p-1 bg-white dark:bg-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-500"
                                   >
                                     <Minus className="w-3 h-3" />
                                   </button>
-                                  <span className="w-6 text-center text-sm font-semibold text-gray-900 dark:text-white">{item.quantity}</span>
+                                  <span className="text-sm font-medium">{item.quantity}</span>
                                   <button
-                                    onClick={() => handleQuantityChange(item.dishId?._id || item.dishId, item.quantity + 1)}
-                                    className="w-6 h-6 flex items-center justify-center rounded-full bg-gray-200 hover:bg-gray-300 dark:bg-gray-600 dark:hover:bg-gray-500 transition-colors disabled:opacity-50"
-                                    disabled={cartLoading}
+                                    onClick={() => handleQuantityChange(item.dishId, item.quantity + 1)}
+                                    className="p-1 bg-white dark:bg-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-500"
                                   >
                                     <Plus className="w-3 h-3" />
                                   </button>
-                                </div>
-
-                                <div className="flex items-center space-x-2">
-                                  <span className="text-sm font-semibold text-gray-900 dark:text-white">
-                                    {item.price} × {item.quantity}
-                                  </span>
                                   <button
-                                    onClick={() => handleRemoveItem(item.dishId?._id || item.dishId, item.dishName)}
-                                    className="text-red-500 hover:text-red-700 transition-colors disabled:opacity-50"
-                                    disabled={cartLoading}
-                                    title={`Remove ${item.dishName}`}
+                                    onClick={() => handleRemoveItem(item.dishId, item.dishName)}
+                                    className="ml-auto p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
                                   >
                                     <Trash2 className="w-3 h-3" />
                                   </button>
@@ -547,49 +451,29 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
                               </div>
                             </div>
                           ))}
-                          {items.length > 3 && (
-                            <div className="p-4 text-center text-sm text-gray-500 border-b border-gray-100 dark:border-gray-700">
-                              +{items.length - 3} more items
-                            </div>
-                          )}
                         </div>
-
-                        {/* Cart Footer */}
-                        <div className="p-4 border-t border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800">
-                          <div className="flex items-center justify-between mb-4">
-                            <div>
-                              <span className="text-lg font-bold text-gray-900 dark:text-white">Total: {totalAmount}</span>
-                              <p className="text-xs text-gray-500">(taxes & delivery charges)</p>
-                            </div>
-                            {items.length > 1 && (
-                              <button
-                                onClick={handleClearCart}
-                                className="text-red-500 hover:text-red-700 text-xs font-medium transition-colors disabled:opacity-50"
-                                disabled={cartLoading}
-                              >
-                                Clear All
-                              </button>
-                            )}
-                          </div>
-
-                          <div className="flex space-x-2">
-                            <button
-                              onClick={handleCartClick}
-                              className="flex-1 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100 py-2 px-4 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm font-medium"
-                            >
-                              View Full Cart
-                            </button>
-                            <button
-                              onClick={handleProceedToOrder}
-                              disabled={cartLoading || itemCount === 0}
-                              className="flex-1 bg-orange-500 text-white py-2 px-4 rounded-lg hover:bg-orange-600 transition-colors disabled:opacity-50 text-sm font-medium flex items-center justify-center space-x-1"
-                            >
-                              <span>Checkout</span>
-                              <ArrowRight className="w-3 h-3" />
-                            </button>
-                          </div>
+                      ) : (
+                        <div className="text-center py-8">
+                          <ShoppingCart className="w-12 h-12 text-gray-300 mx-auto mb-2" />
+                          <p className="text-sm text-gray-500 dark:text-gray-400">Your cart is empty</p>
                         </div>
-                      </>
+                      )}
+                    </div>
+
+                    {items && items.length > 0 && (
+                      <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+                        <div className="flex justify-between mb-3">
+                          <span className="font-semibold text-gray-900 dark:text-white">Total</span>
+                          <span className="font-bold text-orange-600">₹{totalAmount}</span>
+                        </div>
+                        <button
+                          onClick={handleProceedToOrder}
+                          className="w-full bg-orange-500 text-white py-2 rounded-lg hover:bg-orange-600 transition-colors flex items-center justify-center space-x-2"
+                        >
+                          <span>View Full Cart</span>
+                          <ArrowRight className="w-4 h-4" />
+                        </button>
+                      </div>
                     )}
                   </div>
                 )}
@@ -671,7 +555,6 @@ const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, o
                 <span>Reservations</span>
               </button>
               
-              {/* FIXED: Changed from handleProceedToOrder to handleOrderHistoryClick */}
               <button
                 onClick={handleOrderHistoryClick}
                 className="flex items-center space-x-2 px-3 py-3 text-gray-600 hover:text-orange-600 dark:text-gray-400 dark:hover:text-orange-600 transition-colors"
