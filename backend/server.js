@@ -1,5 +1,6 @@
 // server.js - CRITICAL FIX: Load environment variables FIRST
 import dotenv from 'dotenv';
+import analyticsRoutes from './routes/analyticsRoutes.js';
 
 // ⚠️ CRITICAL: Load .env BEFORE any other imports
 const envResult = dotenv.config();
@@ -55,6 +56,7 @@ import sellerStatusRoutes from './routes/sellerStatus.js';
 import customerDiscoveryRoutes from './routes/customerDiscovery.js';
 import orderHistoryRoutes from './routes/orderHistoryRoutes.js';
 import settlementRoutes from './routes/settlementRoutes.js';
+import reorderRoutes from './routes/reorderRoutes.js';
 
 // Import seller routes
 import sellerAuthRoutes from './routes/sellerAuth.js';
@@ -64,7 +66,8 @@ import sellerProfileRoutes from './routes/sellerProfile.js';
 import sellerMenuRoutes from './routes/sellerMenu.js';
 import reviewRoutes from './routes/reviewRoutes.js';
 import sellerOrderRoutes from './routes/sellerOrderRoutes.js';
-
+import trendingRoutes from './routes/trendingRoutes.js';  // ⬅️ ADD THIS LINE
+import viewHistoryRoutes from './routes/viewHistoryRoutes.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -119,6 +122,9 @@ app.use('/api/users', userRouter);
 app.use('/api/otp', otpRouter);
 app.use('/api/settings-auth', settingsAuthRoutes);
 app.use('/api/settlement', settlementRoutes);
+app.use('/api/reorder', reorderRoutes);
+app.use('/api/trending', trendingRoutes);  // ⬅️ ADD THIS LINE
+app.use('/api/view-history', viewHistoryRoutes);
 
 // Order history route
 app.use('/api/order-history', orderHistoryRoutes);
@@ -151,7 +157,7 @@ app.use('/api/seller/onboarding', sellerOnboardingRoutes);
 app.use('/api/seller/menu', sellerMenuRoutes);
 app.use('/api/seller/profile', sellerProfileRoutes);
 app.use('/api/seller/orders', sellerOrderRoutes);
-
+app.use('/api/seller/analytics', analyticsRoutes);
 // ==================== ERROR HANDLING ====================
 
 // 404 Handler

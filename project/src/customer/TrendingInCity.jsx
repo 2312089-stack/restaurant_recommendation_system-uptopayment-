@@ -1,64 +1,50 @@
-import React from 'react';
-import { TrendingUp, Flame, Plus, Star } from 'lucide-react';
+// customer/TrendingInCity.jsx - Real trending dishes based on actual data
+import React, { useState, useEffect } from 'react';
+import { TrendingUp, Flame, Plus, Star, Loader2, AlertCircle, MapPin } from 'lucide-react';
+import { useLocation } from '../contexts/LocationContext';
+import { useNavigate } from 'react-router-dom';
+
+const API_BASE = 'http://localhost:5000/api';
 
 const TrendingInCity = () => {
-  const trendingDishes = [
-    {
-      id: 1,
-      name: "Jigarthanda",
-      restaurant: "Madurai Famous",
-      image: "https://images.pexels.com/photos/1362534/pexels-photo-1362534.jpeg?auto=compress&cs=tinysrgb&w=300&h=200&dpr=1",
-      price: "₹89",
-      ordersThisWeek: "14.2k",
-      rating: 4.8,
-      trendRank: 1,
-      description: "Traditional South Indian cold beverage"
-    },
-    {
-      id: 2,
-      name: "Hyderabadi Biryani",
-      restaurant: "Bawarchi Biryani",
-      image: "https://images.pexels.com/photos/2474658/pexels-photo-2474658.jpeg?auto=compress&cs=tinysrgb&w=300&h=200&dpr=1",
-      price: "₹299",
-      ordersThisWeek: "12.8k",
-      rating: 4.6,
-      trendRank: 2,
-      description: "Aromatic basmati rice with tender mutton"
-    },
-    {
-      id: 3,
-      name: "Vada Pav",
-      restaurant: "Mumbai Street Food",
-      image: "https://images.pexels.com/photos/4449068/pexels-photo-4449068.jpeg?auto=compress&cs=tinysrgb&w=300&h=200&dpr=1",
-      price: "₹25",
-      ordersThisWeek: "11.5k",
-      rating: 4.4,
-      trendRank: 3,
-      description: "Mumbai's favorite street food"
-    },
-    {
-      id: 4,
-      name: "Butter Chicken",
-      restaurant: "Delhi Darbar",
-      image: "https://images.pexels.com/photos/2474661/pexels-photo-2474661.jpeg?auto=compress&cs=tinysrgb&w=300&h=200&dpr=1",
-      price: "₹249",
-      ordersThisWeek: "10.9k",
-      rating: 4.5,
-      trendRank: 4,
-      description: "Creamy tomato-based chicken curry"
-    },
-    {
-      id: 5,
-      name: "Masala Chai",
-      restaurant: "Chai Wala",
-      image: "https://images.pexels.com/photos/1417945/pexels-photo-1417945.jpeg?auto=compress&cs=tinysrgb&w=300&h=200&dpr=1",
-      price: "₹15",
-      ordersThisWeek: "9.7k",
-      rating: 4.7,
-      trendRank: 5,
-      description: "Spiced tea blend, perfectly brewed"
+  const navigate = useNavigate();
+  const { location } = useLocation();
+  const [trendingDishes, setTrendingDishes] = useState([]);
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    fetchTrendingDishes();
+  }, [location.city]);
+
+  const fetchTrendingDishes = async () => {
+    try {
+      setLoading(true);
+      setError('');
+
+      // Use user's actual city if available, otherwise get all trending
+      const city = location.city || '';
+      const response = await fetch(
+        `${API_BASE}/trending/city?city=${encodeURIComponent(city)}&limit=5&days=7&minOrders=1`
+      );
+      
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to fetch trending dishes');
+      }
+
+      setTrendingDishes(data.trending || []);
+      setStats(data.stats || null);
+
+    } catch (err) {
+      console.error('Fetch trending dishes error:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
     }
-  ];
+  };
 
   const getRankColor = (rank) => {
     switch (rank) {
@@ -73,9 +59,73 @@ const TrendingInCity = () => {
     }
   };
 
+  const handleDishClick = (dish) => {
+    if (dish._id) {
+      // Navigate to dish details page
+      navigate(`/dish/${dish._id}`, {
+        state: { 
+          from: '/',
+          dishId: dish._id 
+        }
+      });
+    }
+  };
+
+  if (loading) {
+    return (
+      <section className="py-8 bg-gray-50 dark:bg-gray-800">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
+            <span className="ml-3 text-gray-600 dark:text-gray-400">
+              Loading trending dishes...
+            </span>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (error) {
+    return (
+      <section className="py-8 bg-gray-50 dark:bg-gray-800">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="bg-red-50 dark:bg-red-900 rounded-lg p-6 flex items-center space-x-3">
+            <AlertCircle className="w-6 h-6 text-red-600 dark:text-red-400" />
+            <div>
+              <h3 className="font-semibold text-red-800 dark:text-red-200">
+                Failed to load trending dishes
+              </h3>
+              <p className="text-sm text-red-600 dark:text-red-300">{error}</p>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (!trendingDishes || trendingDishes.length === 0) {
+    return (
+      <section className="py-8 bg-gray-50 dark:bg-gray-800">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center py-12">
+            <Flame className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-500 mb-2">
+              No trending dishes yet
+            </h3>
+            <p className="text-gray-400">
+              Check back later for popular items in your area
+            </p>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="py-8 bg-gray-50 dark:bg-gray-800">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
             <div className="flex items-center space-x-2">
@@ -87,64 +137,84 @@ const TrendingInCity = () => {
                 Trending in Your City
               </h2>
             </div>
-            <p className="text-gray-600 dark:text-gray-400 mt-1">
-              Most popular dishes this week
-            </p>
+            <div className="flex items-center space-x-2 mt-1 text-gray-600 dark:text-gray-400">
+              <MapPin className="w-4 h-4" />
+              <p>
+                {location.city ? `Most popular in ${location.city}` : 'Most popular dishes'} this week
+              </p>
+            </div>
           </div>
-          <button className="text-orange-600 hover:text-orange-700 font-semibold transition-colors">
-            View Full Rankings
-          </button>
         </div>
 
+        {/* Trending Dishes Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
           {trendingDishes.map(dish => (
             <div 
-              key={dish.id}
+              key={dish._id}
+              onClick={() => handleDishClick(dish)}
               className="bg-white dark:bg-gray-900 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 overflow-hidden border border-gray-100 dark:border-gray-700 group relative cursor-pointer hover:scale-105"
             >
+              {/* Rank Badge */}
               <div className={`absolute top-3 left-3 z-10 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${getRankColor(dish.trendRank)}`}>
                 #{dish.trendRank}
               </div>
               
+              {/* Image */}
               <div className="relative">
                 <img
-                  src={dish.image}
+                  src={dish.image ? `http://localhost:5000${dish.image}` : 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg?auto=compress&cs=tinysrgb&w=400&h=250&dpr=1'}
                   alt={dish.name}
                   className="w-full h-40 object-cover group-hover:scale-105 transition-transform duration-300"
+                  onError={(e) => {
+                    e.target.src = 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg?auto=compress&cs=tinysrgb&w=400&h=250&dpr=1';
+                  }}
                 />
+                
+                {/* Hot Badge */}
                 <div className="absolute top-3 right-3 bg-red-500 text-white px-2 py-1 rounded-full text-xs font-semibold flex items-center">
                   <TrendingUp className="w-3 h-3 mr-1" />
                   Hot
                 </div>
+                
+                {/* Orders Count */}
                 <div className="absolute bottom-3 left-3 bg-black bg-opacity-70 text-white px-2 py-1 rounded text-xs font-semibold">
-                  {dish.ordersThisWeek} orders
+                  {dish.recentOrders || dish.ordersThisWeek || 0} orders this week
                 </div>
               </div>
 
+              {/* Content */}
               <div className="p-4">
                 <h3 className="font-semibold text-gray-900 dark:text-white mb-1 line-clamp-1">
                   {dish.name}
                 </h3>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
-                  {dish.restaurant}
+                  {dish.restaurantName || dish.restaurant || 'Restaurant'}
                 </p>
                 <p className="text-xs text-gray-600 dark:text-gray-300 mb-3 line-clamp-2">
-                  {dish.description}
+                  {dish.description || `Delicious ${dish.name}`}
                 </p>
 
+                {/* Price and Rating */}
                 <div className="flex items-center justify-between mb-3">
                   <span className="font-bold text-gray-900 dark:text-white">
-                    {dish.price}
+                    ₹{dish.price}
                   </span>
                   <div className="flex items-center space-x-1 bg-green-100 dark:bg-green-900 px-2 py-1 rounded">
                     <Star className="w-3 h-3 text-green-600 dark:text-green-400 fill-current" />
                     <span className="text-xs font-semibold text-green-600 dark:text-green-400">
-                      {dish.rating}
+                      {dish.recentAvgRating?.toFixed(1) || dish.rating?.average?.toFixed(1) || '4.2'}
                     </span>
                   </div>
                 </div>
 
-                <button className="w-full flex items-center justify-center space-x-2 bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-semibold py-2 px-4 rounded-lg transition-all duration-200 transform hover:-translate-y-1">
+                {/* Add Button */}
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDishClick(dish);
+                  }}
+                  className="w-full flex items-center justify-center space-x-2 bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-semibold py-2 px-4 rounded-lg transition-all duration-200 transform hover:-translate-y-1"
+                >
                   <Plus className="w-4 h-4" />
                   <span>Try Trending</span>
                 </button>
@@ -153,29 +223,48 @@ const TrendingInCity = () => {
           ))}
         </div>
 
-        <div className="mt-8 bg-white dark:bg-gray-900 rounded-xl p-6 shadow-md">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-            This Week's Food Trends
-          </h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-orange-500">58k+</div>
-              <div className="text-sm text-gray-500 dark:text-gray-400">Total Orders</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-green-500">15%</div>
-              <div className="text-sm text-gray-500 dark:text-gray-400">Growth</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-blue-500">247</div>
-              <div className="text-sm text-gray-500 dark:text-gray-400">Trending Items</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-purple-500">4.6⭐</div>
-              <div className="text-sm text-gray-500 dark:text-gray-400">Avg Rating</div>
+        {/* Statistics Card */}
+        {stats && (
+          <div className="mt-8 bg-white dark:bg-gray-900 rounded-xl p-6 shadow-md">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+              This Week's Food Trends
+              {stats.city && stats.city !== 'all cities' && (
+                <span className="text-sm font-normal text-gray-500 ml-2">
+                  in {stats.city}
+                </span>
+              )}
+            </h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="text-center">
+                <div className="text-2xl font-bold text-orange-500">
+                  {stats.totalOrders > 1000 
+                    ? `${(stats.totalOrders / 1000).toFixed(1)}k+` 
+                    : `${stats.totalOrders}+`
+                  }
+                </div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">Total Orders</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-green-500">
+                  {stats.growthRate > 0 ? '+' : ''}{stats.growthRate}%
+                </div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">Growth</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-blue-500">
+                  {stats.totalDishes}
+                </div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">Trending Items</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-purple-500">
+                  {stats.avgRating}⭐
+                </div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">Avg Rating</div>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     </section>
   );

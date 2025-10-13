@@ -12,27 +12,22 @@ import SignupScreen from "./customer/SignupScreen";
 
 // Customer Main app components
 import Header from "./customer/Header";
-import HeroSection from "./customer/HeroSection";
-import ReorderFavorites from "./customer/ReorderFavorites";
-import PopularNearYou from "./customer/PopularNearYou";
-import RecommendedForYou from "./customer/RecommendedForYou";
-import TrendingInCity from "./customer/TrendingInCity";
-import SpecialOffers from "./customer/SpecialOffers";
-import Footer from "./customer/Footer";
+import Home from "./pages/Home"; // ✅ Import the Home page component
 import VerifyEmailChange from "./customer/VerifyEmailChange";
 import Settings from "./customer/SettingsComponent";
 import PaymentSuccessPage from './customer/PaymentSuccessPage';
 import DishDetailsPage from "./customer/DishDetailsPage";
 import DiscoveryPage from "./customer/DiscoveryPage";
 import WishlistPage from "./customer/WishlistPage";
-import OrderTrackingTimeline from './customer/OrderTrackingTimeline';
 import OrderHistoryApp from './customer/OrderHistoryApp';
-import CartPage from "./customer/CartPage";  // ✅ Correct - Capital C and P
+import CartPage from "./customer/CartPage";
+
 // Customer Order flow page components
 import AddressPage from "./customer/AddressPage";
 import OrderSummaryPage from "./customer/OrderSummaryPage";
 import PaymentPage from "./customer/PaymentPage";
 import ConfirmationPage from "./customer/ConfirmationPage";
+import OrderTrackingTimeline from "./customer/OrderTrackingTimeline";
 
 // Context Providers
 import { SocketProvider } from './contexts/SocketContext';
@@ -40,6 +35,7 @@ import { CartProvider } from "./contexts/CartContext";
 import { WishlistProvider } from "./contexts/WishlistContext";
 import { LocationProvider } from "./contexts/LocationContext";
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { ViewHistoryProvider } from './contexts/ViewHistoryContext';
 
 // Seller components
 import SellerLogin from "./components/seller/auth/SellerLogin";
@@ -218,7 +214,6 @@ function App() {
     setCurrentView("main");
   };
 
-  // ✅ FIXED: Cart page handlers - navigate to cart view instead of modal
   const handleOpenCart = () => {
     console.log("handleOpenCart called - navigating to cart page");
     setCurrentView("cart");
@@ -229,7 +224,6 @@ function App() {
     setCurrentView("main");
   };
 
-  // Wishlist page handlers
   const handleOpenWishlist = () => {
     console.log("handleOpenWishlist called");
     setCurrentView("wishlist");
@@ -240,7 +234,6 @@ function App() {
     setCurrentView("main");
   };
 
-  // Order History handlers
   const handleOpenOrderHistory = () => {
     console.log("handleOpenOrderHistory called");
     setCurrentView("order-history");
@@ -251,7 +244,6 @@ function App() {
     setCurrentView("main");
   };
 
-  // Handle dish details navigation
   const handleShowDishDetails = (dishId) => {
     console.log("handleShowDishDetails called with dishId:", dishId);
     setSelectedDishId(dishId);
@@ -325,7 +317,7 @@ function App() {
           );
 
         case "main":
-          console.log("Rendering main home page with all components");
+          console.log("✅ Rendering main home page using Home component with props");
           return (
             <>
               <Header 
@@ -336,15 +328,13 @@ function App() {
                 onOpenOrderHistory={handleOpenOrderHistory}
                 onLogout={handleLogout} 
               />
-              <main>
-                <HeroSection onOpenDiscovery={handleOpenDiscovery} />
-                <ReorderFavorites />
-                <PopularNearYou />
-                <RecommendedForYou onNavigateToCart={handleOpenCart} />
-                <TrendingInCity />
-                <SpecialOffers />
-              </main>
-              <Footer />
+              {/* ✅ Use the Home component with all necessary props */}
+              <Home 
+                onOpenDiscovery={handleOpenDiscovery}
+                onNavigateToLogin={handleBackToLogin}
+                onNavigateToOrderHistory={handleOpenOrderHistory}
+                onNavigateToCart={handleOpenCart}
+              />
             </>
           );
           
@@ -367,7 +357,6 @@ function App() {
             />
           );
 
-        // ✅ FIXED: Cart as a full page view
         case "cart":
           return (
             <CartPage 
@@ -400,118 +389,120 @@ function App() {
         <SocketProvider>
           <Router>
             <LocationProvider>
-              <CartProvider>
-                <WishlistProvider>
-                  <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-                    <React.Suspense 
-                      fallback={
-                        <div style={{
-                          minHeight: '100vh',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          backgroundColor: '#f9fafb'
-                        }}>
-                          <div style={{ textAlign: 'center' }}>
-                            <div style={{
-                              width: '40px',
-                              height: '40px',
-                              border: '4px solid #f3f4f6',
-                              borderTop: '4px solid #f97316',
-                              borderRadius: '50%',
-                              animation: 'spin 1s linear infinite',
-                              margin: '0 auto 16px'
-                            }}></div>
-                            <p style={{ color: '#6b7280' }}>Loading...</p>
+              <ViewHistoryProvider>
+                <CartProvider>
+                  <WishlistProvider>
+                    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+                      <React.Suspense 
+                        fallback={
+                          <div style={{
+                            minHeight: '100vh',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            backgroundColor: '#f9fafb'
+                          }}>
+                            <div style={{ textAlign: 'center' }}>
+                              <div style={{
+                                width: '40px',
+                                height: '40px',
+                                border: '4px solid #f3f4f6',
+                                borderTop: '4px solid #f97316',
+                                borderRadius: '50%',
+                                animation: 'spin 1s linear infinite',
+                                margin: '0 auto 16px'
+                              }}></div>
+                              <p style={{ color: '#6b7280' }}>Loading...</p>
+                            </div>
                           </div>
-                        </div>
-                      }
-                    >
-                      <Routes>
-                        {/* Customer reset password routes */}
-                        <Route path="/reset-password/:token" element={<ResetPasswordScreen />} />
-                        <Route path="/reset-password-settings/:token" element={<ResetPasswordFromSettings />} />
-                        
-                        {/* Customer email verification route */}
-                        <Route path="/verify-email-change" element={<VerifyEmailChange />} />
-                        
-                        {/* Customer order flow routes */}
-                        <Route path="/address" element={<AddressPage />} />
-                        <Route path="/order-summary" element={<OrderSummaryPage />} />
-                        <Route path="/confirmation" element={<ConfirmationPage />} />
-                        <Route path="/payment" element={<PaymentPage />} />
-                        <Route path="/payment-success" element={<PaymentSuccessPage />} />
-                        <Route path="/order-tracking/:orderId" element={<OrderTrackingTimeline />} />
+                        }
+                      >
+                        <Routes>
+                          {/* Customer reset password routes */}
+                          <Route path="/reset-password/:token" element={<ResetPasswordScreen />} />
+                          <Route path="/reset-password-settings/:token" element={<ResetPasswordFromSettings />} />
+                          
+                          {/* Customer email verification route */}
+                          <Route path="/verify-email-change" element={<VerifyEmailChange />} />
+                          
+                          {/* Customer order flow routes */}
+                          <Route path="/address" element={<AddressPage />} />
+                          <Route path="/order-summary" element={<OrderSummaryPage />} />
+                          <Route path="/confirmation" element={<ConfirmationPage />} />
+                          <Route path="/payment" element={<PaymentPage />} />
+                          <Route path="/payment-success" element={<PaymentSuccessPage />} />
+                          <Route path="/order-tracking/:orderId" element={<OrderTrackingTimeline />} />
 
-                        {/* Order history and dish details */}
-                        <Route path="/dish/:dishId" element={<DishDetailsPage />} />
-                        <Route path="/order-history" element={<OrderHistoryApp />} />
+                          {/* Order history and dish details */}
+                          <Route path="/dish/:dishId" element={<DishDetailsPage />} />
+                          <Route path="/order-history" element={<OrderHistoryApp />} />
 
-                        {/* Seller routes */}
-                        <Route 
-                          path="/seller/login" 
-                          element={
-                            <SellerLogin 
-                              onLoginComplete={() => {
-                                console.log('Login successful, redirecting to dashboard');
-                                window.location.href = '/seller/dashboard';
-                              }}
-                              onForgotPassword={() => {
-                                console.log('Navigating to forgot password');
-                                window.location.href = '/seller/forgot-password';
-                              }}
-                              onCreateAccount={() => {
-                                console.log('Navigating to signup');
-                                window.location.href = '/seller/signup';
-                              }}
-                            />
-                          } 
-                        />
-                        <Route 
-                          path="/seller/signup" 
-                          element={
-                            <SellerSignup 
-                              onBackToLogin={() => {
-                                console.log('Navigating back to login');
-                                window.location.href = '/seller/login';
-                              }}
-                              onSignupComplete={() => {
-                                console.log('Signup complete, redirecting to dashboard');
-                                window.location.href = '/seller/dashboard';
-                              }}
-                            />
-                          } 
-                        />
-                        <Route 
-                          path="/seller/forgot-password" 
-                          element={
-                            <SellerForgotPassword 
-                              onBackToLogin={() => {
-                                console.log('Navigating back to login');
-                                window.location.href = '/seller/login';
-                              }}
-                            />
-                          } 
-                        />
-                        <Route path="/seller/reset-password/:token" element={<SellerResetPassword />} />
+                          {/* Seller routes */}
+                          <Route 
+                            path="/seller/login" 
+                            element={
+                              <SellerLogin 
+                                onLoginComplete={() => {
+                                  console.log('Login successful, redirecting to dashboard');
+                                  window.location.href = '/seller/dashboard';
+                                }}
+                                onForgotPassword={() => {
+                                  console.log('Navigating to forgot password');
+                                  window.location.href = '/seller/forgot-password';
+                                }}
+                                onCreateAccount={() => {
+                                  console.log('Navigating to signup');
+                                  window.location.href = '/seller/signup';
+                                }}
+                              />
+                            } 
+                          />
+                          <Route 
+                            path="/seller/signup" 
+                            element={
+                              <SellerSignup 
+                                onBackToLogin={() => {
+                                  console.log('Navigating back to login');
+                                  window.location.href = '/seller/login';
+                                }}
+                                onSignupComplete={() => {
+                                  console.log('Signup complete, redirecting to dashboard');
+                                  window.location.href = '/seller/dashboard';
+                                }}
+                              />
+                            } 
+                          />
+                          <Route 
+                            path="/seller/forgot-password" 
+                            element={
+                              <SellerForgotPassword 
+                                onBackToLogin={() => {
+                                  console.log('Navigating back to login');
+                                  window.location.href = '/seller/login';
+                                }}
+                              />
+                            } 
+                          />
+                          <Route path="/seller/reset-password/:token" element={<SellerResetPassword />} />
 
-                        {/* Protected seller dashboard route */}
-                        <Route 
-                          path="/seller/dashboard" 
-                          element={
-                            <ProtectedSellerRoute>
-                              <SellerDashboard />
-                            </ProtectedSellerRoute>
-                          } 
-                        />
+                          {/* Protected seller dashboard route */}
+                          <Route 
+                            path="/seller/dashboard" 
+                            element={
+                              <ProtectedSellerRoute>
+                                <SellerDashboard />
+                              </ProtectedSellerRoute>
+                            } 
+                          />
 
-                        {/* Main app route */}
-                        <Route path="*" element={<MainViewComponent />} />
-                      </Routes>
-                    </React.Suspense>
-                  </div>
-                </WishlistProvider>
-              </CartProvider>
+                          {/* Main app route */}
+                          <Route path="*" element={<MainViewComponent />} />
+                        </Routes>
+                      </React.Suspense>
+                    </div>
+                  </WishlistProvider>
+                </CartProvider>
+              </ViewHistoryProvider>
             </LocationProvider>
           </Router> 
         </SocketProvider>

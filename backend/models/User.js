@@ -85,7 +85,111 @@ const userSchema = new mongoose.Schema({
 }, {
   timestamps: true // Adds createdAt and updatedAt
 });
+// Add these fields to your existing User model (models/User.js)
+// Add after the wishlist fields (around line 40)
 
+// RECENTLY VIEWED FUNCTIONALITY
+recentlyViewed: [{
+  dish: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Dish'
+  },
+  viewedAt: {
+    type: Date,
+    default: Date.now
+  }
+}],
+
+// Add these indexes after your existing indexes
+userSchema.index({ 'recentlyViewed.dish': 1 });
+userSchema.index({ 'recentlyViewed.viewedAt': -1 });
+
+// Add these methods after your existing methods (around line 150)
+
+// RECENTLY VIEWED METHODS
+
+// Add dish to recently viewed
+userSchema.methods.addToRecentlyViewed = async function(dishId) {
+  if (!this.recentlyViewed) this.recentlyViewed = [];
+  
+  const dishObjectId = new mongoose.Types.ObjectId(dishId);
+  
+  // Remove if already exists (to update timestamp)
+  this.recentlyViewed = this.recentlyViewed.filter(item =>
+    item.dish.toString() !== dishObjectId.toString()
+  );
+  
+  // Add to beginning
+  this.recentlyViewed.unshift({
+    dish: dishObjectId,
+    viewedAt: new Date()
+  });
+  
+  // Keep only last 20 items
+  if (this.recentlyViewed.length > 20) {
+    this.recentlyViewed = this.recentlyViewed.slice(0, 20);
+  }
+  
+  return this.save();
+};
+
+// Get recently viewed dishes
+userSchema.methods.getRecentlyViewed = async function(limit = 10) {
+  if (!this.recentlyViewed || this.recentlyViewed.length === 0) {
+    return [];
+  }
+  
+  const dishIds = this.recentlyViewed
+    .slice(0, limit)
+    .map(item => item.dish);
+  
+  const Dish = mongoose.model('Dish');
+  return Dish.find({
+    _id: { $in: dishIds },
+    isActive: true,
+    availability: true
+  }).lean();
+};
+
+// Clear recently viewed
+userSchema.methods.clearRecentlyViewed = function() {
+  this.recentlyViewed = [];
+  return this.save();
+};
+// Add dish to recently viewed
+userSchema.methods.addToRecentlyViewed = async function(dishId) {
+  if (!this.recentlyViewed) this.recentlyViewed = [];
+  
+  const dishObjectId = new mongoose.Types.ObjectId(dishId);
+  
+  // Remove if already exists
+  this.recentlyViewed = this.recentlyViewed.filter(item =>
+    item.dish.toString() !== dishObjectId.toString()
+  );
+  
+  // Add to beginning
+  this.recentlyViewed.unshift({
+    dish: dishObjectId,
+    viewedAt: new Date()
+  });
+  
+  // Keep only last 20 items
+  if (this.recentlyViewed.length > 20) {
+    this.recentlyViewed = this.recentlyViewed.slice(0, 20);
+  }
+  
+  return this.save();
+};
+
+// Clear recently viewed
+userSchema.methods.clearRecentlyViewed = function() {
+  this.recentlyViewed = [];
+  return this.save();
+};
+// Virtual for recently viewed count
+userSchema.virtual('recentlyViewedCount').get(function() {
+  return this.recentlyViewed ? this.recentlyViewed.length : 0;
+});
 // Indexes for performance
 userSchema.index({ passwordResetToken: 1 });
 userSchema.index({ 'pendingEmailChange.token': 1 });

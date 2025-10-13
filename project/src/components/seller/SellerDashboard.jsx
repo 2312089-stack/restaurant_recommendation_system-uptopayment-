@@ -8,6 +8,7 @@ import {
 import NotificationPanel from './NotificationPanel';
 import { useSocket } from '../../contexts/SocketContext';
 import PaymentSettlementPage from './PaymentSettlementPage';
+import AnalyticsInsights from './AnalyticsInsights';
 
 const API_BASE = 'http://localhost:5000/api';
 
@@ -830,7 +831,8 @@ const handleAcceptOrder = async (orderId) => {
   // Render Functions
   // In SellerDashboard.jsx - Replace the renderOrders function
 
-const renderOrders = () => {
+
+  const  renderOrders = () => {
   const getOrdersByStatus = (status) => {
     return orders.filter(order => {
       const orderStatus = order.orderStatus || order.status;
@@ -1462,22 +1464,21 @@ const renderOrders = () => {
       <p className="text-gray-500">{title} section will be implemented</p>
     </div>
   );
-
-  const renderContent = () => {
-    switch (activeSection) {
-      case 'overview': return renderOverview();
-      case 'profile': return renderProfile();
-      case 'menu': return renderMenu();
-      case 'reviews': return renderReviews();
-      case 'orders': return renderOrders();
-      case 'reservations': return renderPlaceholder('Reservations', Calendar);
-    case 'payments': return <PaymentSettlementPage />; // ✅ Add this
-      case 'analytics': return renderPlaceholder('Analytics', BarChart3);
-      case 'offers': return renderPlaceholder('Offers', Tag);
-      case 'settings': return renderPlaceholder('Settings', Settings);
-      default: return renderOverview();
-    }
-  };
+const renderContent = () => {
+  switch (activeSection) {
+    case 'overview': return renderOverview();
+    case 'profile': return renderProfile();
+    case 'menu': return renderMenu();
+    case 'reviews': return renderReviews();
+    case 'orders': return renderOrders();
+    case 'reservations': return renderPlaceholder('Reservations', Calendar);
+    case 'payments': return <PaymentSettlementPage />;
+    case 'analytics': return <AnalyticsInsights />; // ✅ Changed this line
+    case 'offers': return renderPlaceholder('Offers', Tag);
+    case 'settings': return renderPlaceholder('Settings', Settings);
+    default: return renderOverview();
+  }
+};
 
   const getSellerEmail = () => sellerData?.email || 'Loading...';
   const getSellerDisplayName = () => sellerData?.businessDetails?.ownerName || sellerData?.businessName || sellerData?.email || 'Restaurant Owner';

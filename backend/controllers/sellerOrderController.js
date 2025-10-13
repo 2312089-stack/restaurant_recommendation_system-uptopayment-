@@ -443,6 +443,7 @@ export const rejectOrder = async (req, res) => {
 };
 
 // ==================== UPDATE ORDER STATUS ====================
+// ==================== UPDATE ORDER STATUS ====================
 export const updateOrderStatus = async (req, res) => {
   try {
     const { orderId } = req.params;
@@ -461,7 +462,7 @@ export const updateOrderStatus = async (req, res) => {
 
     const order = await Order.findOne({
       _id: orderId,
-      $or: [{ seller: sellerId }, { restaurantId: sellerId }]
+      seller: sellerId
     });
 
     if (!order) {
@@ -471,11 +472,8 @@ export const updateOrderStatus = async (req, res) => {
       });
     }
 
+    // Update order
     order.orderStatus = status;
-    
-    if (!order.orderTimeline) {
-      order.orderTimeline = [];
-    }
     order.orderTimeline.push({
       status: status,
       timestamp: new Date(),
@@ -485,12 +483,18 @@ export const updateOrderStatus = async (req, res) => {
 
     if (status === 'delivered') {
       order.actualDeliveryTime = new Date();
+      
+      // ✅ AUTO-COMPLETE COD PAYMENT ON DELIVERY
+      if (order.paymentMethod === 'cod' && order.paymentStatus === 'pending') {
+        order.paymentStatus = 'completed';
+        console.log('✅ COD payment auto-completed on delivery');
+      }
     }
 
     await order.save();
     console.log('✅ Order status updated');
 
-    // Update history
+    // ✅ UPDATE ORDER HISTORY
     try {
       const history = await OrderHistory.findOne({ orderMongoId: orderId });
       if (history) {
@@ -501,13 +505,23 @@ export const updateOrderStatus = async (req, res) => {
           note: `Order is now ${status.replace('_', ' ')}`
         });
         history.currentStatus = status;
+        
+        if (status === 'delivered') {
+          history.deliveryInfo = {
+            actualDeliveryTime: new Date(),
+            estimatedTime: order.estimatedDelivery
+          };
+          history.isTemporary = false; // Mark as permanent
+        }
+        
         await history.save();
+        console.log('✅ Order history updated');
       }
     } catch (historyError) {
-      console.warn('⚠️ Failed to update order history:', historyError.message);
+      console.error('⚠️ Failed to update order history:', historyError);
     }
 
-    // Emit socket events
+    // ✅ EMIT SOCKET EVENTS
     try {
       const io = req.app.get('io');
       if (io) {
@@ -522,18 +536,30 @@ export const updateOrderStatus = async (req, res) => {
           orderId: order.orderId,
           orderMongoId: order._id.toString(),
           orderStatus: status,
+          status: status,
           customerEmail: order.customerEmail,
-          message: statusMessages[status],
+          message: statusMessages[status] || `Order is now ${status}`,
           timestamp: new Date()
         };
 
         io.to(`user-${order.customerEmail}`).emit('order-status-updated', notification);
         io.to(`order-${order._id}`).emit('order-status-updated', notification);
         
-        console.log(`✅ Status update sent: ${status}`);
+        // ✅ EMIT SETTLEMENT UPDATE FOR DELIVERED COD ORDERS
+        if (status === 'delivered' && order.paymentMethod === 'cod') {
+          io.to(`seller-${sellerId}`).emit('settlement-updated', {
+            orderId: order.orderId,
+            amount: order.totalAmount,
+            paymentMethod: 'cod',
+            timestamp: new Date()
+          });
+          console.log('✅ Settlement update notification sent');
+        }
+        
+        console.log(`✅ Status update notification sent: ${status}`);
       }
     } catch (socketError) {
-      console.warn('⚠️ Socket notification failed:', socketError.message);
+      console.warn('⚠️ Socket notification failed:', socketError);
     }
 
     res.json({
@@ -542,7 +568,8 @@ export const updateOrderStatus = async (req, res) => {
       order: {
         _id: order._id,
         orderId: order.orderId,
-        orderStatus: order.orderStatus
+        orderStatus: order.orderStatus,
+        paymentStatus: order.paymentStatus
       }
     });
 

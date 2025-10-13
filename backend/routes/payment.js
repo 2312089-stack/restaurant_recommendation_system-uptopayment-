@@ -1,11 +1,14 @@
-// routes/payment.js - RAZORPAY OPTIMIZED VERSION
+// routes/payment.js - COMPLETE WORKING VERSION
 import express from 'express';
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
 import Order from '../models/Order.js';
 import Dish from '../models/Dish.js';
+import User from '../models/User.js';
 import nodemailer from 'nodemailer';
 import twilio from 'twilio';
+import OrderHistory from '../models/OrderHistory.js';
+import { authenticateToken } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
@@ -73,6 +76,8 @@ const initializeServices = async () => {
       try {
         await twilioClient.api.accounts(process.env.TWILIO_ACCOUNT_SID.trim()).fetch();
         console.log('✅ Twilio service initialized');
+        console.log('📱 WhatsApp Sandbox:', process.env.TWILIO_WHATSAPP_NUMBER);
+        console.log('⚠️  Reminder: Users must join sandbox to receive messages');
       } catch (err) {
         console.error('⚠️ Twilio verification failed:', err.message);
         twilioClient = null;
@@ -93,7 +98,14 @@ const initializeServices = async () => {
 const formatPhoneNumber = (phone) => {
   if (!phone) return null;
   const clean = phone.toString().replace(/\D/g, '');
-  return clean.length === 10 ? `${appConfig.countryCode}${clean}` : `+${clean}`;
+  
+  // If already has country code
+  if (clean.length > 10) {
+    return `+${clean}`;
+  }
+  
+  // Add India country code for 10-digit numbers
+  return `${appConfig.countryCode}${clean}`;
 };
 
 const generateEmailHTML = (orderDetails) => {
@@ -173,6 +185,7 @@ Please keep exact change ready (${symbol}${orderDetails.totalAmount})
 
 const sendEmailNotification = async (orderDetails) => {
   if (!emailTransporter || !orderDetails.customerEmail) {
+    console.log('⚠️ Email notification skipped - service not available or email missing');
     return { success: false, error: 'Email service not available' };
   }
 
@@ -194,22 +207,41 @@ const sendEmailNotification = async (orderDetails) => {
 
 const sendWhatsAppNotification = async (orderDetails) => {
   if (!twilioClient || !process.env.TWILIO_WHATSAPP_NUMBER || !orderDetails.customerPhone) {
+    console.log('⚠️ WhatsApp notification skipped - service not available or phone missing');
     return { success: false, error: 'WhatsApp service not available' };
   }
 
   try {
     const phone = formatPhoneNumber(orderDetails.customerPhone);
+    
+    console.log(`📱 Attempting WhatsApp to: ${phone}`);
+    
     const message = await twilioClient.messages.create({
       from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`,
       to: `whatsapp:${phone}`,
       body: generateWhatsAppMessage(orderDetails)
     });
 
-    console.log('✅ WhatsApp sent to:', phone);
+    console.log('✅ WhatsApp sent successfully!');
+    console.log(`   SID: ${message.sid}`);
+    console.log(`   Status: ${message.status}`);
+    console.log(`   To: ${phone}`);
+    
     return { success: true, sid: message.sid };
   } catch (error) {
     console.error('❌ WhatsApp failed:', error.message);
-    return { success: false, error: error.message };
+    
+    // Enhanced error messages
+    if (error.code === 63016) {
+      console.error('⚠️  User has not joined WhatsApp sandbox!');
+      console.error(`   Solution: User must send "join <code>" to ${process.env.TWILIO_WHATSAPP_NUMBER}`);
+    } else if (error.code === 21211) {
+      console.error('⚠️  Invalid phone number format');
+      console.error(`   Received: ${orderDetails.customerPhone}`);
+      console.error(`   Formatted: ${formatPhoneNumber(orderDetails.customerPhone)}`);
+    }
+    
+    return { success: false, error: error.message, code: error.code };
   }
 };
 
@@ -239,9 +271,15 @@ router.get('/health', async (req, res) => {
     services: {
       razorpay: razorpay ? '✅ Ready' : '❌ Not initialized',
       email: emailTransporter ? '✅ Ready' : '⚠️ Not configured',
-      whatsapp: twilioClient ? '✅ Ready' : '⚠️ Not configured'
+      whatsapp: twilioClient ? '✅ Ready (Sandbox Mode - Free Tier)' : '⚠️ Not configured'
     },
     config: appConfig,
+    whatsapp_info: twilioClient ? {
+      mode: 'sandbox',
+      limit: '1000 messages/month',
+      number: process.env.TWILIO_WHATSAPP_NUMBER,
+      note: 'Users must join sandbox to receive messages'
+    } : null,
     timestamp: new Date().toISOString()
   });
 });
@@ -284,7 +322,7 @@ router.post('/create-order', ensureRazorpayReady, async (req, res) => {
 });
 
 // Verify Razorpay Payment
-router.post('/verify-payment', ensureRazorpayReady, async (req, res) => {
+router.post('/verify-payment', authenticateToken, ensureRazorpayReady, async (req, res) => {
   try {
     const {
       razorpay_payment_id,
@@ -293,7 +331,39 @@ router.post('/verify-payment', ensureRazorpayReady, async (req, res) => {
       orderDetails
     } = req.body;
 
-    // Validate required fields
+    const userId = req.user?._id || req.user?.userId || req.user?.id;
+    
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'User authentication required. Please login again.'
+      });
+    }
+
+    console.log('🔐 Processing payment for user:', userId);
+
+    // Fetch user email from database
+    const user = await User.findById(userId).select('emailId email');
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found. Please login again.'
+      });
+    }
+
+    const customerEmail = user.emailId || user.email;
+    
+    if (!customerEmail) {
+      console.error('❌ No email found for user:', userId);
+      return res.status(400).json({
+        success: false,
+        message: 'User email not found. Please update your profile.'
+      });
+    }
+
+    console.log('✅ Fetched email from database:', customerEmail);
+
     if (!razorpay_payment_id || !razorpay_order_id || !razorpay_signature) {
       return res.status(400).json({
         success: false,
@@ -318,7 +388,6 @@ router.post('/verify-payment', ensureRazorpayReady, async (req, res) => {
 
     console.log('✅ Payment signature verified');
 
-    // Get dish and seller info
     const dish = await Dish.findById(orderDetails.dishId).populate('seller');
     
     if (!dish || !dish.seller) {
@@ -330,13 +399,14 @@ router.post('/verify-payment', ensureRazorpayReady, async (req, res) => {
 
     // Create order
     const newOrder = new Order({
+      customerId: userId,
       seller: dish.seller._id,
       dish: orderDetails.dishId,
       orderId: orderDetails.orderId,
       razorpayPaymentId: razorpay_payment_id,
       razorpayOrderId: razorpay_order_id,
       customerName: orderDetails.customerName,
-      customerEmail: orderDetails.customerEmail,
+      customerEmail: customerEmail,
       customerPhone: orderDetails.customerPhone,
       item: {
         name: dish.name,
@@ -354,19 +424,85 @@ router.post('/verify-payment', ensureRazorpayReady, async (req, res) => {
       paymentMethod: 'razorpay',
       paymentStatus: 'completed',
       orderStatus: 'pending_seller',
-      estimatedDelivery: orderDetails.estimatedDelivery || appConfig.deliveryTimeDefault
+      estimatedDelivery: orderDetails.estimatedDelivery || appConfig.deliveryTimeDefault,
+      orderBreakdown: orderDetails.orderBreakdown || {
+        itemPrice: dish.price,
+        deliveryFee: 25,
+        platformFee: 5,
+        gst: 0
+      }
     });
 
     const savedOrder = await newOrder.save();
     console.log('✅ Order saved:', savedOrder.orderId);
 
-    // Send notifications (non-blocking)
+    // Create Order History
+    const orderHistory = new OrderHistory({
+      orderId: savedOrder.orderId,
+      customerId: userId,
+      orderMongoId: savedOrder._id,
+      isTemporary: false,
+      snapshot: {
+        dishId: orderDetails.dishId,
+        dishName: dish.name,
+        dishImage: dish.image || '',
+        restaurantId: dish.seller._id,
+        restaurantName: dish.restaurantName || dish.seller.businessName,
+        totalAmount: orderDetails.totalAmount,
+        deliveryAddress: orderDetails.deliveryAddress,
+        paymentMethod: 'razorpay',
+        customerPhone: orderDetails.customerPhone,
+        orderBreakdown: newOrder.orderBreakdown
+      },
+      statusHistory: [{
+        status: 'pending_seller',
+        timestamp: new Date(),
+        actor: 'customer',
+        note: 'Order placed and payment completed via Razorpay'
+      }],
+      currentStatus: 'pending_seller'
+    });
+
+    await orderHistory.save();
+    console.log('✅ Order history created');
+
+    // Notify seller
+    const io = req.app.get('io');
+    if (io) {
+      const notification = {
+        type: 'new_order',
+        orderId: savedOrder.orderId,
+        orderMongoId: savedOrder._id.toString(),
+        dishName: dish.name,
+        customerName: orderDetails.customerName,
+        customerEmail: customerEmail,
+        totalAmount: orderDetails.totalAmount,
+        paymentMethod: 'razorpay',
+        paymentStatus: 'completed',
+        timestamp: new Date(),
+        message: `🔔 New paid order: ${dish.name} - ₹${orderDetails.totalAmount}`
+      };
+
+      io.to(`seller-${dish.seller._id}`).emit('new-order', notification);
+      io.to(`seller-${dish.seller._id}`).emit('notification', notification);
+      
+      console.log(`✅ Notification sent to seller room: seller-${dish.seller._id}`);
+    }
+
+    // Send notifications
     const notifData = {
-      ...orderDetails,
+      orderId: orderDetails.orderId,
+      customerName: orderDetails.customerName,
+      customerEmail: customerEmail,
+      customerPhone: orderDetails.customerPhone,
       item: {
         name: dish.name,
         restaurant: dish.restaurantName || dish.seller.businessName
-      }
+      },
+      deliveryAddress: orderDetails.deliveryAddress,
+      totalAmount: orderDetails.totalAmount,
+      paymentMethod: 'razorpay',
+      estimatedDelivery: orderDetails.estimatedDelivery || appConfig.deliveryTimeDefault
     };
 
     const [emailResult, whatsappResult] = await Promise.allSettled([
@@ -391,7 +527,15 @@ router.post('/verify-payment', ensureRazorpayReady, async (req, res) => {
       },
       notifications: {
         email: emailResult.status === 'fulfilled' && emailResult.value.success ? 'sent' : 'failed',
-        whatsapp: whatsappResult.status === 'fulfilled' && whatsappResult.value.success ? 'sent' : 'failed'
+        whatsapp: whatsappResult.status === 'fulfilled' && whatsappResult.value.success ? 'sent' : 'failed',
+        seller_notified: !!io,
+        details: {
+          email_to: customerEmail,
+          whatsapp_to: orderDetails.customerPhone,
+          whatsapp_note: whatsappResult.status === 'fulfilled' && whatsappResult.value.success 
+            ? 'Delivered' 
+            : 'User may need to join WhatsApp sandbox'
+        }
       }
     });
 
@@ -406,11 +550,44 @@ router.post('/verify-payment', ensureRazorpayReady, async (req, res) => {
 });
 
 // Create COD Order
-router.post('/create-cod-order', async (req, res) => {
+router.post('/create-cod-order', authenticateToken, async (req, res) => {
   try {
     const { orderDetails } = req.body;
 
-    if (!orderDetails || !orderDetails.customerEmail) {
+    const userId = req.user?._id || req.user?.userId || req.user?.id;
+    
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'User authentication required. Please login again.'
+      });
+    }
+
+    console.log('💵 Processing COD order for user:', userId);
+
+    // Fetch user email
+    const user = await User.findById(userId).select('emailId email');
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found. Please login again.'
+      });
+    }
+
+    const customerEmail = user.emailId || user.email;
+    
+    if (!customerEmail) {
+      console.error('❌ No email found for user:', userId);
+      return res.status(400).json({
+        success: false,
+        message: 'User email not found. Please update your profile.'
+      });
+    }
+
+    console.log('✅ Fetched email from database:', customerEmail);
+
+    if (!orderDetails) {
       return res.status(400).json({
         success: false,
         message: 'Order details required'
@@ -426,7 +603,6 @@ router.post('/create-cod-order', async (req, res) => {
       });
     }
 
-    // Get dish and seller
     const dish = await Dish.findById(dishId).populate('seller');
     
     if (!dish || !dish.seller) {
@@ -436,18 +612,18 @@ router.post('/create-cod-order', async (req, res) => {
       });
     }
 
-    // Calculate total (COD fee already added in frontend)
     const totalAmount = typeof orderDetails.totalAmount === 'string'
       ? parseInt(orderDetails.totalAmount.replace(/\D/g, ''))
       : orderDetails.totalAmount;
 
     // Create COD order
     const newOrder = new Order({
+      customerId: userId,
       seller: dish.seller._id,
       dish: dishId,
       orderId: orderDetails.orderId,
       customerName: orderDetails.customerName,
-      customerEmail: orderDetails.customerEmail,
+      customerEmail: customerEmail,
       customerPhone: orderDetails.customerPhone,
       item: {
         name: dish.name,
@@ -464,18 +640,78 @@ router.post('/create-cod-order', async (req, res) => {
       totalAmount: totalAmount,
       paymentMethod: 'cod',
       paymentStatus: 'pending',
-      orderStatus: 'seller_accepted',
-      estimatedDelivery: orderDetails.estimatedDelivery || appConfig.deliveryTimeDefault
+      orderStatus: 'pending_seller',
+      estimatedDelivery: orderDetails.estimatedDelivery || appConfig.deliveryTimeDefault,
+      orderBreakdown: orderDetails.orderBreakdown || {
+        itemPrice: dish.price,
+        deliveryFee: 25,
+        platformFee: 5,
+        gst: 0,
+        codFee: appConfig.codFee
+      }
     });
 
     const savedOrder = await newOrder.save();
     console.log('✅ COD order saved:', savedOrder.orderId);
 
+    // Create Order History
+    const orderHistory = new OrderHistory({
+      orderId: savedOrder.orderId,
+      customerId: userId,
+      orderMongoId: savedOrder._id,
+      isTemporary: false,
+      snapshot: {
+        dishId: dishId,
+        dishName: dish.name,
+        dishImage: dish.image || '',
+        restaurantId: dish.seller._id,
+        restaurantName: dish.restaurantName || dish.seller.businessName,
+        totalAmount: totalAmount,
+        deliveryAddress: orderDetails.deliveryAddress,
+        paymentMethod: 'cod',
+        customerPhone: orderDetails.customerPhone,
+        orderBreakdown: newOrder.orderBreakdown
+      },
+      statusHistory: [{
+        status: 'pending_seller',
+        timestamp: new Date(),
+        actor: 'customer',
+        note: 'COD order placed - awaiting restaurant confirmation'
+      }],
+      currentStatus: 'pending_seller'
+    });
+
+    await orderHistory.save();
+    console.log('✅ COD order history created');
+
+    // Notify Seller
+    const io = req.app.get('io');
+    if (io) {
+      const notification = {
+        type: 'new_order',
+        orderId: savedOrder.orderId,
+        orderMongoId: savedOrder._id.toString(),
+        dishName: dish.name,
+        customerName: orderDetails.customerName,
+        customerEmail: customerEmail,
+        totalAmount: totalAmount,
+        paymentMethod: 'cod',
+        paymentStatus: 'pending',
+        timestamp: new Date(),
+        message: `🔔 New COD order: ${dish.name} - ₹${totalAmount}`
+      };
+
+      io.to(`seller-${dish.seller._id}`).emit('new-order', notification);
+      io.to(`seller-${dish.seller._id}`).emit('notification', notification);
+      
+      console.log(`✅ COD notification sent to seller room: seller-${dish.seller._id}`);
+    }
+
     // Send notifications
     const notifData = {
       orderId: orderDetails.orderId,
       customerName: orderDetails.customerName,
-      customerEmail: orderDetails.customerEmail,
+      customerEmail: customerEmail,
       customerPhone: orderDetails.customerPhone,
       item: {
         name: dish.name,
@@ -509,7 +745,15 @@ router.post('/create-cod-order', async (req, res) => {
       },
       notifications: {
         email: emailResult.status === 'fulfilled' && emailResult.value.success ? 'sent' : 'failed',
-        whatsapp: whatsappResult.status === 'fulfilled' && whatsappResult.value.success ? 'sent' : 'failed'
+        whatsapp: whatsappResult.status === 'fulfilled' && whatsappResult.value.success ? 'sent' : 'failed',
+        seller_notified: !!io,
+        details: {
+          email_to: customerEmail,
+          whatsapp_to: orderDetails.customerPhone,
+          whatsapp_note: whatsappResult.status === 'fulfilled' && whatsappResult.value.success 
+            ? 'Delivered' 
+            : 'User may need to join WhatsApp sandbox'
+        }
       }
     });
 
@@ -550,13 +794,26 @@ router.post('/test-notifications', async (req, res) => {
 
   const results = {};
   
-  if (customerEmail) results.email = await sendEmailNotification(testData);
-  if (customerPhone) results.whatsapp = await sendWhatsAppNotification(testData);
+  if (customerEmail) {
+    console.log('📧 Testing email to:', customerEmail);
+    results.email = await sendEmailNotification(testData);
+  }
+  
+  if (customerPhone) {
+    console.log('📱 Testing WhatsApp to:', customerPhone);
+    results.whatsapp = await sendWhatsAppNotification(testData);
+  }
 
   res.json({
     success: true,
     message: 'Test notifications sent',
-    results
+    results,
+    notes: {
+      email: results.email?.success ? 'Email sent successfully' : `Email failed: ${results.email?.error}`,
+      whatsapp: results.whatsapp?.success 
+        ? 'WhatsApp sent successfully' 
+        : `WhatsApp failed: ${results.whatsapp?.error}. Note: User must join sandbox first.`
+    }
   });
 });
 

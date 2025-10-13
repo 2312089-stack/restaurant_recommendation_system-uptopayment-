@@ -1,13 +1,42 @@
-// src/pages/Home.tsx
+// src/pages/Home.jsx - JavaScript version with proper props
 import React from 'react';
-import HeroSection from "../components/HeroSection";
-import ReorderFavorites from "../components/ReorderFavorites";
-import PopularNearYou from "../components/PopularNearYou";
-import RecommendedForYou from "../components/RecommendedForYou";
-import TrendingInCity from "../components/TrendingInCity";
-import SpecialOffers from "../components/SpecialOffers";
-import Footer from "../components/Footer";
-const Home = () => {
-  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(HeroSection, null), /*#__PURE__*/React.createElement(ReorderFavorites, null), /*#__PURE__*/React.createElement(PopularNearYou, null), /*#__PURE__*/React.createElement(RecommendedForYou, null), /*#__PURE__*/React.createElement(TrendingInCity, null), /*#__PURE__*/React.createElement(SpecialOffers, null), /*#__PURE__*/React.createElement(Footer, null));
+import HeroSection from "../customer/HeroSection";
+import ReorderFavorites from "../customer/ReorderFavorites";
+import PopularNearYou from "../customer/PopularNearYou";
+import RecommendedForYou from "../customer/RecommendedForYou";
+import TrendingInCity from "../customer/TrendingInCity";
+import RecentlyViewed from "../customer/RecentlyViewed";
+import MostViewed from "../customer/MostViewed";
+import SpecialOffers from "../customer/SpecialOffers";
+import Footer from "../customer/Footer";
+
+const Home = ({ 
+  onOpenDiscovery,
+  onNavigateToLogin,
+  onNavigateToOrderHistory,
+  onNavigateToCart
+}) => {
+  console.log('🏠 Home component rendering');
+  console.log('✅ RecentlyViewed and MostViewed should render');
+  
+  return (
+    <>
+      <HeroSection onOpenDiscovery={onOpenDiscovery} />
+      <ReorderFavorites 
+        onNavigateToLogin={onNavigateToLogin}
+        onNavigateToDiscovery={onOpenDiscovery}
+        onNavigateToOrderHistory={onNavigateToOrderHistory}
+      />
+      <PopularNearYou />
+      <RecommendedForYou onNavigateToCart={onNavigateToCart} />
+      <TrendingInCity />
+      {/* ✅ View History Components - These should now render! */}
+      <RecentlyViewed />
+      <MostViewed />
+      <SpecialOffers />
+      <Footer />
+    </>
+  );
 };
+
 export default Home;

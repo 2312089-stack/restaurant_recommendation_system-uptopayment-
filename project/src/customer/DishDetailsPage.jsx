@@ -32,7 +32,7 @@ import {
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useCart } from '../contexts/CartContext';
 import { useSocket } from '../contexts/SocketContext';
-
+import { useViewHistory } from '../contexts/ViewHistoryContext';
 const API_BASE = 'http://localhost:5000/api';
 
 const DishDetailsPage = ({ dishId, onBack }) => {
@@ -47,6 +47,7 @@ const DishDetailsPage = ({ dishId, onBack }) => {
   const [showRestaurantDetails, setShowRestaurantDetails] = useState(false);
   const [isSellerOnline, setIsSellerOnline] = useState(true);
   const { socket, connected } = useSocket();
+const { trackView } = useViewHistory();
 
   // Review states
   const [reviews, setReviews] = useState([]);
@@ -108,27 +109,35 @@ const DishDetailsPage = ({ dishId, onBack }) => {
     };
   }, [socket, connected, dish]);
 
-  const fetchDishDetails = async () => {
-    try {
-      setLoading(true);
-      setError('');
+const fetchDishDetails = async () => {
+  try {
+    setLoading(true);
+    setError('');
 
-      const response = await fetch(`${API_BASE}/dishes/${dishId}`);
-      const data = await response.json();
+    const response = await fetch(`${API_BASE}/dishes/${dishId}`);
+    const data = await response.json();
 
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to fetch dish details');
-      }
-
-      setDish(data.dish);
-    } catch (err) {
-      console.error('Fetch dish details error:', err);
-      setError('Failed to load dish details. Please try again.');
-    } finally {
-      setLoading(false);
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to fetch dish details');
     }
-  };
 
+    setDish(data.dish);
+    
+    // ✅ ADD THESE LINES
+    if (data.dish) {
+      console.log('📊 Tracking view for dish:', data.dish.name);
+      trackView(data.dish).catch(err => {
+        console.warn('⚠️ Failed to track view:', err);
+      });
+    }
+    
+  } catch (err) {
+    console.error('Fetch dish details error:', err);
+    setError('Failed to load dish details. Please try again.');
+  } finally {
+    setLoading(false);
+  }
+};
   const fetchReviews = async () => {
     try {
       setReviewsLoading(true);

@@ -1,334 +1,296 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RotateCcw, Heart, Star, Edit3, X, HelpCircle } from 'lucide-react';
+import { RotateCcw, Heart, Star, Loader2, AlertCircle, ShoppingCart } from 'lucide-react';
 
-const ReorderFavorites = () => {
+const ReorderFavorites = ({ onNavigateToLogin, onNavigateToDiscovery, onNavigateToOrderHistory }) => {
   const navigate = useNavigate();
-  const [showHelpModal, setShowHelpModal] = useState(false);
-  const [showReviewModal, setShowReviewModal] = useState(false);
-  const [rating, setRating] = useState(0);
-  const [review, setReview] = useState('');
+  const [favorites, setFavorites] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [addingToCart, setAddingToCart] = useState(null);
 
-  const favorites = [
-    {
-      id: 1,
-      name: "Chicken Biryani",
-      restaurant: "Paradise Biryani",
-      image: "https://images.pexels.com/photos/2474658/pexels-photo-2474658.jpeg?auto=compress&cs=tinysrgb&w=300&h=200&dpr=1",
-      price: "₹299",
-      rating: 4.5,
-      lastOrdered: "2 days ago",
-      deliveryTime: "25 min"
-    },
-    {
-      id: 2,
-      name: "Margherita Pizza",
-      restaurant: "Domino's Pizza",
-      image: "https://images.pexels.com/photos/315755/pexels-photo-315755.jpeg?auto=compress&cs=tinysrgb&w=300&h=200&dpr=1",
-      price: "₹199",
-      rating: 4.2,
-      lastOrdered: "5 days ago",
-      deliveryTime: "30 min"
-    },
-    {
-      id: 3,
-      name: "Masala Dosa",
-      restaurant: "Sagar Ratna",
-      image: "https://images.pexels.com/photos/5560763/pexels-photo-5560763.jpeg?auto=compress&cs=tinysrgb&w=300&h=200&dpr=1",
-      price: "₹149",
-      rating: 4.6,
-      lastOrdered: "1 week ago",
-      deliveryTime: "20 min"
-    },
-    {
-      id: 4,
-      name: "Butter Chicken",
-      restaurant: "Punjabi Dhaba",
-      image: "https://images.pexels.com/photos/2474661/pexels-photo-2474661.jpeg?auto=compress&cs=tinysrgb&w=300&h=200&dpr=1",
-      price: "₹249",
-      rating: 4.4,
-      lastOrdered: "3 days ago",
-      deliveryTime: "35 min"
-    },
-    {
-      id: 5,
-      name: "Veg Hakka Noodles",
-      restaurant: "China Bowl",
-      image: "https://images.pexels.com/photos/4518843/pexels-photo-4518843.jpeg?auto=compress&cs=tinysrgb&w=300&h=200&dpr=1",
-      price: "₹179",
-      rating: 4.3,
-      lastOrdered: "4 days ago",
-      deliveryTime: "28 min"
-    },
-    {
-      id: 6,
-      name: "Paneer Tikka",
-      restaurant: "Spice Garden",
-      image: "https://images.pexels.com/photos/4518843/pexels-photo-4518843.jpeg?auto=compress&cs=tinysrgb&w=300&h=200&dpr=1",
-      price: "₹229",
-      rating: 4.1,
-      lastOrdered: "6 days ago",
-      deliveryTime: "25 min"
-    }
-  ];
+  const API_BASE = 'http://localhost:5000/api';
 
-  const handleReorder = (item) => {
-    // Navigate to separate address page with item data
-    navigate('/address', { state: { item } });
+  // Check if user is authenticated
+  const isAuthenticated = () => {
+    const token = localStorage.getItem('token');
+    return Boolean(token);
   };
 
-  // Favorites Section with Horizontal Scroll
-  const FavoritesSection = () => (
-    <div className="bg-white min-h-screen">
-      {/* Reorder Your Favorites Section */}
-      <section className="py-8">
+  // Fetch reorder history from backend
+  useEffect(() => {
+    const fetchReorderHistory = async () => {
+      if (!isAuthenticated()) {
+        console.log('User not authenticated, skipping reorder history fetch');
+        setLoading(false);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        setError(null);
+
+        const token = localStorage.getItem('token');
+        console.log('🔄 Fetching reorder history...');
+        
+        const response = await fetch(`${API_BASE}/reorder/history`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        const data = await response.json();
+        console.log('✅ Reorder history response:', data);
+
+        if (data.success) {
+          setFavorites(data.dishes || []);
+        } else {
+          throw new Error(data.error || 'Failed to fetch order history');
+        }
+      } catch (err) {
+        console.error('❌ Error fetching reorder history:', err);
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchReorderHistory();
+  }, []);
+
+  // Handle reorder - Navigate directly to address page
+  const handleReorder = async (item) => {
+    if (!isAuthenticated()) {
+      alert('Please log in to reorder');
+      if (onNavigateToLogin) onNavigateToLogin();
+      return;
+    }
+
+    if (!item.isAvailable) {
+      alert('This dish is currently unavailable');
+      return;
+    }
+
+    setAddingToCart(item._id);
+
+    try {
+      console.log('🔄 Starting reorder for:', item.name);
+      
+      // Prepare item data for checkout
+      const orderItem = {
+        _id: item._id,
+        dishId: item._id,
+        id: item._id,
+        name: item.name,
+        price: `₹${item.price}`,
+        originalPrice: item.price,
+        image: item.image,
+        restaurant: item.restaurantName || item.seller?.businessName || 'Restaurant',
+        category: item.category || 'Food',
+        type: item.type || 'veg',
+        quantity: 1
+      };
+
+      console.log('📦 Prepared order item:', orderItem);
+
+      // Navigate directly to address page with item data
+      navigate('/address', {
+        state: {
+          item: orderItem,
+          orderType: 'single',
+          fromCart: false
+        }
+      });
+
+    } catch (err) {
+      console.error('❌ Error processing reorder:', err);
+      alert(err.message || 'Failed to process reorder');
+      setAddingToCart(null);
+    }
+  };
+
+  // Get image URL helper
+  const getImageUrl = (imagePath) => {
+    if (!imagePath) return 'https://images.pexels.com/photos/1640777/pexels-photo-1640777.jpeg?auto=compress&cs=tinysrgb&w=400';
+    if (imagePath.startsWith('http')) return imagePath;
+    return `http://localhost:5000${imagePath.startsWith('/') ? '' : '/'}${imagePath}`;
+  };
+
+  // Loading State
+  if (loading) {
+    return (
+      <section className="py-8 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900">Reorder Your Favorites</h2>
-              <p className="text-gray-600 mt-1">Your go-to dishes, just one click away</p>
-            </div>
-            <button className="text-orange-600 hover:text-orange-700 font-semibold transition-colors">
-              View All
-            </button>
-          </div>
-          
-          {/* Horizontal Scrollable Container */}
-          <div className="overflow-x-auto pb-4">
-            <div className="flex space-x-4 w-max">
-              {favorites.map(item => (
-                <div key={item.id} className="bg-white rounded-xl shadow-md hover:shadow-lg transition-shadow duration-200 border border-gray-100 w-64 flex-shrink-0">
-                  <div className="relative">
-                    <img src={item.image} alt={item.name} className="w-full h-40 object-cover rounded-t-xl" />
-                    <div className="absolute top-2 right-2 bg-white bg-opacity-90 px-2 py-1 rounded-lg text-xs font-semibold flex items-center">
-                      <Heart className="w-3 h-3 mr-1 text-red-500 fill-current" />
-                      {Math.floor(Math.random() * 1000) + 100}
-                    </div>
-                  </div>
-                  
-                  <div className="p-4">
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex-1">
-                        <h3 className="font-semibold text-gray-900 line-clamp-1">{item.name}</h3>
-                        <p className="text-sm text-gray-500">{item.restaurant}</p>
-                      </div>
-                      <div className="flex items-center space-x-1 bg-green-100 px-2 py-1 rounded">
-                        <Star className="w-3 h-3 text-green-600 fill-current" />
-                        <span className="text-xs font-semibold text-green-600">{item.rating}</span>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="font-bold text-gray-900">{item.price}</span>
-                      <span className="text-xs text-gray-400">Last: {item.lastOrdered}</span>
-                    </div>
-                    
-                    <button 
-                      onClick={() => handleReorder(item)}
-                      className="w-full flex items-center justify-center space-x-2 bg-orange-500 hover:bg-orange-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors duration-200"
-                    >
-                      <RotateCcw className="w-4 h-4" />
-                      <span>Reorder</span>
-                    </button>
-                  </div>
-                </div>
-              ))}
+          <div className="flex items-center justify-center py-12">
+            <div className="text-center">
+              <Loader2 className="w-12 h-12 animate-spin text-orange-500 mx-auto mb-4" />
+              <p className="text-gray-600">Loading your favorites...</p>
             </div>
           </div>
         </div>
       </section>
+    );
+  }
 
-      {/* Popular Near You Section */}
-      <section className="py-8 bg-gray-50">
+  // Error State
+  if (error) {
+    return (
+      <section className="py-8 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900">Popular Near You</h2>
-              <p className="text-gray-600 mt-1">Trending dishes in your area</p>
-            </div>
-            <button className="bg-orange-500 hover:bg-orange-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors">
-              Explore
-            </button>
-          </div>
-          
-          <div className="overflow-x-auto pb-4">
-            <div className="flex space-x-4 w-max">
-              {favorites.slice(0, 4).map(item => (
-                <div key={`popular-${item.id}`} className="bg-white rounded-xl shadow-md hover:shadow-lg transition-shadow duration-200 border border-gray-100 w-64 flex-shrink-0">
-                  <div className="relative">
-                    <img src={item.image} alt={item.name} className="w-full h-40 object-cover rounded-t-xl" />
-                    <div className="absolute top-2 right-2 bg-white bg-opacity-90 px-2 py-1 rounded-lg text-xs font-semibold flex items-center">
-                      <Heart className="w-3 h-3 mr-1 text-red-500 fill-current" />
-                      {Math.floor(Math.random() * 500) + 200}
-                    </div>
-                  </div>
-                  
-                  <div className="p-4">
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex-1">
-                        <h3 className="font-semibold text-gray-900 line-clamp-1">{item.name}</h3>
-                        <p className="text-sm text-gray-500">{item.restaurant}</p>
-                      </div>
-                      <div className="flex items-center space-x-1 bg-green-100 px-2 py-1 rounded">
-                        <Star className="w-3 h-3 text-green-600 fill-current" />
-                        <span className="text-xs font-semibold text-green-600">{item.rating}</span>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="font-bold text-gray-900">{item.price}</span>
-                      <span className="text-xs text-orange-600 font-medium">Trending</span>
-                    </div>
-                    
-                    <button 
-                      onClick={() => handleReorder(item)}
-                      className="w-full flex items-center justify-center space-x-2 bg-orange-500 hover:bg-orange-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors duration-200"
-                    >
-                      <span>Order Now</span>
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-    </div>
-  );
-
-  // Review Modal
-  const ReviewModal = () => (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg p-6 max-w-md w-full">
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-semibold text-gray-900">Rate Your Experience</h3>
-          <button
-            onClick={() => setShowReviewModal(false)}
-            className="text-gray-500 hover:text-gray-700"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="mb-4">
-          <p className="text-sm text-gray-700 mb-2">How was your order?</p>
-          <div className="flex items-center space-x-2">
-            {[1, 2, 3, 4, 5].map((star) => (
-              <button
-                key={star}
-                onClick={() => setRating(star)}
-                className="text-2xl transition-colors"
+          <div className="flex items-center justify-center py-12">
+            <div className="text-center">
+              <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+              <p className="text-gray-600 mb-4">{error}</p>
+              <button 
+                onClick={() => window.location.reload()}
+                className="text-orange-500 hover:text-orange-600 font-medium"
               >
-                <Star 
-                  className={`w-8 h-8 ${
-                    star <= rating 
-                      ? 'text-orange-500 fill-current' 
-                      : 'text-gray-300'
-                  }`} 
-                />
+                Try Again
               </button>
-            ))}
+            </div>
           </div>
         </div>
+      </section>
+    );
+  }
 
-        <div className="mb-6">
-          <textarea
-            value={review}
-            onChange={(e) => setReview(e.target.value)}
-            className="w-full p-3 border border-gray-300 rounded-lg focus:border-orange-500 focus:ring-orange-500 resize-none"
-            rows="3"
-            placeholder="Share your experience (optional)"
-          />
+  // Empty State - Not Authenticated
+  if (!isAuthenticated()) {
+    return (
+      <section className="py-8 bg-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center py-12">
+            <ShoppingCart className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">Login to See Your Favorites</h3>
+            <p className="text-gray-600 mb-6">Sign in to view and reorder your previously ordered dishes</p>
+            <button
+              onClick={() => onNavigateToLogin && onNavigateToLogin()}
+              className="bg-orange-500 hover:bg-orange-600 text-white font-semibold py-3 px-6 rounded-lg transition-colors"
+            >
+              Login Now
+            </button>
+          </div>
         </div>
+      </section>
+    );
+  }
 
-        <div className="flex space-x-4">
-          <button
-            onClick={() => setShowReviewModal(false)}
-            className="flex-1 text-gray-600 font-medium py-2"
-          >
-            Skip
-          </button>
-          <button
-            onClick={() => {
-              setShowReviewModal(false);
-              setRating(0);
-              setReview('');
-            }}
-            disabled={rating === 0}
-            className="flex-1 bg-orange-500 hover:bg-orange-600 disabled:bg-gray-300 text-white font-semibold py-2 rounded-lg transition-colors"
-          >
-            Submit Review
-          </button>
+  // Empty State - No Order History
+  if (favorites.length === 0) {
+    return (
+      <section className="py-8 bg-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center py-12">
+            <ShoppingCart className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">No Order History Yet</h3>
+            <p className="text-gray-600 mb-6">Start ordering to see your favorites here!</p>
+            <button
+              onClick={() => onNavigateToDiscovery && onNavigateToDiscovery()}
+              className="bg-orange-500 hover:bg-orange-600 text-white font-semibold py-3 px-6 rounded-lg transition-colors"
+            >
+              Explore Dishes
+            </button>
+          </div>
         </div>
-      </div>
-    </div>
-  );
+      </section>
+    );
+  }
 
-  // Help Modal
-  const HelpModal = () => (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg p-6 max-w-md w-full">
+  // Main Reorder Section with Data
+  return (
+    <section className="py-8 bg-white">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center">
-            <HelpCircle className="w-6 h-6 text-orange-600 mr-2" />
-            <h3 className="text-lg font-semibold text-gray-900">Help & Support</h3>
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900">Reorder Your Favorites</h2>
+            <p className="text-gray-600 mt-1">Your go-to dishes, just one click away</p>
           </div>
-          <button
-            onClick={() => setShowHelpModal(false)}
-            className="text-gray-500 hover:text-gray-700 p-1"
+          <button 
+            onClick={() => onNavigateToOrderHistory && onNavigateToOrderHistory()}
+            className="text-orange-600 hover:text-orange-700 font-semibold transition-colors"
           >
-            <X className="w-5 h-5" />
+            View All
           </button>
         </div>
         
-        <div className="space-y-3">
-          <button className="w-full text-left p-4 hover:bg-orange-50 rounded-lg transition-colors border border-gray-200 hover:border-orange-200">
-            <div className="flex items-center">
-              <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center mr-3">
-                <span className="text-orange-600">📍</span>
+        {/* Horizontal Scrollable Container */}
+        <div className="overflow-x-auto pb-4">
+          <div className="flex space-x-4 w-max">
+            {favorites.map(item => (
+              <div 
+                key={item._id} 
+                className="bg-white rounded-xl shadow-md hover:shadow-lg transition-shadow duration-200 border border-gray-100 w-64 flex-shrink-0"
+              >
+                <div className="relative">
+                  <img 
+                    src={getImageUrl(item.image)} 
+                    alt={item.name} 
+                    className="w-full h-40 object-cover rounded-t-xl"
+                    onError={(e) => {
+                      e.target.src = 'https://images.pexels.com/photos/1640777/pexels-photo-1640777.jpeg?auto=compress&cs=tinysrgb&w=400';
+                    }}
+                  />
+                  <div className="absolute top-2 right-2 bg-white bg-opacity-90 px-2 py-1 rounded-lg text-xs font-semibold flex items-center">
+                    <Heart className="w-3 h-3 mr-1 text-red-500 fill-current" />
+                    {item.totalOrders || 1}
+                  </div>
+                  {!item.isAvailable && (
+                    <div className="absolute inset-0 bg-black bg-opacity-50 rounded-t-xl flex items-center justify-center">
+                      <span className="text-white font-semibold text-sm">Unavailable</span>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="p-4">
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-gray-900 line-clamp-1">{item.name}</h3>
+                      <p className="text-sm text-gray-500">{item.restaurantName || item.seller?.businessName || 'Restaurant'}</p>
+                    </div>
+                    <div className="flex items-center space-x-1 bg-green-100 px-2 py-1 rounded">
+                      <Star className="w-3 h-3 text-green-600 fill-current" />
+                      <span className="text-xs font-semibold text-green-600">
+                        {typeof item.rating === 'object' ? (item.rating?.average || 4.5) : (item.rating || 4.5)}
+                      </span>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="font-bold text-gray-900">₹{item.price}</span>
+                    <span className="text-xs text-gray-400">Last: {item.lastOrderedText || 'Recently'}</span>
+                  </div>
+                  
+                  <button 
+                    onClick={() => handleReorder(item)}
+                    disabled={!item.isAvailable || addingToCart === item._id}
+                    className={`w-full flex items-center justify-center space-x-2 font-semibold py-2 px-4 rounded-lg transition-colors duration-200 ${
+                      !item.isAvailable 
+                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        : addingToCart === item._id
+                          ? 'bg-orange-400 text-white cursor-wait'
+                          : 'bg-orange-500 hover:bg-orange-600 text-white'
+                    }`}
+                  >
+                    {addingToCart === item._id ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Processing...</span>
+                      </>
+                    ) : (
+                      <>
+                        <RotateCcw className="w-4 h-4" />
+                        <span>Reorder</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
-              <span className="font-medium text-gray-900">Track Order</span>
-            </div>
-          </button>
-          
-          <button className="w-full text-left p-4 hover:bg-orange-50 rounded-lg transition-colors border border-gray-200 hover:border-orange-200">
-            <div className="flex items-center">
-              <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center mr-3">
-                <span className="text-orange-600">📋</span>
-              </div>
-              <span className="font-medium text-gray-900">Order History</span>
-            </div>
-          </button>
-          
-          <button className="w-full text-left p-4 hover:bg-orange-50 rounded-lg transition-colors border border-gray-200 hover:border-orange-200">
-            <div className="flex items-center">
-              <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center mr-3">
-                <span className="text-orange-600">💬</span>
-              </div>
-              <span className="font-medium text-gray-900">Contact Support</span>
-            </div>
-          </button>
-        </div>
-
-        <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-          <p className="text-xs text-gray-600 text-center">
-            Need immediate assistance? Call us at 
-            <span className="font-medium text-orange-600"> 1800-123-4567</span>
-          </p>
+            ))}
+          </div>
         </div>
       </div>
-    </div>
-  );
-
-  return (
-    <div className="bg-white min-h-screen">
-      {/* Only show the Favorites Section - other steps are now separate pages */}
-      <FavoritesSection />
-      
-      {/* Keep modals if they're still needed */}
-      {showHelpModal && <HelpModal />}
-      {showReviewModal && <ReviewModal />}
-    </div>
+    </section>
   );
 };
 

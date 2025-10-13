@@ -1,4 +1,4 @@
-// routes/orderHistoryRoutes.js - COMPLETE FIXED VERSION
+// routes/orderHistoryRoutes.js - COMPLETE VERSION
 import express from 'express';
 import { authenticateToken } from '../middleware/authMiddleware.js';
 import OrderHistory from '../models/OrderHistory.js';
@@ -21,10 +21,7 @@ router.get('/', authenticateToken, async (req, res) => {
       });
     }
 
-    const query = { 
-      customerId: userId
-      // ✅ REMOVED isTemporary filter - show ALL orders
-    };
+    const query = { customerId: userId };
     
     if (status && status !== 'all') {
       query.currentStatus = status;
@@ -117,7 +114,6 @@ router.get('/:orderId', authenticateToken, async (req, res) => {
     
     console.log('📦 Fetching order:', orderId, 'for user:', userId);
     
-    // Try to find by orderId string or MongoDB _id
     const history = await OrderHistory.findOne({
       $or: [
         { orderId: orderId },
@@ -134,7 +130,6 @@ router.get('/:orderId', authenticateToken, async (req, res) => {
       });
     }
 
-    // Also fetch the actual order for complete data
     const order = await Order.findById(history.orderMongoId)
       .populate('dish', 'name image category type price')
       .populate('seller', 'businessName')
@@ -156,7 +151,6 @@ router.get('/:orderId', authenticateToken, async (req, res) => {
       history,
       order: {
         ...order,
-        // Merge with history for complete data
         currentStatus: history.currentStatus,
         rating: history.rating?.score,
         review: history.rating?.review
@@ -170,79 +164,6 @@ router.get('/:orderId', authenticateToken, async (req, res) => {
     });
   }
 });
-
-// ✅ RATE ORDER
-router.post('/:orderId/rate', authenticateToken, async (req, res) => {
-  try {
-    const userId = req.user._id || req.user.userId || req.user.id;
-    const { orderId } = req.params;
-    const { score, review } = req.body;
-    
-    console.log('⭐ Rating order:', orderId, 'Score:', score);
-    
-    // Validate rating
-    if (!score || score < 1 || score > 5) {
-      return res.status(400).json({
-        success: false,
-        error: 'Rating must be between 1 and 5'
-      });
-    }
-
-    // Find order history
-    const history = await OrderHistory.findOne({
-      orderId: orderId,
-      customerId: userId,
-      currentStatus: 'delivered'
-    });
-    
-    if (!history) {
-      return res.status(404).json({
-        success: false,
-        error: 'Order not found or not eligible for rating'
-      });
-    }
-
-    // Check if already rated
-    if (history.rating && history.rating.score) {
-      return res.status(400).json({
-        success: false,
-        error: 'Order already rated'
-      });
-    }
-
-    // Add rating to history
-    history.rating = {
-      score: score,
-      review: review || '',
-      ratedAt: new Date()
-    };
-    await history.save();
-    
-    // Also update the main Order document
-    const order = await Order.findById(history.orderMongoId);
-    if (order) {
-      order.rating = score;
-      order.review = review || '';
-      order.ratedAt = new Date();
-      await order.save();
-    }
-    
-    console.log('✅ Order rated successfully');
-    
-    res.json({
-      success: true,
-      message: 'Rating submitted successfully',
-      rating: history.rating
-    });
-  } catch (error) {
-    console.error('❌ Rate order error:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-// In routes/orderHistoryRoutes.js - Make sure this endpoint exists
 
 // ✅ CANCEL ORDER
 router.post('/:orderId/cancel', authenticateToken, async (req, res) => {
@@ -260,7 +181,6 @@ router.post('/:orderId/cancel', authenticateToken, async (req, res) => {
       });
     }
 
-    // Find order history
     const history = await OrderHistory.findOne({
       orderId: orderId,
       customerId: userId
@@ -273,7 +193,6 @@ router.post('/:orderId/cancel', authenticateToken, async (req, res) => {
       });
     }
 
-    // Check if order can be cancelled
     const cancellableStatuses = ['pending_seller'];
     if (!cancellableStatuses.includes(history.currentStatus)) {
       return res.status(400).json({
@@ -282,7 +201,6 @@ router.post('/:orderId/cancel', authenticateToken, async (req, res) => {
       });
     }
 
-    // Cancel order history
     history.statusHistory.push({
       status: 'cancelled',
       timestamp: new Date(),
@@ -296,10 +214,9 @@ router.post('/:orderId/cancel', authenticateToken, async (req, res) => {
       timestamp: new Date(),
       refundStatus: 'pending'
     };
-    history.isTemporary = false; // Move to permanent
+    history.isTemporary = false;
     await history.save();
     
-    // Also update the main Order document
     const order = await Order.findById(history.orderMongoId);
     if (order) {
       order.orderStatus = 'cancelled';
@@ -314,7 +231,6 @@ router.post('/:orderId/cancel', authenticateToken, async (req, res) => {
       });
       await order.save();
 
-      // Notify seller via socket
       const io = req.app.get('io');
       if (io) {
         io.to(`seller-${order.seller}`).emit('order-cancelled', {
@@ -341,12 +257,77 @@ router.post('/:orderId/cancel', authenticateToken, async (req, res) => {
   }
 });
 
+// ✅ RATE ORDER
+router.post('/:orderId/rate', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user._id || req.user.userId || req.user.id;
+    const { orderId } = req.params;
+    const { score, review } = req.body;
+    
+    console.log('⭐ Rating order:', orderId, 'Score:', score);
+    
+    if (!score || score < 1 || score > 5) {
+      return res.status(400).json({
+        success: false,
+        error: 'Rating must be between 1 and 5'
+      });
+    }
 
-// ✅ GET ORDER SUMMARY/STATS
+    const history = await OrderHistory.findOne({
+      orderId: orderId,
+      customerId: userId,
+      currentStatus: 'delivered'
+    });
+    
+    if (!history) {
+      return res.status(404).json({
+        success: false,
+        error: 'Order not found or not eligible for rating'
+      });
+    }
+
+    if (history.rating && history.rating.score) {
+      return res.status(400).json({
+        success: false,
+        error: 'Order already rated'
+      });
+    }
+
+    history.rating = {
+      score: score,
+      review: review || '',
+      ratedAt: new Date()
+    };
+    await history.save();
+    
+    const order = await Order.findById(history.orderMongoId);
+    if (order) {
+      order.rating = score;
+      order.review = review || '';
+      order.ratedAt = new Date();
+      await order.save();
+    }
+    
+    console.log('✅ Order rated successfully');
+    
+    res.json({
+      success: true,
+      message: 'Rating submitted successfully',
+      rating: history.rating
+    });
+  } catch (error) {
+    console.error('❌ Rate order error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// ✅ GET ORDER SUMMARY
 router.get('/summary/:userId', authenticateToken, async (req, res) => {
   try {
     const userId = req.params.userId;
-    
     const summary = await OrderHistory.getCustomerSummary(userId);
     
     res.json({
