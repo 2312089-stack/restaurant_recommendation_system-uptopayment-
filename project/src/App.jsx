@@ -21,6 +21,7 @@ import DiscoveryPage from "./customer/DiscoveryPage";
 import WishlistPage from "./customer/WishlistPage";
 import OrderHistoryApp from './customer/OrderHistoryApp';
 import CartPage from "./customer/CartPage";
+import AuthSuccess from './customer/AuthSuccess';
 
 // Customer Order flow page components
 import AddressPage from "./customer/AddressPage";
@@ -418,6 +419,8 @@ function App() {
                         }
                       >
                         <Routes>
+                                  <Route path="/auth-success" element={<AuthSuccess />} />
+
                           {/* Customer reset password routes */}
                           <Route path="/reset-password/:token" element={<ResetPasswordScreen />} />
                           <Route path="/reset-password-settings/:token" element={<ResetPasswordFromSettings />} />

@@ -1,8 +1,8 @@
-// server.js - CRITICAL FIX: Load environment variables FIRST
+// server.js - FIXED: Load passport AFTER environment variables
+// ⚠️ CRITICAL: Load environment variables FIRST
 import dotenv from 'dotenv';
-import analyticsRoutes from './routes/analyticsRoutes.js';
 
-// ⚠️ CRITICAL: Load .env BEFORE any other imports
+// Load .env file IMMEDIATELY
 const envResult = dotenv.config();
 
 if (envResult.error) {
@@ -10,16 +10,18 @@ if (envResult.error) {
   process.exit(1);
 }
 
-// Verify critical variables are loaded
+// Verify critical environment variables
 console.log('\n🔍 Environment Variable Check:');
 console.log('✓ MONGODB_URI:', process.env.MONGODB_URI ? 'LOADED' : '❌ MISSING');
+console.log('✓ JWT_SECRET:', process.env.JWT_SECRET ? 'LOADED' : '❌ MISSING');
 console.log('✓ RAZORPAY_KEY_ID:', process.env.RAZORPAY_KEY_ID ? 'LOADED' : '❌ MISSING');
 console.log('✓ RAZORPAY_KEY_SECRET:', process.env.RAZORPAY_KEY_SECRET ? 'LOADED' : '❌ MISSING');
-console.log('✓ JWT_SECRET:', process.env.JWT_SECRET ? 'LOADED' : '❌ MISSING');
+console.log('✓ GOOGLE_CLIENT_ID:', process.env.GOOGLE_CLIENT_ID ? 'LOADED' : '❌ MISSING');
+console.log('✓ GOOGLE_CLIENT_SECRET:', process.env.GOOGLE_CLIENT_SECRET ? 'LOADED' : '❌ MISSING');
 console.log('✓ EMAIL_USER:', process.env.EMAIL_USER ? 'LOADED' : '⚠️  OPTIONAL');
 console.log('✓ TWILIO_ACCOUNT_SID:', process.env.TWILIO_ACCOUNT_SID ? 'LOADED' : '⚠️  OPTIONAL\n');
 
-// Verify Razorpay credentials specifically
+// Verify Razorpay credentials
 if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
   console.error('❌ CRITICAL: Razorpay credentials missing!');
   console.error('Please check your .env file contains:');
@@ -28,7 +30,7 @@ if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
   process.exit(1);
 }
 
-// NOW import everything else
+// NOW import everything else AFTER environment variables are loaded
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
@@ -37,6 +39,23 @@ import { fileURLToPath } from 'url';
 import { createServer } from 'http';
 import { initializeSocket } from './config/socket.js';
 import connectDB from './connectDB.js';
+import passport from 'passport';
+
+// ✅ CRITICAL FIX: Import passport module and CALL configuration function
+console.log('🔧 Loading Passport module...');
+const passportModule = await import('./config/passport.js');
+const configurePassport = passportModule.configurePassport;
+
+// NOW call the configuration function (after env vars are loaded)
+console.log('🔧 Calling Passport configuration function...');
+const passportConfigured = configurePassport();
+
+if (!passportConfigured) {
+  console.error('❌ WARNING: Passport configuration failed!');
+  console.error('Google Sign-In will NOT work.\n');
+} else {
+  console.log('✅ Passport configured successfully!\n');
+}
 
 // Import customer routes
 import userRouter from './routes/userRouter.js';
@@ -57,6 +76,7 @@ import customerDiscoveryRoutes from './routes/customerDiscovery.js';
 import orderHistoryRoutes from './routes/orderHistoryRoutes.js';
 import settlementRoutes from './routes/settlementRoutes.js';
 import reorderRoutes from './routes/reorderRoutes.js';
+import analyticsRoutes from './routes/analyticsRoutes.js';
 
 // Import seller routes
 import sellerAuthRoutes from './routes/sellerAuth.js';
@@ -66,8 +86,9 @@ import sellerProfileRoutes from './routes/sellerProfile.js';
 import sellerMenuRoutes from './routes/sellerMenu.js';
 import reviewRoutes from './routes/reviewRoutes.js';
 import sellerOrderRoutes from './routes/sellerOrderRoutes.js';
-import trendingRoutes from './routes/trendingRoutes.js';  // ⬅️ ADD THIS LINE
+import trendingRoutes from './routes/trendingRoutes.js';
 import viewHistoryRoutes from './routes/viewHistoryRoutes.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -92,6 +113,19 @@ app.use(cors({
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// ✅ Initialize passport middleware
+app.use(passport.initialize());
+
+console.log('✅ Passport middleware initialized');
+
+// Verify Google OAuth is configured
+const googleOAuthEnabled = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+if (googleOAuthEnabled) {
+  console.log('✅ Google OAuth configured successfully');
+} else {
+  console.log('⚠️  Google OAuth disabled (credentials not provided)');
+}
 
 // Request logging
 app.use((req, res, next) => {
@@ -123,7 +157,7 @@ app.use('/api/otp', otpRouter);
 app.use('/api/settings-auth', settingsAuthRoutes);
 app.use('/api/settlement', settlementRoutes);
 app.use('/api/reorder', reorderRoutes);
-app.use('/api/trending', trendingRoutes);  // ⬅️ ADD THIS LINE
+app.use('/api/trending', trendingRoutes);
 app.use('/api/view-history', viewHistoryRoutes);
 
 // Order history route
@@ -142,7 +176,7 @@ app.use('/api/reviews', reviewRoutes);
 // Order routes
 app.use('/api/orders', orderRoutes);
 
-// ⚠️ CRITICAL: Payment routes MUST come after .env is loaded
+// Payment routes
 app.use('/api/payment', paymentRoutes);
 
 // Seller Status
@@ -158,11 +192,18 @@ app.use('/api/seller/menu', sellerMenuRoutes);
 app.use('/api/seller/profile', sellerProfileRoutes);
 app.use('/api/seller/orders', sellerOrderRoutes);
 app.use('/api/seller/analytics', analyticsRoutes);
+
 // ==================== ERROR HANDLING ====================
+
+// Favicon handler (to avoid clutter in logs)
+app.get('/favicon.ico', (req, res) => res.status(204).end());
 
 // 404 Handler
 app.use((req, res) => {
-  console.log(`404 Not Found: ${req.method} ${req.originalUrl}`);
+  // Don't log favicon requests
+  if (req.path !== '/favicon.ico') {
+    console.log(`404 Not Found: ${req.method} ${req.originalUrl}`);
+  }
   res.status(404).json({ 
     success: false, 
     error: `Route ${req.originalUrl} not found`,
@@ -201,8 +242,16 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`💾 Database: ${global.mongoose?.connection?.readyState === 1 ? 'Connected ✅' : 'Connecting...'}`);
   console.log(`📦 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`💳 Razorpay: ${process.env.RAZORPAY_KEY_ID ? 'Configured ✅' : 'Missing ❌'}`);
+  console.log(`🔐 Google OAuth: ${googleOAuthEnabled ? 'Configured ✅' : 'Disabled ⚠️'}`);
   console.log('========================================');
   console.log('\n📋 Key Endpoints:');
+  if (googleOAuthEnabled) {
+    console.log('  GET    /api/auth/google                - Google OAuth login');
+    console.log('  GET    /api/auth/google/callback       - Google OAuth callback');
+  }
+  console.log('  POST   /api/auth/login                 - Email/password login');
+  console.log('  POST   /api/auth/signin                - Email/password signin (alias)');
+  console.log('  GET    /api/auth/profile               - Get user profile');
   console.log('  GET    /api/payment/health             - Payment service status');
   console.log('  POST   /api/payment/create-order       - Create Razorpay order');
   console.log('  POST   /api/payment/verify-payment     - Verify payment');

@@ -1,4 +1,4 @@
-// models/User.js - Updated with Wishlist functionality
+// models/User.js - CRITICAL FIX for passwordHash field
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
@@ -11,10 +11,28 @@ const userSchema = new mongoose.Schema({
     lowercase: true,
     trim: true
   },
+  googleId: {
+    type: String,
+    sparse: true,
+    default: null
+  },
+  authProvider: {
+    type: String,
+    enum: ['local', 'google'],
+    default: 'local'
+  },
+  // ✅ CRITICAL FIX: Make passwordHash NOT required for Google users
   passwordHash: {
     type: String,
-    required: true,
-    select: false // Hide by default in queries
+    required: function() {
+      // Only require password for local auth
+      return this.authProvider === 'local';
+    },
+    select: false
+  },
+  name: {
+    type: String,
+    trim: true
   },
   role: {
     type: String,
@@ -30,7 +48,7 @@ const userSchema = new mongoose.Schema({
     default: false
   },
   
-  // WISHLIST FUNCTIONALITY
+  // WISHLIST
   wishlist: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Dish'
@@ -46,6 +64,18 @@ const userSchema = new mongoose.Schema({
     }
   }],
   
+  // RECENTLY VIEWED
+  recentlyViewed: [{
+    dish: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Dish'
+    },
+    viewedAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
+  
   // Email change functionality
   pendingEmailChange: {
     newEmail: {
@@ -53,14 +83,11 @@ const userSchema = new mongoose.Schema({
       lowercase: true,
       trim: true
     },
-    token: {
-      type: String
-    },
-    expires: {
-      type: Date
-    }
+    token: String,
+    expires: Date
   },
-  // Password reset functionality
+  
+  // Password reset
   passwordResetToken: {
     type: String,
     default: null
@@ -69,6 +96,7 @@ const userSchema = new mongoose.Schema({
     type: Date,
     default: null
   },
+  
   // Account tracking
   passwordChangedAt: {
     type: Date,
@@ -83,49 +111,114 @@ const userSchema = new mongoose.Schema({
     default: null
   }
 }, {
-  timestamps: true // Adds createdAt and updatedAt
+  timestamps: true
 });
-// Add these fields to your existing User model (models/User.js)
-// Add after the wishlist fields (around line 40)
 
-// RECENTLY VIEWED FUNCTIONALITY
-recentlyViewed: [{
-  dish: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Dish'
-  },
-  viewedAt: {
-    type: Date,
-    default: Date.now
-  }
-}],
-
-// Add these indexes after your existing indexes
+// Indexes
+userSchema.index({ googleId: 1 });
+userSchema.index({ passwordResetToken: 1 });
+userSchema.index({ 'pendingEmailChange.token': 1 });
+userSchema.index({ wishlist: 1 });
+userSchema.index({ 'wishlistAddedAt.dishId': 1 });
 userSchema.index({ 'recentlyViewed.dish': 1 });
 userSchema.index({ 'recentlyViewed.viewedAt': -1 });
 
-// Add these methods after your existing methods (around line 150)
+// Instance Methods
+userSchema.methods.comparePassword = async function(candidatePassword) {
+  if (!this.passwordHash) return false;
+  return bcrypt.compare(candidatePassword, this.passwordHash);
+};
 
-// RECENTLY VIEWED METHODS
+userSchema.methods.changedPasswordAfter = function(JWTTimestamp) {
+  if (this.passwordChangedAt) {
+    const changedTimestamp = parseInt(
+      this.passwordChangedAt.getTime() / 1000,
+      10
+    );
+    return JWTTimestamp < changedTimestamp;
+  }
+  return false;
+};
 
-// Add dish to recently viewed
+userSchema.methods.createPasswordResetToken = function() {
+  const resetToken = crypto.randomBytes(32).toString('hex');
+  this.passwordResetToken = resetToken;
+  this.passwordResetExpires = Date.now() + 60 * 60 * 1000;
+  return resetToken;
+};
+
+userSchema.methods.clearPendingEmailChange = function() {
+  this.pendingEmailChange = undefined;
+  return this.save();
+};
+
+// Wishlist Methods
+userSchema.methods.addToWishlist = function(dishId) {
+  if (!this.wishlist) this.wishlist = [];
+  if (!this.wishlistAddedAt) this.wishlistAddedAt = [];
+  
+  const dishObjectId = new mongoose.Types.ObjectId(dishId);
+  const isAlreadyInWishlist = this.wishlist.some(id => 
+    id.toString() === dishObjectId.toString()
+  );
+  
+  if (!isAlreadyInWishlist) {
+    this.wishlist.push(dishObjectId);
+    this.wishlistAddedAt.push({
+      dishId: dishObjectId,
+      addedAt: new Date()
+    });
+  }
+  
+  return this.save();
+};
+
+userSchema.methods.removeFromWishlist = function(dishId) {
+  if (!this.wishlist) this.wishlist = [];
+  if (!this.wishlistAddedAt) this.wishlistAddedAt = [];
+  
+  const dishObjectId = new mongoose.Types.ObjectId(dishId);
+  
+  this.wishlist = this.wishlist.filter(id => 
+    id.toString() !== dishObjectId.toString()
+  );
+  
+  this.wishlistAddedAt = this.wishlistAddedAt.filter(item =>
+    item.dishId?.toString() !== dishObjectId.toString()
+  );
+  
+  return this.save();
+};
+
+userSchema.methods.isInWishlist = function(dishId) {
+  if (!this.wishlist) return false;
+  const dishObjectId = new mongoose.Types.ObjectId(dishId);
+  return this.wishlist.some(id => 
+    id.toString() === dishObjectId.toString()
+  );
+};
+
+userSchema.methods.clearWishlist = function() {
+  this.wishlist = [];
+  this.wishlistAddedAt = [];
+  return this.save();
+};
+
+// Recently Viewed Methods
 userSchema.methods.addToRecentlyViewed = async function(dishId) {
   if (!this.recentlyViewed) this.recentlyViewed = [];
   
   const dishObjectId = new mongoose.Types.ObjectId(dishId);
   
-  // Remove if already exists (to update timestamp)
   this.recentlyViewed = this.recentlyViewed.filter(item =>
     item.dish.toString() !== dishObjectId.toString()
   );
   
-  // Add to beginning
   this.recentlyViewed.unshift({
     dish: dishObjectId,
     viewedAt: new Date()
   });
   
-  // Keep only last 20 items
   if (this.recentlyViewed.length > 20) {
     this.recentlyViewed = this.recentlyViewed.slice(0, 20);
   }
@@ -133,7 +226,6 @@ userSchema.methods.addToRecentlyViewed = async function(dishId) {
   return this.save();
 };
 
-// Get recently viewed dishes
 userSchema.methods.getRecentlyViewed = async function(limit = 10) {
   if (!this.recentlyViewed || this.recentlyViewed.length === 0) {
     return [];
@@ -151,169 +243,38 @@ userSchema.methods.getRecentlyViewed = async function(limit = 10) {
   }).lean();
 };
 
-// Clear recently viewed
 userSchema.methods.clearRecentlyViewed = function() {
   this.recentlyViewed = [];
   return this.save();
 };
-// Add dish to recently viewed
-userSchema.methods.addToRecentlyViewed = async function(dishId) {
-  if (!this.recentlyViewed) this.recentlyViewed = [];
-  
-  const dishObjectId = new mongoose.Types.ObjectId(dishId);
-  
-  // Remove if already exists
-  this.recentlyViewed = this.recentlyViewed.filter(item =>
-    item.dish.toString() !== dishObjectId.toString()
-  );
-  
-  // Add to beginning
-  this.recentlyViewed.unshift({
-    dish: dishObjectId,
-    viewedAt: new Date()
-  });
-  
-  // Keep only last 20 items
-  if (this.recentlyViewed.length > 20) {
-    this.recentlyViewed = this.recentlyViewed.slice(0, 20);
-  }
-  
-  return this.save();
-};
 
-// Clear recently viewed
-userSchema.methods.clearRecentlyViewed = function() {
-  this.recentlyViewed = [];
-  return this.save();
-};
-// Virtual for recently viewed count
-userSchema.virtual('recentlyViewedCount').get(function() {
-  return this.recentlyViewed ? this.recentlyViewed.length : 0;
-});
-// Indexes for performance
-userSchema.index({ passwordResetToken: 1 });
-userSchema.index({ 'pendingEmailChange.token': 1 });
-userSchema.index({ wishlist: 1 }); // Index for wishlist queries
-userSchema.index({ 'wishlistAddedAt.dishId': 1 }); // Index for wishlist metadata
-
-// TTL index for pending email changes (expires after 24 hours)
-userSchema.index(
-  { 'pendingEmailChange.expires': 1 }, 
-  { expireAfterSeconds: 0, partialFilterExpression: { 'pendingEmailChange.expires': { $exists: true } } }
-);
-
-// Instance method to compare password
-userSchema.methods.comparePassword = async function(candidatePassword) {
-  return bcrypt.compare(candidatePassword, this.passwordHash);
-};
-
-// Instance method to check if password was changed after JWT was issued
-userSchema.methods.changedPasswordAfter = function(JWTTimestamp) {
-  if (this.passwordChangedAt) {
-    const changedTimestamp = parseInt(
-      this.passwordChangedAt.getTime() / 1000,
-      10
-    );
-    return JWTTimestamp < changedTimestamp;
-  }
-  return false;
-};
-
-// Instance method to generate password reset token
-userSchema.methods.createPasswordResetToken = function() {
-  const resetToken = crypto.randomBytes(32).toString('hex');
-  this.passwordResetToken = resetToken;
-  this.passwordResetExpires = Date.now() + 60 * 60 * 1000; // 1 hour
-  return resetToken;
-};
-
-// Instance method to clear pending email change
-userSchema.methods.clearPendingEmailChange = function() {
-  this.pendingEmailChange = undefined;
-  return this.save();
-};
-
-// WISHLIST METHODS
-// Instance method to add dish to wishlist
-userSchema.methods.addToWishlist = function(dishId) {
-  if (!this.wishlist) this.wishlist = [];
-  if (!this.wishlistAddedAt) this.wishlistAddedAt = [];
-  
-  const dishObjectId = new mongoose.Types.ObjectId(dishId);
-  
-  // Check if already in wishlist
-  const isAlreadyInWishlist = this.wishlist.some(id => 
-    id.toString() === dishObjectId.toString()
-  );
-  
-  if (!isAlreadyInWishlist) {
-    this.wishlist.push(dishObjectId);
-    this.wishlistAddedAt.push({
-      dishId: dishObjectId,
-      addedAt: new Date()
-    });
-  }
-  
-  return this.save();
-};
-
-// Instance method to remove dish from wishlist
-userSchema.methods.removeFromWishlist = function(dishId) {
-  if (!this.wishlist) this.wishlist = [];
-  if (!this.wishlistAddedAt) this.wishlistAddedAt = [];
-  
-  const dishObjectId = new mongoose.Types.ObjectId(dishId);
-  
-  // Remove from wishlist array
-  this.wishlist = this.wishlist.filter(id => 
-    id.toString() !== dishObjectId.toString()
-  );
-  
-  // Remove from wishlistAddedAt array
-  this.wishlistAddedAt = this.wishlistAddedAt.filter(item =>
-    item.dishId?.toString() !== dishObjectId.toString()
-  );
-  
-  return this.save();
-};
-
-// Instance method to check if dish is in wishlist
-userSchema.methods.isInWishlist = function(dishId) {
-  if (!this.wishlist) return false;
-  
-  const dishObjectId = new mongoose.Types.ObjectId(dishId);
-  return this.wishlist.some(id => 
-    id.toString() === dishObjectId.toString()
-  );
-};
-
-// Instance method to clear wishlist
-userSchema.methods.clearWishlist = function() {
-  this.wishlist = [];
-  this.wishlistAddedAt = [];
-  return this.save();
-};
-
-// Virtual for wishlist count
+// Virtuals
 userSchema.virtual('wishlistCount').get(function() {
   return this.wishlist ? this.wishlist.length : 0;
 });
 
-// Virtual for display
+userSchema.virtual('recentlyViewedCount').get(function() {
+  return this.recentlyViewed ? this.recentlyViewed.length : 0;
+});
+
 userSchema.virtual('displayEmail').get(function() {
   return this.emailId;
 });
 
-// Pre-save middleware for password hashing
+// ✅ CRITICAL FIX: Only hash password if it's modified AND not already hashed
 userSchema.pre('save', async function(next) {
-  // Only run if password was modified
+  // Skip if password not modified
   if (!this.isModified('passwordHash')) return next();
   
-  // Don't hash if already hashed
-  if (this.passwordHash.startsWith('$2b$')) return next();
+  // Skip if no password (Google users)
+  if (!this.passwordHash) return next();
+  
+  // Skip if already hashed
+  if (this.passwordHash.startsWith('$2b$') || this.passwordHash.startsWith('$2a$')) {
+    return next();
+  }
   
   try {
-    // Hash password with cost of 12
     this.passwordHash = await bcrypt.hash(this.passwordHash, 12);
     next();
   } catch (error) {
@@ -321,46 +282,41 @@ userSchema.pre('save', async function(next) {
   }
 });
 
-// Pre-save middleware to set passwordChangedAt
 userSchema.pre('save', function(next) {
   if (!this.isModified('passwordHash') || this.isNew) return next();
-  
-  this.passwordChangedAt = Date.now() - 1000; // Subtract 1 second to ensure JWT is created after password change
+  this.passwordChangedAt = Date.now() - 1000;
   next();
 });
 
-// Pre-save middleware to initialize wishlist arrays
 userSchema.pre('save', function(next) {
   if (!this.wishlist) this.wishlist = [];
   if (!this.wishlistAddedAt) this.wishlistAddedAt = [];
   next();
 });
 
-// Transform JSON output to hide sensitive fields
+// Transform JSON output
 userSchema.methods.toJSON = function() {
   const userObject = this.toObject();
   delete userObject.passwordHash;
   delete userObject.passwordResetToken;
   delete userObject.passwordResetExpires;
+  delete userObject.googleId;
   delete userObject.__v;
   return userObject;
 };
 
-// Static method to find user by email
+// Static Methods
 userSchema.statics.findByEmail = function(email) {
   return this.findOne({ emailId: email.toLowerCase().trim() });
 };
 
-// Static method to find user with password (for authentication)
 userSchema.statics.findByEmailWithPassword = function(email) {
   return this.findOne({ emailId: email.toLowerCase().trim() }).select('+passwordHash');
 };
 
-// Ensure virtual fields are serialized
 userSchema.set('toJSON', { virtuals: true });
 userSchema.set('toObject', { virtuals: true });
 
 const User = mongoose.model('User', userSchema);
 
-// Export as default (ES6 style)
 export default User;
