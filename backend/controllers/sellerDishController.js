@@ -1,4 +1,4 @@
-// controllers/sellerDishController.js - FIXED VERSION with correct paths
+// controllers/sellerDishController.js - FIXED VERSION (Controllers Only)
 import Dish from '../models/Dish.js';
 import Seller from '../models/Seller.js';
 import multer from 'multer';
@@ -16,11 +16,9 @@ const storage = multer.diskStorage({
     const sellerId = req.seller.id;
     const sellerUploadsDir = path.join(__dirname, '../uploads/sellers', sellerId, 'dishes');
     
-    // Create directory if it doesn't exist
     if (!fs.existsSync(sellerUploadsDir)) {
       fs.mkdirSync(sellerUploadsDir, { recursive: true });
     }
-    
     cb(null, sellerUploadsDir);
   },
   filename: (req, file, cb) => {
@@ -40,9 +38,7 @@ const fileFilter = (req, file, cb) => {
 
 export const uploadDishImage = multer({
   storage: storage,
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
-  },
+  limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: fileFilter
 }).single('dishImages');
 
@@ -50,12 +46,9 @@ export const uploadDishImage = multer({
 export const addDish = async (req, res) => {
   try {
     console.log('Adding new dish for seller:', req.seller.id);
-    console.log('Request body:', req.body);
-    console.log('Uploaded file:', req.file);
 
     const { name, description, price, category, type, availability, preparationTime } = req.body;
     
-    // Validation
     if (!name || !description || !price || !category) {
       return res.status(400).json({
         success: false,
@@ -63,7 +56,6 @@ export const addDish = async (req, res) => {
       });
     }
 
-    // Validate seller ID
     if (!req.seller.id || !mongoose.Types.ObjectId.isValid(req.seller.id)) {
       return res.status(400).json({
         success: false,
@@ -71,7 +63,6 @@ export const addDish = async (req, res) => {
       });
     }
 
-    // Get seller information
     const seller = await Seller.findById(req.seller.id);
     if (!seller) {
       return res.status(404).json({
@@ -80,13 +71,11 @@ export const addDish = async (req, res) => {
       });
     }
 
-    // Handle image upload - FIXED: Store path without leading slash
     let imagePath = null;
     if (req.file) {
       imagePath = `uploads/sellers/${req.seller.id}/dishes/${req.file.filename}`;
     }
 
-    // Create dish data
     const dishData = {
       name: name.trim(),
       description: description.trim(),
@@ -96,13 +85,9 @@ export const addDish = async (req, res) => {
       availability: availability !== 'false' && availability !== false,
       preparationTime: preparationTime || 30,
       image: imagePath,
-      
-      // Seller information
       seller: new mongoose.Types.ObjectId(req.seller.id),
       sellerName: seller.businessDetails?.ownerName || seller.email,
       restaurantName: seller.businessName || 'Restaurant',
-      
-      // Location from seller
       location: {
         street: seller.address?.street || '',
         city: seller.address?.city || '',
@@ -110,23 +95,13 @@ export const addDish = async (req, res) => {
         zipCode: seller.address?.zipCode || '',
         coordinates: seller.address?.coordinates || null
       },
-      
-      // Set flags to ensure dish appears in discovery
       isActive: true,
       isFeatured: false,
-      
-      // Initialize rating and metrics
-      rating: {
-        average: 0,
-        count: 0
-      },
+      rating: { average: 0, count: 0 },
       orderCount: 0,
       viewCount: 0
     };
 
-    console.log('Creating dish with data:', dishData);
-
-    // Create dish
     const dish = new Dish(dishData);
     await dish.save();
 
@@ -134,14 +109,13 @@ export const addDish = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'Dish added successfully and is now visible to customers',
+      message: 'Dish added successfully',
       dish: dish.toJSON()
     });
 
   } catch (error) {
     console.error('Add dish error:', error);
     
-    // Clean up uploaded file if dish creation fails
     if (req.file) {
       const filePath = path.join(__dirname, '../uploads/sellers', req.seller.id, 'dishes', req.file.filename);
       if (fs.existsSync(filePath)) {
@@ -170,11 +144,7 @@ export const addDish = async (req, res) => {
 export const getSellerDishes = async (req, res) => {
   try {
     console.log('Fetching dishes for seller:', req.seller.id);
- console.log('🔐 Seller from token:', {
-      id: req.seller.id,
-      email: req.seller.email
-    });
-    // Validate seller ID
+
     if (!req.seller.id || !mongoose.Types.ObjectId.isValid(req.seller.id)) {
       return res.status(400).json({
         success: false,
@@ -188,7 +158,6 @@ export const getSellerDishes = async (req, res) => {
     
     const { category, type, availability, search } = req.query;
 
-    // Build query - Show ALL dishes for seller (including inactive for management)
     const query = { 
       seller: new mongoose.Types.ObjectId(req.seller.id)
     };
@@ -204,7 +173,6 @@ export const getSellerDishes = async (req, res) => {
       ];
     }
 
-    // Execute query
     const [dishes, total] = await Promise.all([
       Dish.find(query)
         .sort({ createdAt: -1 })
@@ -237,15 +205,14 @@ export const getSellerDishes = async (req, res) => {
   }
 };
 
-// Update dish method
+// Update dish
 export const updateDish = async (req, res) => {
   try {
     const { dishId } = req.params;
     const updates = req.body;
     
-    console.log('Updating dish:', dishId, 'with data:', updates);
+    console.log('Updating dish:', dishId);
 
-    // Validate IDs
     if (!mongoose.Types.ObjectId.isValid(dishId) || !mongoose.Types.ObjectId.isValid(req.seller.id)) {
       return res.status(400).json({
         success: false,
@@ -253,7 +220,6 @@ export const updateDish = async (req, res) => {
       });
     }
 
-    // Find dish
     const dish = await Dish.findOne({
       _id: new mongoose.Types.ObjectId(dishId),
       seller: new mongoose.Types.ObjectId(req.seller.id)
@@ -266,21 +232,16 @@ export const updateDish = async (req, res) => {
       });
     }
 
-    // Handle image upload if new image provided
     if (req.file) {
-      // Delete old image
       if (dish.image) {
         const oldImagePath = path.join(__dirname, '..', dish.image);
         if (fs.existsSync(oldImagePath)) {
           fs.unlinkSync(oldImagePath);
         }
       }
-      
-      // FIXED: Store path without leading slash
       updates.image = `uploads/sellers/${req.seller.id}/dishes/${req.file.filename}`;
     }
 
-    // Update dish - ensure availability is properly converted
     Object.keys(updates).forEach(key => {
       if (updates[key] !== undefined && updates[key] !== '') {
         if (key === 'availability') {
@@ -306,7 +267,6 @@ export const updateDish = async (req, res) => {
   } catch (error) {
     console.error('Update dish error:', error);
     
-    // Clean up uploaded file if update fails
     if (req.file) {
       const filePath = path.join(__dirname, '../uploads/sellers', req.seller.id, 'dishes', req.file.filename);
       if (fs.existsSync(filePath)) {
@@ -335,7 +295,6 @@ export const toggleAvailability = async (req, res) => {
   try {
     const { dishId } = req.params;
     
-    // Validate IDs
     if (!mongoose.Types.ObjectId.isValid(dishId) || !mongoose.Types.ObjectId.isValid(req.seller.id)) {
       return res.status(400).json({
         success: false,
@@ -356,7 +315,7 @@ export const toggleAvailability = async (req, res) => {
     }
 
     dish.availability = !dish.availability;
-    dish.isActive = true; // Ensure dish stays active in discovery
+    dish.isActive = true;
     await dish.save();
 
     console.log(`Dish availability toggled to: ${dish.availability}`);
@@ -386,7 +345,6 @@ export const getDish = async (req, res) => {
   try {
     const { dishId } = req.params;
     
-    // Validate IDs
     if (!mongoose.Types.ObjectId.isValid(dishId) || !mongoose.Types.ObjectId.isValid(req.seller.id)) {
       return res.status(400).json({
         success: false,
@@ -427,7 +385,6 @@ export const deleteDish = async (req, res) => {
     
     console.log('Deleting dish:', dishId);
 
-    // Validate IDs
     if (!mongoose.Types.ObjectId.isValid(dishId) || !mongoose.Types.ObjectId.isValid(req.seller.id)) {
       return res.status(400).json({
         success: false,
@@ -435,7 +392,6 @@ export const deleteDish = async (req, res) => {
       });
     }
 
-    // Find and delete dish
     const dish = await Dish.findOneAndDelete({
       _id: new mongoose.Types.ObjectId(dishId),
       seller: new mongoose.Types.ObjectId(req.seller.id)
@@ -448,7 +404,6 @@ export const deleteDish = async (req, res) => {
       });
     }
 
-    // Delete image file
     if (dish.image) {
       const imagePath = path.join(__dirname, '..', dish.image);
       if (fs.existsSync(imagePath)) {
@@ -494,7 +449,6 @@ export const getDishAnalytics = async (req, res) => {
       }
     ]);
 
-    // Get category-wise breakdown
     const categoryStats = await Dish.aggregate([
       { $match: { seller: sellerId } },
       {
@@ -529,6 +483,107 @@ export const getDishAnalytics = async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to fetch dish analytics'
+    });
+  }
+};
+
+// In backend/controllers/sellerDishController.js
+// Replace the updateDishOffer function with this:
+
+export const updateDishOffer = async (req, res) => {
+  try {
+    const { dishId } = req.params;
+    const { hasOffer, discountPercentage, validUntil } = req.body;
+    const sellerId = req.seller.id || req.seller._id;
+
+    console.log('\n🎁 ========== UPDATE DISH OFFER ==========');
+    console.log('Dish ID:', dishId);
+    console.log('Seller ID:', sellerId);
+    console.log('Offer Data:', { hasOffer, discountPercentage, validUntil });
+
+    // Validate dish ID
+    if (!mongoose.Types.ObjectId.isValid(dishId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid dish ID'
+      });
+    }
+
+    // Find dish and verify ownership
+    const dish = await Dish.findOne({
+      _id: dishId,
+      $or: [
+        { seller: sellerId },
+        { restaurantId: sellerId }
+      ]
+    });
+
+    if (!dish) {
+      return res.status(404).json({
+        success: false,
+        error: 'Dish not found or you do not have permission to update it'
+      });
+    }
+
+    console.log('✅ Dish found:', dish.name);
+
+    // Validate offer data if enabling offer
+    if (hasOffer) {
+      if (!discountPercentage || discountPercentage < 5 || discountPercentage > 70) {
+        return res.status(400).json({
+          success: false,
+          error: 'Discount percentage must be between 5% and 70%'
+        });
+      }
+
+      if (!validUntil) {
+        return res.status(400).json({
+          success: false,
+          error: 'Valid until date is required for offers'
+        });
+      }
+
+      const offerEndDate = new Date(validUntil);
+      if (offerEndDate <= new Date()) {
+        return res.status(400).json({
+          success: false,
+          error: 'Offer end date must be in the future'
+        });
+      }
+    }
+
+    // Update offer
+    dish.offer = {
+      hasOffer: hasOffer || false,
+      discountPercentage: hasOffer ? discountPercentage : 0,
+      validUntil: hasOffer && validUntil ? new Date(validUntil) : null
+    };
+
+    await dish.save();
+
+    console.log('✅ Offer updated successfully');
+    console.log('New Offer:', dish.offer);
+    console.log('🎁 ========== UPDATE COMPLETE ==========\n');
+
+    res.json({
+      success: true,
+      message: hasOffer ? 'Offer activated successfully' : 'Offer removed successfully',
+      dish: {
+        _id: dish._id,
+        name: dish.name,
+        price: dish.price,
+        offer: dish.offer,
+        discountedPrice: dish.hasActiveOffer ? dish.discountedPrice : dish.price,
+        hasActiveOffer: dish.hasActiveOffer
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Update dish offer error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update dish offer',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };

@@ -77,6 +77,9 @@ import orderHistoryRoutes from './routes/orderHistoryRoutes.js';
 import settlementRoutes from './routes/settlementRoutes.js';
 import reorderRoutes from './routes/reorderRoutes.js';
 import analyticsRoutes from './routes/analyticsRoutes.js';
+import sellerStatusRoutesV2 from './routes/sellerStatusRoutes.js';
+import discoveryRoutes from './routes/discoveryRoutes.js';
+import notificationScheduler from './schedulers/notificationScheduler.js';
 
 // Import seller routes
 import sellerAuthRoutes from './routes/sellerAuth.js';
@@ -88,6 +91,10 @@ import reviewRoutes from './routes/reviewRoutes.js';
 import sellerOrderRoutes from './routes/sellerOrderRoutes.js';
 import trendingRoutes from './routes/trendingRoutes.js';
 import viewHistoryRoutes from './routes/viewHistoryRoutes.js';
+import notificationRoutes from './routes/notificationRoutes.js';
+import sellerSettingsRoutes from './routes/sellerSettings.js';
+import sellerSupportRoutes from './routes/sellerSupport.js';
+import offerRoutes from './routes/offerRoutes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -102,7 +109,20 @@ app.set('io', io);
 
 // Connect to database
 connectDB();
+connectDB().then(() => {
+  console.log('✅ Database connected');
+  
+  // Start notification scheduler
+  notificationScheduler.startAllJobs();
+  console.log('✅ Notification scheduler started');
+});
 
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, stopping notification jobs...');
+  notificationScheduler.stopAllJobs();
+  process.exit(0);
+});
 // ==================== MIDDLEWARE ====================
 app.use(cors({
   origin: ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:5174'],
@@ -147,6 +167,7 @@ const dishesDir = path.join(uploadsDir, 'dishes');
 });
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/api/notifications', notificationRoutes);
 
 // ==================== API ROUTES ====================
 
@@ -159,9 +180,10 @@ app.use('/api/settlement', settlementRoutes);
 app.use('/api/reorder', reorderRoutes);
 app.use('/api/trending', trendingRoutes);
 app.use('/api/view-history', viewHistoryRoutes);
-
+app.use('/api/discovery', discoveryRoutes);
 // Order history route
 app.use('/api/order-history', orderHistoryRoutes);
+app.use('/api/seller/offers', offerRoutes);
 
 // Customer Features
 app.use('/api/upload', uploadRoutes);
@@ -172,15 +194,17 @@ app.use('/api/recommendations', recommendationRoutes);
 app.use('/api/discovery', customerDiscoveryRoutes);
 app.use('/api/dishes', dishRoutes);
 app.use('/api/reviews', reviewRoutes);
-
+app.use('/api/seller/settings', sellerSettingsRoutes);
+app.use('/api/seller/support', sellerSupportRoutes);
 // Order routes
 app.use('/api/orders', orderRoutes);
 
 // Payment routes
 app.use('/api/payment', paymentRoutes);
 
-// Seller Status
+// Seller Status routes (both versions for different purposes)
 app.use('/api/seller-status', sellerStatusRoutes);
+app.use('/api/seller-status-v2', sellerStatusRoutesV2);
 
 // Seller Authentication & Onboarding
 app.use('/api/seller/auth', sellerAuthRoutes);

@@ -1,4 +1,3 @@
-// SignupScreen.jsx - COMPLETE UPDATED VERSION WITH 6+ CHARACTER PASSWORDS
 import React, { useState } from 'react';
 import { ArrowLeft, Eye, EyeOff, ChevronRight, Check } from 'lucide-react';
 
@@ -10,13 +9,11 @@ const SignupScreen = ({ onBackToLogin, onSignupComplete }) => {
   const [error, setError] = useState('');
   const [serverOtp, setServerOtp] = useState('');
   
-  // Password setup state - Updated for 6+ characters
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  // Onboarding state
   const [onboardingData, setOnboardingData] = useState({
     cuisines: [],
     dietary: '',
@@ -26,14 +23,12 @@ const SignupScreen = ({ onBackToLogin, onSignupComplete }) => {
     favoriteDishes: []
   });
 
-  const API_BASE_URL = import.meta.env.VITE_API_BASE || 'http://localhost:5000/api';
+  const API_BASE_URL = 'http://localhost:5000/api';
 
-  // Helper validations
   const isOtpComplete = otp.every(digit => digit !== '');
   const isPasswordValid = password.length >= 6;
   const isConfirmPasswordValid = confirmPassword.length >= 6;
 
-  // BikeIcon Component
   const BikeIcon = () => (
     <div className="relative w-full h-full">
       <div className="absolute bottom-2 left-2 w-5 h-5 border-2 border-white rounded-full"></div>
@@ -49,10 +44,14 @@ const SignupScreen = ({ onBackToLogin, onSignupComplete }) => {
     </div>
   );
 
-  // ALL YOUR EXISTING HANDLERS (KEEP AS IS)
+  const handleGoogleSignUp = () => {
+    // ✅ Add 'signup' context to allow account creation
+    window.location.href = `${API_BASE_URL}/auth/google?signup=true`;
+  };
+
   const handleContinue = async () => {
     if (!email) return;
-    setLoading(true); 
+    setLoading(true);
     setError('');
     try {
       const response = await fetch(`${API_BASE_URL}/otp/send`, {
@@ -104,14 +103,14 @@ const SignupScreen = ({ onBackToLogin, onSignupComplete }) => {
 
   const handleSignup = async () => {
     if (password.length < 6) {
-      setError('Password must be at least 6 characters long'); 
+      setError('Password must be at least 6 characters long');
       return;
     }
     if (password !== confirmPassword) {
-      setError('Passwords do not match'); 
+      setError('Passwords do not match');
       return;
     }
-    setLoading(true); 
+    setLoading(true);
     setError('');
     try {
       const response = await fetch(`${API_BASE_URL}/users`, {
@@ -146,7 +145,6 @@ const SignupScreen = ({ onBackToLogin, onSignupComplete }) => {
     setServerOtp('');
   };
 
-  // Onboarding handlers
   const handleMultiSelect = (category, value) => {
     setOnboardingData(prev => ({
       ...prev,
@@ -160,7 +158,6 @@ const SignupScreen = ({ onBackToLogin, onSignupComplete }) => {
     setOnboardingData(prev => ({ ...prev, [category]: value }));
   };
 
-  // UPDATED: Complete Onboarding Handler
   const handleCompleteOnboarding = async () => {
     setLoading(true);
     setError('');
@@ -172,7 +169,6 @@ const SignupScreen = ({ onBackToLogin, onSignupComplete }) => {
         return;
       }
 
-      // Save onboarding preferences
       const response = await fetch(`${API_BASE_URL}/users/${userId}/onboarding`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -182,26 +178,24 @@ const SignupScreen = ({ onBackToLogin, onSignupComplete }) => {
       const data = await response.json();
       
       if (data.success) {
-        console.log('Onboarding completed successfully');
-        
-        // Clean up signup data
         localStorage.removeItem("userId");
-        
-        // Navigate to login screen using the callback from App.jsx
         onSignupComplete();
-        
       } else {
         setError(data.error || 'Failed to save preferences');
       }
     } catch (err) {
       setError('Network error. Please try again.');
-      console.error('Error saving onboarding:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  // ONBOARDING STEP - FULL THEMED VERSION
+  const handlePasswordKeyPress = (e) => {
+    if (e.key === 'Enter' && isPasswordValid && isConfirmPasswordValid && !loading) {
+      handleSignup();
+    }
+  };
+
   if (currentStep === 'onboarding') {
     const cuisineOptions = ['Indian', 'Italian', 'Chinese', 'Mexican', 'Thai', 'Japanese', 'Continental', 'Lebanese'];
     const dietaryOptions = ['Vegetarian', 'Non-Vegetarian', 'Vegan', 'Jain', 'Gluten-Free'];
@@ -213,7 +207,6 @@ const SignupScreen = ({ onBackToLogin, onSignupComplete }) => {
     return (
       <div className="min-h-screen bg-white p-6">
         <div className="w-full max-w-2xl mx-auto">
-          {/* Header */}
           <div className="text-center mb-8">
             <div className="relative w-20 h-20 mx-auto mb-4">
               <div className="absolute w-full h-full bg-orange-500 rounded-full shadow-lg"></div>
@@ -225,20 +218,17 @@ const SignupScreen = ({ onBackToLogin, onSignupComplete }) => {
             <p className="text-gray-600">Let's personalize your food experience</p>
           </div>
 
-          {/* Error Display */}
           {error && (
             <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
               {error}
             </div>
           )}
 
-          {/* Progress bar */}
           <div className="w-full bg-gray-200 rounded-full h-2 mb-8">
             <div className="bg-orange-500 h-2 rounded-full w-full"></div>
           </div>
 
           <div className="space-y-8">
-            {/* Favorite Cuisines */}
             <div>
               <h3 className="text-lg font-semibold text-gray-800 mb-4">What are your favorite cuisines?</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -263,7 +253,6 @@ const SignupScreen = ({ onBackToLogin, onSignupComplete }) => {
               </div>
             </div>
 
-            {/* Dietary Preference */}
             <div>
               <h3 className="text-lg font-semibold text-gray-800 mb-4">What's your dietary preference?</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -283,7 +272,6 @@ const SignupScreen = ({ onBackToLogin, onSignupComplete }) => {
               </div>
             </div>
 
-            {/* Spice Level */}
             <div>
               <h3 className="text-lg font-semibold text-gray-800 mb-4">How spicy do you like your food?</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -308,7 +296,6 @@ const SignupScreen = ({ onBackToLogin, onSignupComplete }) => {
               </div>
             </div>
 
-            {/* Meal Types */}
             <div>
               <h3 className="text-lg font-semibold text-gray-800 mb-4">What meals do you usually order?</h3>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
@@ -333,7 +320,6 @@ const SignupScreen = ({ onBackToLogin, onSignupComplete }) => {
               </div>
             </div>
 
-            {/* Budget */}
             <div>
               <h3 className="text-lg font-semibold text-gray-800 mb-4">What's your preferred budget range?</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -353,7 +339,6 @@ const SignupScreen = ({ onBackToLogin, onSignupComplete }) => {
               </div>
             </div>
 
-            {/* Favorite Dishes */}
             <div>
               <h3 className="text-lg font-semibold text-gray-800 mb-4">What are some of your favorite dishes?</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -379,7 +364,6 @@ const SignupScreen = ({ onBackToLogin, onSignupComplete }) => {
             </div>
           </div>
 
-          {/* Complete Button */}
           <div className="mt-12 mb-8">
             <button
               onClick={handleCompleteOnboarding}
@@ -395,7 +379,6 @@ const SignupScreen = ({ onBackToLogin, onSignupComplete }) => {
     );
   }
 
-  // PASSWORD STEP - UPDATED THEME SIMILAR TO ResetPasswordFromSettings
   if (currentStep === 'password') {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center p-6">
@@ -426,7 +409,7 @@ const SignupScreen = ({ onBackToLogin, onSignupComplete }) => {
             </div>
           )}
 
-          <form onSubmit={(e) => { e.preventDefault(); handleSignup(); }} className="space-y-6">
+          <div className="space-y-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Password
@@ -437,9 +420,9 @@ const SignupScreen = ({ onBackToLogin, onSignupComplete }) => {
                   placeholder="Enter password (6+ characters)"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  onKeyPress={handlePasswordKeyPress}
                   className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent disabled:opacity-50"
                   disabled={loading}
-                  required
                 />
                 <button
                   type="button"
@@ -462,9 +445,9 @@ const SignupScreen = ({ onBackToLogin, onSignupComplete }) => {
                   placeholder="Confirm your password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
+                  onKeyPress={handlePasswordKeyPress}
                   className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent disabled:opacity-50"
                   disabled={loading}
-                  required
                 />
                 <button
                   type="button"
@@ -477,7 +460,6 @@ const SignupScreen = ({ onBackToLogin, onSignupComplete }) => {
               </div>
             </div>
 
-            {/* Password hint */}
             <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
               <p className="text-orange-800 text-sm text-center">
                 🔢 Password must be at least 6 characters long
@@ -485,29 +467,18 @@ const SignupScreen = ({ onBackToLogin, onSignupComplete }) => {
             </div>
 
             <button
-              type="submit"
+              onClick={handleSignup}
               disabled={!isPasswordValid || !isConfirmPasswordValid || loading}
               className="w-full bg-orange-500 text-white font-semibold py-3 rounded-full hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? (
-                <span className="flex items-center justify-center">
-                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  Creating Account...
-                </span>
-              ) : (
-                'Create Account'
-              )}
+              {loading ? 'Creating Account...' : 'Create Account'}
             </button>
-          </form>
+          </div>
         </div>
       </div>
     );
   }
 
-  // OTP STEP - FULL THEMED VERSION
   if (currentStep === 'otp') {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center p-6">
@@ -587,7 +558,6 @@ const SignupScreen = ({ onBackToLogin, onSignupComplete }) => {
     );
   }
 
-  // EMAIL STEP - FULL THEMED VERSION (Default)
   return (
     <div className="min-h-screen bg-white flex items-center justify-center p-6">
       <div className="w-full max-w-md">
@@ -616,12 +586,33 @@ const SignupScreen = ({ onBackToLogin, onSignupComplete }) => {
           </div>
         )}
 
+        <button
+          onClick={handleGoogleSignUp}
+          disabled={loading}
+          className="w-full bg-white border-2 border-gray-300 text-gray-700 font-semibold py-3 rounded-full hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-3 mb-4"
+        >
+          <svg className="w-5 h-5" viewBox="0 0 24 24">
+            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+          </svg>
+          Continue with Google
+        </button>
+
+        <div className="flex items-center my-6">
+          <div className="flex-1 border-t border-gray-300"></div>
+          <span className="px-4 text-gray-500 text-sm">OR</span>
+          <div className="flex-1 border-t border-gray-300"></div>
+        </div>
+
         <div className="space-y-6 mb-8">
           <input
             type="email"
             placeholder="Email Address"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && email && !loading && handleContinue()}
             disabled={loading}
             className="w-full px-4 py-3 bg-gray-100 border border-gray-300 rounded-full text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent disabled:opacity-50"
           />

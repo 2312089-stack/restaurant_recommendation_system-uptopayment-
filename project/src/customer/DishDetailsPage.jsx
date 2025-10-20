@@ -114,26 +114,70 @@ const fetchDishDetails = async () => {
     setLoading(true);
     setError('');
 
-    const response = await fetch(`${API_BASE}/dishes/${dishId}`);
+    console.log('🔍 Fetching dish details for ID:', dishId);
+    
+    // Validate dishId format
+    if (!dishId || dishId === 'undefined' || dishId === 'null') {
+      throw new Error('Invalid dish ID provided');
+    }
+    
+    // Try the discovery/dish endpoint first (preferred)
+    let response = await fetch(`${API_BASE}/discovery/dish/${dishId}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    });
+    
+    console.log(`📡 Response from /discovery/dish/${dishId}:`, response.status);
+    
+    // If discovery/dish fails, try the parameterized route
+    if (!response.ok && response.status === 404) {
+      console.log('⚠️ /discovery/dish/:id not found, trying /discovery/:dishId...');
+      response = await fetch(`${API_BASE}/discovery/${dishId}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      console.log(`📡 Response from /discovery/${dishId}:`, response.status);
+    }
+    
+    // Last resort: try the dishes endpoint
+    if (!response.ok && response.status === 404) {
+      console.log('⚠️ Discovery endpoints failed, trying /dishes/:id...');
+      response = await fetch(`${API_BASE}/dishes/${dishId}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      console.log(`📡 Response from /dishes/${dishId}:`, response.status);
+    }
+    
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.error || 'Failed to fetch dish details');
+      console.error('❌ All endpoints failed. Response data:', data);
+      throw new Error(data.error || `Dish not found (ID: ${dishId})`);
     }
 
-    setDish(data.dish);
+    console.log('✅ Dish details loaded successfully:', data.dish?.name || data.name);
     
-    // ✅ ADD THESE LINES
-    if (data.dish) {
-      console.log('📊 Tracking view for dish:', data.dish.name);
-      trackView(data.dish).catch(err => {
+    const dishData = data.dish || data;
+    setDish(dishData);
+    
+    // Track view if function is available
+    if (dishData && trackView && typeof trackView === 'function') {
+      console.log('📊 Tracking view for dish:', dishData.name);
+      trackView(dishData).catch(err => {
         console.warn('⚠️ Failed to track view:', err);
       });
     }
     
   } catch (err) {
-    console.error('Fetch dish details error:', err);
-    setError('Failed to load dish details. Please try again.');
+    console.error('❌ Fetch dish details error:', err);
+    setError(err.message || 'Failed to load dish details. Please try again.');
   } finally {
     setLoading(false);
   }

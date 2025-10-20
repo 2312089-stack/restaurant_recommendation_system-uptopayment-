@@ -1,11 +1,10 @@
-// ============================================
-// UPDATED: orderController.js
-// Handles order creation and temporary tracking
-// ============================================
-
+// backend/controllers/orderController.js - COMPLETE WITH NOTIFICATION INTEGRATION
 import Order from '../models/Order.js';
 import Dish from '../models/Dish.js';
+import User from '../models/User.js';
 import OrderHistory from '../models/OrderHistory.js';
+import Notification from '../models/Notification.js';
+import notificationService from '../services/notificationService.js';
 import nodemailer from 'nodemailer';
 import twilio from 'twilio';
 import { getIO } from '../config/socket.js';
@@ -39,7 +38,7 @@ class OrderController {
     }
   }
 
-  // ✅ CREATE ORDER - Creates temporary Order + OrderHistory entry
+  // ✅ CREATE ORDER with notifications
   createOrder = async (req, res) => {
     try {
       console.log('=== ORDER CREATION REQUEST ===');
@@ -47,43 +46,60 @@ class OrderController {
       const orderData = req.body.orderDetails || req.body;
       const { dishId, customerName, customerEmail, customerPhone, deliveryAddress, totalAmount, orderBreakdown, paymentMethod } = orderData;
 
-      // Validation
       if (!dishId || !customerEmail || !customerPhone) {
         return res.status(400).json({ success: false, error: 'Missing required fields' });
       }
 
-      // Fetch dish with seller
+      // ✅ CRITICAL: Find user FIRST to get customerId
+      const user = await User.findOne({ emailId: customerEmail });
+      
+      if (!user) {
+        console.error('❌ User not found for email:', customerEmail);
+        return res.status(404).json({ 
+          success: false, 
+          error: 'User not found. Please ensure you are logged in.' 
+        });
+      }
+
+      console.log('✅ User found:', {
+        userId: user._id,
+        email: user.emailId,
+        name: user.name || user.fullName
+      });
+
       const dish = await Dish.findById(dishId).populate('seller');
       
       if (!dish || !dish.seller) {
         return res.status(404).json({ success: false, error: 'Dish or seller not found' });
       }
 
-      // Check seller status
-      const sellerId = dish.seller._id.toString();
-      const sellerStatus = sellerStatusManager.getSellerStatus(sellerId);
-
-      if (!sellerStatus?.isOnline || sellerStatus?.dashboardStatus === 'offline') {
+      if (!dish.seller.isActive) {
         return res.status(403).json({
           success: false,
-          error: `${dish.seller.businessName} is currently closed`,
-          errorCode: 'SELLER_OFFLINE'
+          error: `${dish.seller.businessName} account is currently inactive`,
+          errorCode: 'SELLER_INACTIVE'
         });
       }
 
-      // Clean phone
-      const cleanPhone = customerPhone.replace(/\D/g, '');
+      if (!dish.availability || !dish.isActive) {
+        return res.status(403).json({
+          success: false,
+          error: 'This dish is currently unavailable',
+          errorCode: 'DISH_UNAVAILABLE'
+        });
+      }
 
-      // Handle address
+      const cleanPhone = customerPhone.replace(/\D/g, '');
       const addressString = typeof deliveryAddress === 'string' 
         ? deliveryAddress 
         : `${deliveryAddress.fullName}, ${deliveryAddress.address}, ${deliveryAddress.phoneNumber}`;
 
-      // ✅ CREATE TEMPORARY ORDER (Main Order collection)
+      // ✅ CRITICAL: Include customerId in order data
       const newOrderData = {
+        customerId: user._id, // ← CRITICAL FIX: Add this line!
         seller: dish.seller._id,
         dish: dishId,
-        customerName: customerName || 'Customer',
+        customerName: customerName || user.name || user.fullName || 'Customer',
         customerEmail: customerEmail,
         customerPhone: cleanPhone,
         item: {
@@ -111,14 +127,59 @@ class OrderController {
         estimatedDelivery: dish.preparationTime ? `${dish.preparationTime} minutes` : '25-30 minutes'
       };
 
-      const savedOrder = await Order.create(newOrderData);
-      console.log('✅ TEMPORARY ORDER CREATED:', savedOrder.orderId);
+      console.log('📦 Creating order with customerId:', user._id);
 
-      // ✅ CREATE TEMPORARY HISTORY ENTRY (for real-time tracking)
+      const savedOrder = await Order.create(newOrderData);
+      console.log('✅ ORDER CREATED:', {
+        orderId: savedOrder.orderId,
+        customerId: savedOrder.customerId,
+        customerEmail: savedOrder.customerEmail
+      });
+
+      // ✅ SEND NOTIFICATION TO CUSTOMER
+      try {
+        if (paymentMethod === 'razorpay') {
+          await notificationService.createNotification(
+            user._id,
+            'payment_confirmed',
+            '✅ Payment Successful!',
+            `Payment of ₹${savedOrder.totalAmount} received for order #${savedOrder.orderId}. Your order has been sent to the restaurant for confirmation.`,
+            {
+              orderId: savedOrder.orderId,
+              orderMongoId: savedOrder._id,
+              actionUrl: `/order-tracking/${savedOrder.orderId}`,
+              priority: 'high',
+              amount: savedOrder.totalAmount,
+              restaurant: savedOrder.item.restaurant
+            }
+          );
+          console.log('✅ Payment confirmation notification sent');
+        } else {
+          await notificationService.createNotification(
+            user._id,
+            'general',
+            '📦 Order Placed Successfully!',
+            `Your order #${savedOrder.orderId} has been placed and sent to ${savedOrder.item.restaurant} for confirmation.`,
+            {
+              orderId: savedOrder.orderId,
+              orderMongoId: savedOrder._id,
+              actionUrl: `/order-tracking/${savedOrder.orderId}`,
+              priority: 'high',
+              amount: savedOrder.totalAmount,
+              restaurant: savedOrder.item.restaurant
+            }
+          );
+          console.log('✅ Order placement notification sent');
+        }
+      } catch (notificationError) {
+        console.error('⚠️ Failed to send customer notification:', notificationError);
+      }
+
+      // ✅ CREATE ORDER HISTORY ENTRY
       try {
         const orderHistory = new OrderHistory({
           orderId: savedOrder.orderId,
-          customerId: req.user?._id || req.user?.userId,
+          customerId: user._id, // ← Include customerId
           orderMongoId: savedOrder._id,
           snapshot: {
             dishId: savedOrder.dish,
@@ -141,20 +202,22 @@ class OrderController {
               : 'Order created. Awaiting seller confirmation.'
           }],
           currentStatus: 'pending_seller',
-          isTemporary: true  // ✅ Mark as temporary
+          isTemporary: true
         });
         
         await orderHistory.save();
-        console.log('✅ TEMPORARY Order history entry created');
+        console.log('✅ Order history entry created with customerId');
       } catch (historyError) {
         console.error('⚠️ Failed to create order history:', historyError);
       }
 
-      // Emit to seller dashboard
+      // ✅ EMIT TO SELLER DASHBOARD
       try {
         const io = req.app.get('io');
+        const sellerId = dish.seller._id.toString();
+
         if (io) {
-          io.to(`seller-${dish.seller._id}`).emit('new-order', {
+          io.to(`seller-${sellerId}`).emit('new-order', {
             orderId: savedOrder.orderId,
             _id: savedOrder._id,
             customerName: savedOrder.customerName,
@@ -168,10 +231,51 @@ class OrderController {
             paymentMethod: savedOrder.paymentMethod,
             requiresConfirmation: true
           });
-          console.log('🔔 New order notification sent to seller');
+          console.log('🔔 Real-time notification sent to seller');
         }
       } catch (socketError) {
         console.warn('⚠️ Socket notification failed:', socketError.message);
+      }
+
+      // ✅ SEND EMAIL NOTIFICATION to seller
+      try {
+        if (this.emailTransporter && dish.seller.email) {
+          await this.emailTransporter.sendMail({
+            from: process.env.EMAIL_USER,
+            to: dish.seller.email,
+            subject: `🔔 New Order #${savedOrder.orderId} - ${dish.name}`,
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2 style="color: #ff6b35;">New Order Received!</h2>
+                <p>You have a new order waiting for confirmation.</p>
+                
+                <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                  <h3>Order Details</h3>
+                  <p><strong>Order ID:</strong> ${savedOrder.orderId}</p>
+                  <p><strong>Item:</strong> ${savedOrder.item.name}</p>
+                  <p><strong>Customer:</strong> ${savedOrder.customerName}</p>
+                  <p><strong>Phone:</strong> ${savedOrder.customerPhone}</p>
+                  <p><strong>Amount:</strong> ₹${savedOrder.totalAmount}</p>
+                  <p><strong>Payment:</strong> ${paymentMethod === 'razorpay' ? '✅ Paid Online' : '💵 COD'}</p>
+                </div>
+
+                <p style="color: #666;">
+                  <strong>⚠️ Action Required:</strong><br>
+                  Please log in to your dashboard to accept or reject this order.
+                </p>
+
+                <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/seller/dashboard" 
+                   style="display: inline-block; background: #ff6b35; color: white; padding: 12px 24px; 
+                          text-decoration: none; border-radius: 5px; margin-top: 20px;">
+                  View Order in Dashboard
+                </a>
+              </div>
+            `
+          });
+          console.log('✅ Email notification sent to seller');
+        }
+      } catch (emailError) {
+        console.error('⚠️ Failed to send email notification:', emailError);
       }
 
       res.status(201).json({
@@ -183,6 +287,7 @@ class OrderController {
         order: {
           _id: savedOrder._id,
           orderId: savedOrder.orderId,
+          customerId: savedOrder.customerId, // ← Include in response
           orderStatus: savedOrder.orderStatus,
           paymentStatus: savedOrder.paymentStatus,
           paymentMethod: savedOrder.paymentMethod,
@@ -207,26 +312,80 @@ class OrderController {
     }
   };
 
-  // ✅ HANDLE DELIVERY - Moves to permanent storage and cleans temporary data
+  // ✅ UPDATE ORDER STATUS with notifications
+  updateOrderStatus = async (orderId, newStatus, actor = 'system', note = '') => {
+    try {
+      const order = await Order.findById(orderId);
+      
+      if (!order) {
+        throw new Error('Order not found');
+      }
+
+      order.orderStatus = newStatus;
+      await order.save();
+      
+      const history = await OrderHistory.findOne({ orderMongoId: orderId });
+      if (history) {
+        await history.addStatusChange(newStatus, actor, note || `Order status changed to ${newStatus}`);
+        console.log(`✅ History updated: ${newStatus}`);
+      }
+
+      // ✅ SEND NOTIFICATION TO CUSTOMER using notificationService
+      const user = await User.findOne({ emailId: order.customerEmail });
+      
+      if (user) {
+        await notificationService.sendOrderStatusNotification(orderId, newStatus, user._id);
+      }
+
+      // Handle special cases
+      if (newStatus === 'delivered') {
+        await this.handleOrderDelivery(orderId);
+        
+        // Send reorder suggestion after 3 days
+        if (user) {
+          setTimeout(() => {
+            notificationService.sendReorderSuggestion(user._id);
+          }, 3 * 24 * 60 * 60 * 1000); // 3 days
+        }
+      } else if (newStatus === 'cancelled') {
+        await this.handleOrderCancellation(orderId, actor, note);
+      }
+      
+      // Emit socket event
+      const io = getIO();
+      if (io) {
+        io.to(`user-${order.customerEmail}`).emit('order-status-updated', {
+          orderId: order.orderId,
+          orderMongoId: order._id.toString(),
+          orderStatus: newStatus,
+          message: note || `Order is now ${newStatus}`,
+          timestamp: new Date()
+        });
+      }
+      
+      return order;
+    } catch (error) {
+      console.error('Error updating order status:', error);
+      throw error;
+    }
+  };
+
+  // ✅ HANDLE DELIVERY
   handleOrderDelivery = async (orderId) => {
     try {
       console.log('📦 Processing order delivery:', orderId);
 
-      // Get the order
       const order = await Order.findById(orderId);
       if (!order) {
         throw new Error('Order not found');
       }
 
-      // Update order status
       order.orderStatus = 'delivered';
       order.actualDeliveryTime = new Date();
       await order.save();
 
-      // ✅ MOVE TO PERMANENT STORAGE
       const history = await OrderHistory.findOne({ orderMongoId: orderId });
       if (history) {
-        // Mark as permanent (no longer temporary)
         history.isTemporary = false;
         history.currentStatus = 'delivered';
         history.deliveryInfo = {
@@ -245,22 +404,6 @@ class OrderController {
         console.log('✅ Order moved to permanent storage');
       }
 
-      // ✅ CLEAN UP TEMPORARY ORDER DATA (optional - keep for analytics)
-      // You can choose to keep the Order document or delete it
-      // await Order.findByIdAndDelete(orderId);  // Uncomment to delete
-
-      // Emit socket event
-      const io = getIO();
-      if (io) {
-        io.to(`user-${order.customerEmail}`).emit('order-status-updated', {
-          orderId: order.orderId,
-          orderMongoId: order._id.toString(),
-          orderStatus: 'delivered',
-          message: 'Your order has been delivered! Enjoy your meal!',
-          timestamp: new Date()
-        });
-      }
-
       return order;
     } catch (error) {
       console.error('Error handling delivery:', error);
@@ -268,7 +411,7 @@ class OrderController {
     }
   };
 
-  // ✅ HANDLE CANCELLATION - Moves to permanent storage with cancellation reason
+  // ✅ HANDLE CANCELLATION
   handleOrderCancellation = async (orderId, cancelledBy, reason) => {
     try {
       console.log('❌ Processing order cancellation:', orderId);
@@ -278,14 +421,12 @@ class OrderController {
         throw new Error('Order not found');
       }
 
-      // Update order
       order.orderStatus = 'cancelled';
       order.cancelledBy = cancelledBy;
       order.cancelledAt = new Date();
       order.cancellationReason = reason;
       await order.save();
 
-      // ✅ MOVE TO PERMANENT STORAGE WITH CANCELLATION INFO
       const history = await OrderHistory.findOne({ orderMongoId: orderId });
       if (history) {
         history.isTemporary = false;
@@ -308,17 +449,6 @@ class OrderController {
         console.log('✅ Cancelled order moved to permanent storage');
       }
 
-      // Emit socket event
-      const io = getIO();
-      if (io) {
-        io.to(`user-${order.customerEmail}`).emit('order-cancelled', {
-          orderId: order.orderId,
-          reason,
-          cancelledBy,
-          timestamp: new Date()
-        });
-      }
-
       return order;
     } catch (error) {
       console.error('Error handling cancellation:', error);
@@ -326,56 +456,7 @@ class OrderController {
     }
   };
 
-  // ✅ UPDATE ORDER STATUS (temporary updates)
-  updateOrderStatus = async (orderId, newStatus, actor = 'system', note = '') => {
-    try {
-      const order = await Order.findById(orderId);
-      
-      if (!order) {
-        throw new Error('Order not found');
-      }
-
-      // Check if this is a final status
-      const isFinalStatus = ['delivered', 'cancelled'].includes(newStatus);
-
-      // Update order
-      order.orderStatus = newStatus;
-      await order.save();
-      
-      // ✅ UPDATE TEMPORARY HISTORY
-      const history = await OrderHistory.findOne({ orderMongoId: orderId });
-      if (history) {
-        await history.addStatusChange(newStatus, actor, note || `Order status changed to ${newStatus}`);
-        console.log(`✅ Temporary history updated: ${newStatus}`);
-
-        // If final status, handle accordingly
-        if (newStatus === 'delivered') {
-          await this.handleOrderDelivery(orderId);
-        } else if (newStatus === 'cancelled') {
-          await this.handleOrderCancellation(orderId, actor, note);
-        }
-      }
-      
-      // Emit socket event
-      const io = getIO();
-      if (io) {
-        io.to(`user-${order.customerEmail}`).emit('order-status-updated', {
-          orderId: order.orderId,
-          orderMongoId: order._id.toString(),
-          orderStatus: newStatus,
-          message: note || `Order is now ${newStatus}`,
-          timestamp: new Date()
-        });
-      }
-      
-      return order;
-    } catch (error) {
-      console.error('Error updating order status:', error);
-      throw error;
-    }
-  };
-
-  // GET customer orders (shows temporary tracking data)
+  // ✅ GET CUSTOMER ORDERS
   getCustomerOrders = async (req, res) => {
     try {
       const customerEmail = req.user?.email || req.user?.emailId;      
@@ -408,7 +489,7 @@ class OrderController {
     }
   };
 
-  // GET single order by ID
+  // ✅ GET SINGLE ORDER BY ID
   getOrderById = async (req, res) => {
     try {
       const { orderId } = req.params;
@@ -454,4 +535,3 @@ export const getOrderById = orderController.getOrderById;
 export const updateOrderStatus = orderController.updateOrderStatus;
 export const handleOrderDelivery = orderController.handleOrderDelivery;
 export const handleOrderCancellation = orderController.handleOrderCancellation;
-

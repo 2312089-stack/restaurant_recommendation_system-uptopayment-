@@ -27,6 +27,7 @@ const createTransporter = () => {
 };
 
 // ==================== SELLER SIGNUP ====================
+// ==================== SELLER SIGNUP ====================
 router.post('/signup', async (req, res) => {
   try {
     const { 
@@ -64,33 +65,91 @@ router.post('/signup', async (req, res) => {
       });
     }
 
-    // Create new seller
+    // ✅ CREATE SELLER WITH FLAGS FOR DISCOVERY
     const seller = new Seller({
       email: email.toLowerCase().trim(),
       passwordHash: password, // Will be hashed by pre-save middleware
       businessName: businessName?.trim() || '',
-      businessType: businessType || 'restaurant',
+      businessType: businessType || 'Restaurant',
       phone: phone?.trim() || '',
-      address: address || {}
+      address: address || {
+        street: '',
+        city: '',
+        state: '',
+        zipCode: '',
+        coordinates: { latitude: null, longitude: null }
+      },
+      
+      // ✅ CRITICAL: Set these flags for discovery
+      isActive: true,           // Restaurant is active
+      isVerified: true,         // Auto-verify (change to false if you want manual verification)
+      onboardingCompleted: false, // Will be true after profile completion
+      
+      // ✅ Initialize business details
+      businessDetails: {
+        ownerName: '',
+        description: '',
+        cuisine: [],
+        priceRange: 'mid-range',
+        servicesOffered: [],
+        openingHours: {
+          monday: { open: '09:00', close: '22:00', closed: false },
+          tuesday: { open: '09:00', close: '22:00', closed: false },
+          wednesday: { open: '09:00', close: '22:00', closed: false },
+          thursday: { open: '09:00', close: '22:00', closed: false },
+          friday: { open: '09:00', close: '22:00', closed: false },
+          saturday: { open: '09:00', close: '22:00', closed: false },
+          sunday: { open: '09:00', close: '22:00', closed: false }
+        },
+        documents: {}
+      },
+      
+      // ✅ Initialize metrics
+      metrics: {
+        totalOrders: 0,
+        totalRevenue: 0,
+        averageRating: 0,
+        totalReviews: 0
+      },
+      
+      // ✅ Initialize settings
+      settings: {
+        notifications: {
+          email: true,
+          sms: true,
+          push: true
+        },
+        orderAcceptance: {
+          auto: false,
+          manualTimeout: 15
+        }
+      }
     });
 
     await seller.save();
 
     console.log('✅ Seller account created successfully for:', email);
+    console.log('✅ Seller flags:', {
+      isActive: seller.isActive,
+      isVerified: seller.isVerified,
+      onboardingCompleted: seller.onboardingCompleted
+    });
 
     // Generate token
     const token = generateToken(seller._id);
 
     res.status(201).json({
       success: true,
-      message: 'Business account created successfully',
+      message: 'Business account created successfully. You can now add dishes!',
       token,
       seller: {
         id: seller._id,
         email: seller.email,
         businessName: seller.businessName,
         businessType: seller.businessType,
-        isVerified: seller.isVerified
+        isVerified: seller.isVerified,
+        isActive: seller.isActive,
+        onboardingCompleted: seller.onboardingCompleted
       }
     });
 

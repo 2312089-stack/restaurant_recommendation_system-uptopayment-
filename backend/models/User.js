@@ -1,4 +1,4 @@
-// models/User.js - CRITICAL FIX for passwordHash field
+// models/User.js - UNIFIED AUTH MODEL
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
@@ -16,18 +16,16 @@ const userSchema = new mongoose.Schema({
     sparse: true,
     default: null
   },
+// ✅ FLEXIBLE AUTH: User can have BOTH Google and password
   authProvider: {
     type: String,
-    enum: ['local', 'google'],
+    enum: ['local', 'google', 'both'],  // ✅ Added 'both' option
     default: 'local'
   },
-  // ✅ CRITICAL FIX: Make passwordHash NOT required for Google users
+  // ✅ Password is optional if user signs up with Google
   passwordHash: {
     type: String,
-    required: function() {
-      // Only require password for local auth
-      return this.authProvider === 'local';
-    },
+    required: false,  // Changed to false
     select: false
   },
   name: {
@@ -152,6 +150,35 @@ userSchema.methods.clearPendingEmailChange = function() {
   return this.save();
 };
 
+// ✅ NEW METHOD: Add password to Google account
+userSchema.methods.addPassword = async function(password) {
+  if (password.length < 6) {
+    throw new Error('Password must be at least 6 characters');
+  }
+  
+  const salt = await bcrypt.genSalt(12);
+  this.passwordHash = await bcrypt.hash(password, salt);
+  
+  // Update auth provider to 'both' if it was 'google'
+  if (this.authProvider === 'google') {
+    this.authProvider = 'both';
+  }
+  
+  return this.save();
+};
+
+// ✅ NEW METHOD: Link Google account to existing account
+userSchema.methods.linkGoogleAccount = function(googleId) {
+  this.googleId = googleId;
+  
+  // Update auth provider to 'both' if it was 'local'
+  if (this.authProvider === 'local') {
+    this.authProvider = 'both';
+  }
+  
+  return this.save();
+};
+
 // Wishlist Methods
 userSchema.methods.addToWishlist = function(dishId) {
   if (!this.wishlist) this.wishlist = [];
@@ -261,21 +288,22 @@ userSchema.virtual('displayEmail').get(function() {
   return this.emailId;
 });
 
-// ✅ CRITICAL FIX: Only hash password if it's modified AND not already hashed
+// ✅ UPDATED: Only hash password if it's new and not already hashed
 userSchema.pre('save', async function(next) {
   // Skip if password not modified
   if (!this.isModified('passwordHash')) return next();
   
-  // Skip if no password (Google users)
+  // Skip if no password (Google-only users)
   if (!this.passwordHash) return next();
   
-  // Skip if already hashed
+  // Skip if already hashed (starts with bcrypt prefix)
   if (this.passwordHash.startsWith('$2b$') || this.passwordHash.startsWith('$2a$')) {
     return next();
   }
   
   try {
-    this.passwordHash = await bcrypt.hash(this.passwordHash, 12);
+    const salt = await bcrypt.genSalt(12);
+    this.passwordHash = await bcrypt.hash(this.passwordHash, salt);
     next();
   } catch (error) {
     next(error);

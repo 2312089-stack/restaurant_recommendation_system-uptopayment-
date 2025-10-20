@@ -15,7 +15,6 @@ export const AuthProvider = ({ children }) => {
     verifySession();
   }, []);
 
-  // ✅ FIXED: Added async keyword
   const verifySession = async () => {
     const token = localStorage.getItem('token');
     const userData = localStorage.getItem('user');

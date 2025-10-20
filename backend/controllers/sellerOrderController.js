@@ -1,8 +1,11 @@
-// backend/controllers/sellerOrderController.js - COMPLETE WORKING VERSION
+// backend/controllers/sellerOrderController.js - FULLY FIXED VERSION
 import Order from '../models/Order.js';
 import OrderHistory from '../models/OrderHistory.js';
+import User from '../models/User.js';
 import mongoose from 'mongoose';
 import nodemailer from 'nodemailer';
+import notificationService from '../services/notificationService.js';
+import { getIO } from '../config/socket.js';
 
 // ==================== EMAIL SERVICE ====================
 let emailTransporter = null;
@@ -18,71 +21,83 @@ if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
   console.log('✅ Email service initialized');
 }
 
-// ==================== GET ALL ORDERS ====================
-export const getSellerOrders = async (req, res) => {
+// ==================== HELPER: SEND CUSTOMER NOTIFICATION ====================
+async function sendCustomerNotification(order, status, additionalData = {}) {
   try {
-    const sellerId = req.seller.id || req.seller._id;
-    const { status = 'all', page = 1, limit = 50 } = req.query;
-
-    console.log('📦 Getting orders for seller:', sellerId, 'Status:', status);
-
-    // Build query - handle both restaurantId and seller fields
-    const query = {
-      $or: [
-        { restaurantId: sellerId },
-        { seller: sellerId }
-      ]
-    };
+    // ✅ CRITICAL FIX: Use customerId first, fallback to email
+    let user = null;
     
-    // Filter by status
-    if (status !== 'all') {
-      if (status === 'pending_seller') {
-        query.orderStatus = 'pending_seller';
-      } else if (status === 'active') {
-        query.orderStatus = { 
-          $in: ['confirmed', 'seller_accepted', 'preparing', 'ready', 'out_for_delivery'] 
-        };
-      } else if (status === 'completed') {
-        query.orderStatus = { $in: ['delivered', 'completed'] };
-      } else if (status === 'cancelled') {
-        query.orderStatus = { $in: ['cancelled', 'rejected', 'seller_rejected'] };
-      } else {
-        query.orderStatus = status;
-      }
+    if (order.customerId) {
+      user = await User.findById(order.customerId);
+      console.log('✅ User found by customerId:', order.customerId);
+    } else if (order.customerEmail) {
+      user = await User.findOne({ emailId: order.customerEmail });
+      console.log('✅ User found by email:', order.customerEmail);
     }
 
-    const [orders, total] = await Promise.all([
-      Order.find(query)
-        .populate('dish', 'name image category type price')
-        .sort({ createdAt: -1 })
-        .skip((page - 1) * limit)
-        .limit(parseInt(limit))
-        .lean(),
-      Order.countDocuments(query)
-    ]);
+    if (!user) {
+      console.warn('⚠️ User not found for order:', order.orderId);
+      return false;
+    }
 
-    console.log(`✅ Found ${orders.length} orders`);
+    // Send notification to database
+    await notificationService.sendOrderStatusNotification(
+      order._id,
+      status,
+      user._id
+    );
+    console.log(`✅ Database notification sent: ${status}`);
 
-    res.json({
-      success: true,
-      orders,
-      count: orders.length,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(total / limit),
-        totalOrders: total
+    // Send socket notification
+    const io = getIO();
+    if (io) {
+      const notification = {
+        orderId: order.orderId,
+        orderMongoId: order._id.toString(),
+        _id: order._id.toString(),
+        orderStatus: status,
+        status: status,
+        customerEmail: order.customerEmail,
+        message: getStatusMessage(status, order),
+        timestamp: new Date(),
+        ...additionalData
+      };
+
+      // Emit to multiple rooms for redundancy
+      io.to(`user-${order.customerEmail}`).emit('order-status-updated', notification);
+      io.to(`order-${order._id}`).emit('order-status-updated', notification);
+      io.to(user._id.toString()).emit('order-status-updated', notification);
+      
+      // Special events for accept/reject
+      if (status === 'seller_accepted') {
+        io.to(`user-${order.customerEmail}`).emit('seller-accepted-order', notification);
+        io.to(`user-${order.customerEmail}`).emit('order-confirmed', notification);
+      } else if (status === 'seller_rejected') {
+        io.to(`user-${order.customerEmail}`).emit('order-rejected', notification);
       }
-    });
 
+      console.log(`✅ Socket notifications sent to user: ${user._id}`);
+    }
+
+    return true;
   } catch (error) {
-    console.error('❌ Get seller orders error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch orders',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
+    console.error('❌ Error sending customer notification:', error);
+    return false;
   }
-};
+}
+
+// ==================== HELPER: GET STATUS MESSAGE ====================
+function getStatusMessage(status, order) {
+  const messages = {
+    'seller_accepted': '🎉 Restaurant accepted your order!',
+    'seller_rejected': `❌ Restaurant declined your order${order.cancellationReason ? ': ' + order.cancellationReason : ''}`,
+    'preparing': '👨‍🍳 Your food is being prepared',
+    'ready': '✓ Your order is ready for pickup!',
+    'out_for_delivery': '🚗 Your order is on the way!',
+    'delivered': '🎊 Order delivered successfully!'
+  };
+  return messages[status] || `Order ${status.replace('_', ' ')}`;
+}
 
 // ==================== ACCEPT ORDER ====================
 export const acceptOrder = async (req, res) => {
@@ -92,10 +107,10 @@ export const acceptOrder = async (req, res) => {
 
     console.log('✅ Accepting order:', orderId, 'by seller:', sellerId);
 
-    // Find order - check both seller and restaurantId fields
+    // Find order
     const order = await Order.findOne({
       _id: orderId,
-      $or: [{ seller: sellerId }, { restaurantId: sellerId }],
+      seller: sellerId,
       orderStatus: 'pending_seller'
     }).populate('dish');
 
@@ -124,7 +139,10 @@ export const acceptOrder = async (req, res) => {
     });
 
     await order.save();
-    console.log('✅ Order accepted successfully');
+    console.log('✅ Order status updated to seller_accepted');
+
+    // ✅ SEND CUSTOMER NOTIFICATION
+    await sendCustomerNotification(order, 'seller_accepted');
 
     // ✅ UPDATE ORDER HISTORY
     try {
@@ -142,34 +160,6 @@ export const acceptOrder = async (req, res) => {
       }
     } catch (historyError) {
       console.warn('⚠️ Failed to update order history:', historyError.message);
-    }
-
-    // ✅ EMIT SOCKET NOTIFICATION
-    try {
-      const io = req.app.get('io');
-      if (io) {
-        const notification = {
-          orderId: order.orderId,
-          orderMongoId: order._id.toString(),
-          _id: order._id.toString(),
-          orderStatus: 'seller_accepted',
-          status: 'seller_accepted',
-          customerEmail: order.customerEmail,
-          message: 'Restaurant has accepted your order!',
-          timestamp: new Date()
-        };
-
-        // Emit to multiple rooms
-        io.to(`user-${order.customerEmail}`).emit('seller-accepted-order', notification);
-        io.to(`order-${order._id}`).emit('seller-accepted-order', notification);
-        io.to(`user-${order.customerEmail}`).emit('order-status-updated', notification);
-        io.to(`order-${order._id}`).emit('order-status-updated', notification);
-        io.to(`user-${order.customerEmail}`).emit('order-confirmed', notification);
-        
-        console.log('✅ Socket notifications sent to:', order.customerEmail);
-      }
-    } catch (socketError) {
-      console.warn('⚠️ Socket notification failed:', socketError.message);
     }
 
     // ✅ SEND EMAIL NOTIFICATION
@@ -238,7 +228,12 @@ export const acceptOrder = async (req, res) => {
         console.warn('⚠️ Email failed:', emailError.message);
       }
     }
-
+console.log('\n========== ACCEPT ORDER DEBUG ==========');
+console.log('Order ID:', orderId);
+console.log('Seller ID:', sellerId);
+console.log('Order found:', !!order);
+console.log('Order customerId:', order?.customerId);
+console.log('Order customerEmail:', order?.customerEmail);
     res.json({
       success: true,
       message: 'Order accepted successfully',
@@ -280,7 +275,7 @@ export const rejectOrder = async (req, res) => {
     // Find order
     const order = await Order.findOne({
       _id: orderId,
-      $or: [{ seller: sellerId }, { restaurantId: sellerId }],
+      seller: sellerId,
       orderStatus: 'pending_seller'
     });
 
@@ -315,6 +310,11 @@ export const rejectOrder = async (req, res) => {
     await order.save();
     console.log('✅ Order rejected');
 
+    // ✅ SEND CUSTOMER NOTIFICATION
+    await sendCustomerNotification(order, 'seller_rejected', {
+      cancellationReason: reason
+    });
+
     // Update order history
     try {
       const history = await OrderHistory.findOne({ orderMongoId: orderId });
@@ -332,36 +332,12 @@ export const rejectOrder = async (req, res) => {
           timestamp: new Date(),
           refundStatus: order.paymentStatus === 'completed' ? 'pending' : 'none'
         };
+        history.isTemporary = false;
         await history.save();
         console.log('✅ Order history updated');
       }
     } catch (historyError) {
       console.warn('⚠️ Failed to update order history:', historyError.message);
-    }
-
-    // Emit socket events
-    try {
-      const io = req.app.get('io');
-      if (io) {
-        const notification = {
-          orderId: order.orderId,
-          orderMongoId: order._id.toString(),
-          orderStatus: 'seller_rejected',
-          status: 'seller_rejected',
-          customerEmail: order.customerEmail,
-          message: `Restaurant declined your order: ${reason}`,
-          cancellationReason: reason,
-          timestamp: new Date()
-        };
-
-        io.to(`user-${order.customerEmail}`).emit('order-status-updated', notification);
-        io.to(`order-${order._id}`).emit('order-status-updated', notification);
-        io.to(`user-${order.customerEmail}`).emit('order-rejected', notification);
-        
-        console.log('✅ Rejection notification sent');
-      }
-    } catch (socketError) {
-      console.warn('⚠️ Socket notification failed:', socketError.message);
     }
 
     // Send email
@@ -443,7 +419,6 @@ export const rejectOrder = async (req, res) => {
 };
 
 // ==================== UPDATE ORDER STATUS ====================
-// ==================== UPDATE ORDER STATUS ====================
 export const updateOrderStatus = async (req, res) => {
   try {
     const { orderId } = req.params;
@@ -474,6 +449,9 @@ export const updateOrderStatus = async (req, res) => {
 
     // Update order
     order.orderStatus = status;
+    if (!order.orderTimeline) {
+      order.orderTimeline = [];
+    }
     order.orderTimeline.push({
       status: status,
       timestamp: new Date(),
@@ -484,7 +462,7 @@ export const updateOrderStatus = async (req, res) => {
     if (status === 'delivered') {
       order.actualDeliveryTime = new Date();
       
-      // ✅ AUTO-COMPLETE COD PAYMENT ON DELIVERY
+      // Auto-complete COD payment on delivery
       if (order.paymentMethod === 'cod' && order.paymentStatus === 'pending') {
         order.paymentStatus = 'completed';
         console.log('✅ COD payment auto-completed on delivery');
@@ -494,7 +472,10 @@ export const updateOrderStatus = async (req, res) => {
     await order.save();
     console.log('✅ Order status updated');
 
-    // ✅ UPDATE ORDER HISTORY
+    // ✅ SEND CUSTOMER NOTIFICATION WITH CORRECT STATUS
+    await sendCustomerNotification(order, status);
+
+    // Update order history
     try {
       const history = await OrderHistory.findOne({ orderMongoId: orderId });
       if (history) {
@@ -511,7 +492,7 @@ export const updateOrderStatus = async (req, res) => {
             actualDeliveryTime: new Date(),
             estimatedTime: order.estimatedDelivery
           };
-          history.isTemporary = false; // Mark as permanent
+          history.isTemporary = false;
         }
         
         await history.save();
@@ -519,47 +500,6 @@ export const updateOrderStatus = async (req, res) => {
       }
     } catch (historyError) {
       console.error('⚠️ Failed to update order history:', historyError);
-    }
-
-    // ✅ EMIT SOCKET EVENTS
-    try {
-      const io = req.app.get('io');
-      if (io) {
-        const statusMessages = {
-          preparing: '👨‍🍳 Your food is being prepared',
-          ready: '✓ Your order is ready!',
-          out_for_delivery: '🚗 Your order is on the way',
-          delivered: '🎉 Order delivered!'
-        };
-
-        const notification = {
-          orderId: order.orderId,
-          orderMongoId: order._id.toString(),
-          orderStatus: status,
-          status: status,
-          customerEmail: order.customerEmail,
-          message: statusMessages[status] || `Order is now ${status}`,
-          timestamp: new Date()
-        };
-
-        io.to(`user-${order.customerEmail}`).emit('order-status-updated', notification);
-        io.to(`order-${order._id}`).emit('order-status-updated', notification);
-        
-        // ✅ EMIT SETTLEMENT UPDATE FOR DELIVERED COD ORDERS
-        if (status === 'delivered' && order.paymentMethod === 'cod') {
-          io.to(`seller-${sellerId}`).emit('settlement-updated', {
-            orderId: order.orderId,
-            amount: order.totalAmount,
-            paymentMethod: 'cod',
-            timestamp: new Date()
-          });
-          console.log('✅ Settlement update notification sent');
-        }
-        
-        console.log(`✅ Status update notification sent: ${status}`);
-      }
-    } catch (socketError) {
-      console.warn('⚠️ Socket notification failed:', socketError);
     }
 
     res.json({
@@ -582,6 +522,65 @@ export const updateOrderStatus = async (req, res) => {
   }
 };
 
+// ==================== GET ALL ORDERS ====================
+export const getSellerOrders = async (req, res) => {
+  try {
+    const sellerId = req.seller.id || req.seller._id;
+    const { status = 'all', page = 1, limit = 50 } = req.query;
+
+    console.log('📦 Getting orders for seller:', sellerId, 'Status:', status);
+
+    const query = { seller: sellerId };
+    
+    if (status !== 'all') {
+      if (status === 'pending_seller') {
+        query.orderStatus = 'pending_seller';
+      } else if (status === 'active') {
+        query.orderStatus = { 
+          $in: ['confirmed', 'seller_accepted', 'preparing', 'ready', 'out_for_delivery'] 
+        };
+      } else if (status === 'completed') {
+        query.orderStatus = { $in: ['delivered', 'completed'] };
+      } else if (status === 'cancelled') {
+        query.orderStatus = { $in: ['cancelled', 'rejected', 'seller_rejected'] };
+      } else {
+        query.orderStatus = status;
+      }
+    }
+
+    const [orders, total] = await Promise.all([
+      Order.find(query)
+        .populate('dish', 'name image category type price')
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(parseInt(limit))
+        .lean(),
+      Order.countDocuments(query)
+    ]);
+
+    console.log(`✅ Found ${orders.length} orders`);
+
+    res.json({
+      success: true,
+      orders,
+      count: orders.length,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(total / limit),
+        totalOrders: total
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Get seller orders error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch orders',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 // ==================== GET ORDER DETAILS ====================
 export const getOrderDetails = async (req, res) => {
   try {
@@ -590,7 +589,7 @@ export const getOrderDetails = async (req, res) => {
 
     const order = await Order.findOne({
       _id: orderId,
-      $or: [{ seller: sellerId }, { restaurantId: sellerId }]
+      seller: sellerId
     }).populate('dish', 'name image category type price').lean();
 
     if (!order) {
@@ -627,32 +626,21 @@ export const getOrderStats = async (req, res) => {
       todayOrders,
       todayRevenue
     ] = await Promise.all([
+      Order.countDocuments({ seller: sellerId }),
+      Order.countDocuments({ seller: sellerId, orderStatus: 'pending_seller' }),
       Order.countDocuments({
-        $or: [{ seller: sellerId }, { restaurantId: sellerId }]
-      }),
-      Order.countDocuments({
-        $or: [{ seller: sellerId }, { restaurantId: sellerId }],
-        orderStatus: 'pending_seller'
-      }),
-      Order.countDocuments({
-        $or: [{ seller: sellerId }, { restaurantId: sellerId }],
+        seller: sellerId,
         orderStatus: { $in: ['seller_accepted', 'confirmed', 'preparing', 'ready', 'out_for_delivery'] }
       }),
+      Order.countDocuments({ seller: sellerId, orderStatus: 'delivered' }),
       Order.countDocuments({
-        $or: [{ seller: sellerId }, { restaurantId: sellerId }],
-        orderStatus: 'delivered'
-      }),
-      Order.countDocuments({
-        $or: [{ seller: sellerId }, { restaurantId: sellerId }],
+        seller: sellerId,
         createdAt: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) }
       }),
       Order.aggregate([
         {
           $match: {
-            $or: [
-              { seller: new mongoose.Types.ObjectId(sellerId) },
-              { restaurantId: new mongoose.Types.ObjectId(sellerId) }
-            ],
+            seller: new mongoose.Types.ObjectId(sellerId),
             createdAt: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) },
             paymentStatus: 'completed'
           }

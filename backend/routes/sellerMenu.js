@@ -1,4 +1,4 @@
-// routes/sellerMenu.js - FIXED Menu management routes for sellers
+// routes/sellerMenu.js - FIXED: Corrected authentication middleware usage
 import express from 'express';
 import { 
   addDish, 
@@ -8,16 +8,17 @@ import {
   deleteDish, 
   toggleAvailability, 
   getDishAnalytics,
-  uploadDishImage 
+  uploadDishImage
 } from '../controllers/sellerDishController.js';
 import { authenticateSellerToken } from '../middleware/sellerAuth.js';
+import Dish from '../models/Dish.js';
 
 const router = express.Router();
 
 // Apply authentication middleware to all routes
 router.use(authenticateSellerToken);
 
-// Health check for menu routes
+// Health check
 router.get('/health', (req, res) => {
   res.json({
     success: true,
@@ -30,31 +31,10 @@ router.get('/health', (req, res) => {
   });
 });
 
-// Debug route for testing authentication
-router.get('/test-auth', (req, res) => {
-  res.json({
-    success: true,
-    message: 'Seller auth working!',
-    seller: {
-      id: req.seller.id,
-      email: req.seller.email,
-      businessName: req.seller.businessName
-    },
-    timestamp: new Date().toISOString()
-  });
-});
-
-// POST /api/seller/menu/dish - Add new dish with image upload
+// POST /api/seller/menu/dish - Add new dish
 router.post('/dish', (req, res) => {
-  console.log('📝 Adding new dish - seller:', req.seller.id);
-  console.log('📦 Request headers:', {
-    contentType: req.get('Content-Type'),
-    contentLength: req.get('Content-Length')
-  });
-
   uploadDishImage(req, res, (err) => {
     if (err) {
-      console.error('❌ Upload error:', err.message);
       return res.status(400).json({
         success: false,
         error: err.message.includes('File size') ? 'File size too large. Maximum 5MB allowed.' :
@@ -62,31 +42,20 @@ router.post('/dish', (req, res) => {
                err.message
       });
     }
-    
-    console.log('✅ File upload middleware passed');
-    console.log('📁 Uploaded file:', req.file ? {
-      filename: req.file.filename,
-      size: req.file.size,
-      mimetype: req.file.mimetype
-    } : 'No file uploaded');
-    
     addDish(req, res);
   });
 });
 
-// GET /api/seller/menu/dishes - Get all dishes for seller with filters
+// GET /api/seller/menu/dishes - Get all dishes
 router.get('/dishes', getSellerDishes);
 
 // GET /api/seller/menu/dish/:dishId - Get single dish
 router.get('/dish/:dishId', getDish);
 
-// PATCH /api/seller/menu/dish/:dishId - Update dish with optional image upload
+// PATCH /api/seller/menu/dish/:dishId - Update dish
 router.patch('/dish/:dishId', (req, res) => {
-  console.log('📝 Updating dish:', req.params.dishId, 'for seller:', req.seller.id);
-
   uploadDishImage(req, res, (err) => {
     if (err) {
-      console.error('❌ Upload error:', err.message);
       return res.status(400).json({
         success: false,
         error: err.message.includes('File size') ? 'File size too large. Maximum 5MB allowed.' :
@@ -94,9 +63,65 @@ router.patch('/dish/:dishId', (req, res) => {
                err.message
       });
     }
-    
     updateDish(req, res);
   });
+});
+
+// ✅ PATCH /api/seller/menu/dish/:dishId/offer - Update dish offer
+// FIXED: Using authenticateSellerToken (already applied globally above)
+router.patch('/dish/:dishId/offer', async (req, res) => {
+  try {
+    console.log('\n🎯 ========== BACKEND: UPDATE OFFER ==========');
+    console.log('Dish ID:', req.params.dishId);
+    console.log('Seller ID:', req.seller.id);
+    console.log('Request body:', JSON.stringify(req.body, null, 2));
+
+    const { hasOffer, discountPercentage, validUntil } = req.body;
+
+    // Validate dish ownership
+    const dish = await Dish.findOne({
+      _id: req.params.dishId,
+      seller: req.seller.id
+    });
+
+    if (!dish) {
+      console.error('❌ Dish not found or unauthorized');
+      return res.status(404).json({
+        success: false,
+        error: 'Dish not found or you do not have permission to modify it'
+      });
+    }
+
+    console.log('✅ Dish found:', dish.name);
+
+    // Update offer
+    dish.offer = {
+      hasOffer: hasOffer || false,
+      discountPercentage: hasOffer ? (discountPercentage || 0) : 0,
+      validUntil: hasOffer && validUntil ? new Date(validUntil) : null
+    };
+
+    await dish.save();
+
+    console.log('✅ Offer updated successfully');
+    console.log('Updated offer:', JSON.stringify(dish.offer, null, 2));
+    console.log('🎯 ========== BACKEND: UPDATE COMPLETE ==========\n');
+
+    res.json({
+      success: true,
+      message: hasOffer ? 'Offer activated successfully' : 'Offer removed successfully',
+      dish: dish
+    });
+
+  } catch (error) {
+    console.error('❌ Update offer error:', error);
+    console.error('Stack:', error.stack);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update offer',
+      details: error.message
+    });
+  }
 });
 
 // DELETE /api/seller/menu/dish/:dishId - Delete dish
@@ -105,10 +130,10 @@ router.delete('/dish/:dishId', deleteDish);
 // PATCH /api/seller/menu/dish/:dishId/toggle - Toggle availability
 router.patch('/dish/:dishId/toggle', toggleAvailability);
 
-// GET /api/seller/menu/analytics - Get dish analytics
+// GET /api/seller/menu/analytics - Get analytics
 router.get('/analytics', getDishAnalytics);
 
-// GET /api/seller/menu/categories - Get available categories
+// GET /api/seller/menu/categories - Get categories
 router.get('/categories', (req, res) => {
   const categories = [
     'Starters',
@@ -130,12 +155,9 @@ router.get('/categories', (req, res) => {
 // GET /api/seller/menu/stats - Get menu statistics
 router.get('/stats', async (req, res) => {
   try {
-    const Dish = (await import('../models/Dish.js')).default;
     const mongoose = (await import('mongoose')).default;
 
     const sellerId = new mongoose.Types.ObjectId(req.seller.id);
-
-    console.log('📊 Getting menu stats for seller:', sellerId);
 
     const stats = await Dish.aggregate([
       { $match: { seller: sellerId } },
@@ -179,8 +201,6 @@ router.get('/stats', async (req, res) => {
       },
       categoryBreakdown: categoryStats
     };
-
-    console.log('📊 Menu stats calculated:', result.overview);
 
     res.json({
       success: true,

@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
+import { getIO } from '../config/socket.js'; // Add this import at top
 
 // REGISTER/SIGNUP FUNCTION
 export const signup = async (req, res) => {
@@ -363,6 +364,178 @@ TasteSphere Team
     res.status(500).json({
       success: false,
       error: "Failed to send reset email. Please try again later."
+    });
+  }
+};
+// controllers/authController.js - ADD THIS FUNCTION (keep existing functions)
+
+export const updateSellerProfile = async (req, res) => {
+  try {
+    const sellerId = req.user?.sellerId || req.user?.id;
+    
+    if (!sellerId) {
+      return res.status(401).json({
+        success: false,
+        error: "Seller not authenticated"
+      });
+    }
+
+    // Get form data
+    const {
+      businessName, businessType, ownerName, phone, description,
+      cuisine, priceRange, seatingCapacity, servicesOffered,
+      street, city, state, zipCode, latitude, longitude, openingHours
+    } = req.body;
+
+    // Find seller
+    const seller = await Seller.findById(sellerId);
+    if (!seller) {
+      return res.status(404).json({
+        success: false,
+        error: "Seller not found"
+      });
+    }
+
+    // Update basic info
+    if (businessName) seller.businessName = businessName;
+    if (businessType) seller.businessType = businessType;
+    if (phone) seller.phone = phone;
+
+    // Update business details
+    if (!seller.businessDetails) seller.businessDetails = {};
+    
+    if (ownerName) seller.businessDetails.ownerName = ownerName;
+    if (description) seller.businessDetails.description = description;
+    if (priceRange) seller.businessDetails.priceRange = priceRange;
+    if (seatingCapacity) seller.businessDetails.seatingCapacity = seatingCapacity;
+    
+    if (cuisine) {
+      seller.businessDetails.cuisine = Array.isArray(cuisine) ? cuisine : [cuisine];
+    }
+    
+    if (servicesOffered) {
+      seller.businessDetails.servicesOffered = Array.isArray(servicesOffered) 
+        ? servicesOffered 
+        : [servicesOffered];
+    }
+    
+    if (openingHours) {
+      try {
+        seller.businessDetails.openingHours = typeof openingHours === 'string' 
+          ? JSON.parse(openingHours) 
+          : openingHours;
+      } catch (e) {
+        console.error('Failed to parse opening hours:', e);
+      }
+    }
+
+    // Update address
+    if (!seller.address) seller.address = {};
+    
+    if (street) seller.address.street = street;
+    if (city) seller.address.city = city;
+    if (state) seller.address.state = state;
+    if (zipCode) seller.address.zipCode = zipCode;
+    
+    if (latitude && longitude) {
+      if (!seller.address.coordinates) seller.address.coordinates = {};
+      seller.address.coordinates.latitude = parseFloat(latitude);
+      seller.address.coordinates.longitude = parseFloat(longitude);
+    }
+
+    // Handle file uploads (logo and banner)
+    if (req.files) {
+      if (!seller.businessDetails.documents) {
+        seller.businessDetails.documents = {};
+      }
+      
+      if (req.files.logo) {
+        seller.businessDetails.documents.logo = req.files.logo[0].path;
+      }
+      
+      if (req.files.bannerImage) {
+        seller.businessDetails.documents.bannerImage = req.files.bannerImage[0].path;
+      }
+    }
+
+    // Check if profile is now complete
+    const wasIncomplete = !seller.onboardingCompleted;
+    const isNowComplete = seller.businessName && 
+                          seller.phone && 
+                          seller.address?.city &&
+                          seller.businessDetails?.description &&
+                          seller.businessDetails?.cuisine?.length > 0;
+
+    if (isNowComplete) {
+      seller.onboardingCompleted = true;
+      seller.isVerified = true; // Auto-verify for now
+    }
+
+    await seller.save();
+
+    console.log('✅ Seller profile updated:', sellerId);
+
+    // ✅ EMIT REAL-TIME UPDATE TO ALL DISCOVERY PAGE USERS
+    try {
+      const io = getIO();
+      
+      // Prepare seller data for broadcast
+      const sellerUpdate = {
+        sellerId: seller._id.toString(),
+        businessName: seller.businessName,
+        businessType: seller.businessType,
+        logo: seller.businessDetails?.documents?.logo,
+        bannerImage: seller.businessDetails?.documents?.bannerImage,
+        address: {
+          city: seller.address?.city,
+          state: seller.address?.state,
+          street: seller.address?.street,
+          zipCode: seller.address?.zipCode
+        },
+        cuisine: seller.businessDetails?.cuisine || [],
+        priceRange: seller.businessDetails?.priceRange,
+        rating: seller.metrics?.averageRating?.toFixed(1) || '0.0',
+        isNewProfile: wasIncomplete && isNowComplete, // Flag for new profiles
+        timestamp: new Date()
+      };
+
+      // Broadcast to all connected users
+      io.emit('seller-profile-updated', sellerUpdate);
+      
+      console.log('📡 Broadcasted seller profile update to all users');
+      
+      // If it's a new profile completion, send special notification
+      if (wasIncomplete && isNowComplete) {
+        io.emit('new-restaurant-available', {
+          restaurant: sellerUpdate,
+          message: `New restaurant "${seller.businessName}" is now available!`
+        });
+        console.log('🎉 Broadcasted new restaurant notification');
+      }
+      
+    } catch (socketError) {
+      console.error('❌ Socket emission failed:', socketError);
+      // Don't fail the request if socket fails
+    }
+
+    res.json({
+      success: true,
+      message: "Profile updated successfully",
+      seller: {
+        id: seller._id,
+        businessName: seller.businessName,
+        businessType: seller.businessType,
+        onboardingCompleted: seller.onboardingCompleted,
+        isVerified: seller.isVerified,
+        email: seller.email
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Update seller profile error:', error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to update profile"
     });
   }
 };

@@ -1,18 +1,17 @@
-// DiscoveryPage.jsx - Updated with Real-time Seller Status
 import React, { useState, useEffect } from 'react';
 import { 
   Search, MapPin, Star, Clock, Truck, Loader2, AlertCircle,
   ArrowLeft, Grid3X3, List, SlidersHorizontal, ShoppingCart,
-  Zap, CheckCircle, Heart, XCircle
+  Zap, CheckCircle, Heart, XCircle, Info
 } from 'lucide-react';
 import { useCart } from '../contexts/CartContext';
 import { useWishlist } from '../contexts/WishlistContext';
-import { useSocket } from '../contexts/SocketContext'; // Import Socket Context
+import { useSocket } from '../contexts/SocketContext';
 import { useNavigate } from 'react-router-dom';
 
 const API_BASE = 'http://localhost:5000/api';
 
-const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
+const DiscoveryPage = ({ onBack, onShowDishDetails, onShowRestaurantMenu }) => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('dishes');
   const [viewMode, setViewMode] = useState('grid');
@@ -26,56 +25,74 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
   });
   const [showFilters, setShowFilters] = useState(false);
   
-  // Data states
   const [dishes, setDishes] = useState([]);
   const [restaurants, setRestaurants] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  
-  // Pagination
   const [hasMore, setHasMore] = useState(true);
   const [page, setPage] = useState(1);
 
-  // Context hooks
   const { addToCart, loading: cartLoading, itemCount, totalAmount, clearCart } = useCart();
-  const { socket, connected } = useSocket(); // Socket.IO hook
+  const { socket, connected } = useSocket();
   const { 
-    addToWishlist, 
-    removeFromWishlist, 
     isInWishlist, 
     toggleWishlist,
     loading: wishlistLoading 
   } = useWishlist();
 
-  // Success message states
   const [successMessage, setSuccessMessage] = useState('');
   const [addingToCart, setAddingToCart] = useState(null);
   const [wishlistMessage, setWishlistMessage] = useState('');
   const [animatingHeart, setAnimatingHeart] = useState(null);
+  
+  // ✅ NEW: Toast notification states
+  const [errorMessage, setErrorMessage] = useState('');
+  const [infoMessage, setInfoMessage] = useState('');
 
-  // Categories
   const categories = [
     'All Categories', 'Starters', 'Main Course', 'Desserts',
     'Beverages', 'Chinese', 'Indian', 'Continental', 'South Indian'
   ];
 
+  // ✅ Auto-hide messages
+  useEffect(() => {
+    if (successMessage) {
+      const timer = setTimeout(() => setSuccessMessage(''), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [successMessage]);
+
+  useEffect(() => {
+    if (errorMessage) {
+      const timer = setTimeout(() => setErrorMessage(''), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [errorMessage]);
+
+  useEffect(() => {
+    if (infoMessage) {
+      const timer = setTimeout(() => setInfoMessage(''), 3500);
+      return () => clearTimeout(timer);
+    }
+  }, [infoMessage]);
+
+  useEffect(() => {
+    if (wishlistMessage) {
+      const timer = setTimeout(() => setWishlistMessage(''), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [wishlistMessage]);
+
   // REAL-TIME SELLER STATUS LISTENER
   useEffect(() => {
-    if (!socket || !connected) {
-      console.log('Socket not connected yet');
-      return;
-    }
-
-    console.log('🎧 Setting up seller status listener');
+    if (!socket || !connected) return;
 
     const handleSellerStatusChange = (data) => {
       console.log('📡 Seller status changed:', data);
       
-      // Update dishes with new seller status
       setDishes(prevDishes => 
         prevDishes.map(dish => {
           if (dish.restaurantId === data.sellerId) {
-            console.log(`Updating dish ${dish.name} - seller is now ${data.isOnline ? 'online' : 'offline'}`);
             return {
               ...dish,
               isSellerOnline: data.isOnline,
@@ -86,7 +103,6 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
         })
       );
 
-      // Also update restaurants
       setRestaurants(prevRestaurants =>
         prevRestaurants.map(restaurant => {
           if (restaurant.id === data.sellerId || restaurant._id === data.sellerId) {
@@ -102,14 +118,52 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
     };
 
     socket.on('seller-status-changed', handleSellerStatusChange);
-
-    return () => {
-      console.log('🔇 Removing seller status listener');
-      socket.off('seller-status-changed', handleSellerStatusChange);
-    };
+    return () => socket.off('seller-status-changed', handleSellerStatusChange);
   }, [socket, connected]);
 
-  // Fetch data based on active tab and filters
+  useEffect(() => {
+    if (!socket || !connected) return;
+
+    const handleProfileUpdate = (data) => {
+      setDishes(prevDishes =>
+        prevDishes.map(dish => {
+          if (dish.restaurantId === data.sellerId || dish.sellerId === data.sellerId) {
+            return {
+              ...dish,
+              restaurant: data.businessName,
+              restaurantLogo: data.logo,
+              ...(data.address && {
+                location: {
+                  ...dish.location,
+                  city: data.address.city,
+                  state: data.address.state
+                }
+              })
+            };
+          }
+          return dish;
+        })
+      );
+
+      setRestaurants(prevRestaurants =>
+        prevRestaurants.map(restaurant => {
+          if (restaurant.id === data.sellerId || restaurant._id === data.sellerId) {
+            return {
+              ...restaurant,
+              name: data.businessName,
+              logo: data.logo,
+              address: data.address
+            };
+          }
+          return restaurant;
+        })
+      );
+    };
+
+    socket.on('seller-profile-updated', handleProfileUpdate);
+    return () => socket.off('seller-profile-updated', handleProfileUpdate);
+  }, [socket, connected]);
+
   useEffect(() => {
     if (activeTab === 'dishes') {
       fetchDishes(true);
@@ -118,85 +172,78 @@ const DiscoveryPage = ({ onBack, onShowDishDetails }) => {
     }
   }, [activeTab, filters, searchQuery]);
 
-const fetchDishes = async (reset = false) => {
-  try {
-    setLoading(true);
-    setError('');
-    
-    const currentPage = reset ? 1 : page;
-    const queryParams = new URLSearchParams({
-      limit: '20',
-      page: currentPage.toString()
-    });
-    
-    if (searchQuery.trim()) queryParams.append('q', searchQuery.trim());
-    if (filters.city) queryParams.append('city', filters.city);
-    if (filters.category && filters.category !== 'All Categories') {
-      queryParams.append('category', filters.category);
-    }
-    if (filters.type) queryParams.append('type', filters.type);
-
-    const endpoint = searchQuery.trim() ? '/discovery/search' : '/discovery/dishes/popular';
-    const response = await fetch(`${API_BASE}${endpoint}?${queryParams}`);
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.error || 'Failed to fetch dishes');
-    }
-
-    const newDishes = searchQuery.trim() ? data.results : data.dishes;
-    
-    // Extract all unique seller IDs and fetch their statuses
-    const sellerIds = [...new Set(newDishes.map(dish => dish.restaurantId).filter(Boolean))];
-    
-    // Fetch current seller statuses
-    if (sellerIds.length > 0) {
-      try {
-        console.log('Fetching statuses for sellers:', sellerIds);
-        const statusResponse = await fetch('http://localhost:5000/api/seller-status/bulk', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sellerIds })
-        });
-        const statusData = await statusResponse.json();
-        
-        if (statusData.success) {
-          console.log('Received seller statuses:', statusData.statuses);
-          // Update dishes with current seller status
-          newDishes.forEach(dish => {
-            const status = statusData.statuses[dish.restaurantId];
-            if (status) {
-              dish.isSellerOnline = status.isOnline;
-              dish.sellerDashboardStatus = status.dashboardStatus;
-              console.log(`Dish ${dish.name}: seller online = ${status.isOnline}`);
-            } else {
-              dish.isSellerOnline = false;
-              dish.sellerDashboardStatus = 'offline';
-            }
-          });
-        }
-      } catch (statusError) {
-        console.error('Failed to fetch seller statuses:', statusError);
+  const fetchDishes = async (reset = false) => {
+    try {
+      setLoading(true);
+      setError('');
+      
+      const currentPage = reset ? 1 : page;
+      const queryParams = new URLSearchParams({
+        limit: '20',
+        page: currentPage.toString()
+      });
+      
+      if (searchQuery.trim()) queryParams.append('q', searchQuery.trim());
+      if (filters.city) queryParams.append('city', filters.city);
+      if (filters.category && filters.category !== 'All Categories') {
+        queryParams.append('category', filters.category);
       }
+      if (filters.type) queryParams.append('type', filters.type);
+
+      const endpoint = searchQuery.trim() ? '/discovery/search' : '/discovery/dishes/popular';
+      const response = await fetch(`${API_BASE}${endpoint}?${queryParams}`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to fetch dishes');
+      }
+
+      const newDishes = searchQuery.trim() ? data.results : data.dishes;
+      const sellerIds = [...new Set(newDishes.map(dish => dish.restaurantId).filter(Boolean))];
+      
+      if (sellerIds.length > 0) {
+        try {
+          const statusResponse = await fetch('http://localhost:5000/api/seller-status/bulk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sellerIds })
+          });
+          const statusData = await statusResponse.json();
+          
+          if (statusData.success) {
+            newDishes.forEach(dish => {
+              const status = statusData.statuses[dish.restaurantId];
+              if (status) {
+                dish.isSellerOnline = status.isOnline;
+                dish.sellerDashboardStatus = status.dashboardStatus;
+              } else {
+                dish.isSellerOnline = false;
+                dish.sellerDashboardStatus = 'offline';
+              }
+            });
+          }
+        } catch (statusError) {
+          console.error('Failed to fetch seller statuses:', statusError);
+        }
+      }
+      
+      if (reset) {
+        setDishes(newDishes || []);
+        setPage(2);
+      } else {
+        setDishes(prev => [...prev, ...(newDishes || [])]);
+        setPage(prev => prev + 1);
+      }
+      
+      setHasMore((newDishes || []).length === 20);
+      
+    } catch (err) {
+      console.error('Fetch dishes error:', err);
+      setError('Failed to load dishes. Please try again.');
+    } finally {
+      setLoading(false);
     }
-    
-    if (reset) {
-      setDishes(newDishes || []);
-      setPage(2);
-    } else {
-      setDishes(prev => [...prev, ...(newDishes || [])]);
-      setPage(prev => prev + 1);
-    }
-    
-    setHasMore((newDishes || []).length === 20);
-    
-  } catch (err) {
-    console.error('Fetch dishes error:', err);
-    setError('Failed to load dishes. Please try again.');
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   const fetchRestaurants = async (reset = false) => {
     try {
@@ -242,7 +289,6 @@ const fetchDishes = async (reset = false) => {
       setError('Failed to load restaurants. Please try again.');
     } finally {
       setLoading(false);
-
     }
   };
 
@@ -291,7 +337,6 @@ const fetchDishes = async (reset = false) => {
           : `${dish.name} added to wishlist`;
         
         setWishlistMessage(message);
-        setTimeout(() => setWishlistMessage(''), 3000);
 
         window.dispatchEvent(new CustomEvent('wishlistUpdated', { 
           detail: { 
@@ -302,19 +347,23 @@ const fetchDishes = async (reset = false) => {
         }));
       } else {
         setWishlistMessage(result.error || 'Failed to update wishlist');
-        setTimeout(() => setWishlistMessage(''), 3000);
       }
     } catch (error) {
       console.error('Wishlist toggle error:', error);
       setWishlistMessage('Failed to update wishlist');
-      setTimeout(() => setWishlistMessage(''), 3000);
     }
   };
 
   const handleAddToCart = async (dish) => {
     if (!dish || (!dish._id && !dish.id)) {
-      console.error('Invalid dish object:', dish);
-      alert('Error: Invalid dish data');
+      setErrorMessage('Invalid dish data. Please try again.');
+      return;
+    }
+
+    // ✅ CHECK IF SELLER IS OFFLINE - Show notification instead of alert
+    const isOffline = !dish.isSellerOnline || dish.sellerDashboardStatus === 'offline';
+    if (isOffline) {
+      setErrorMessage(`${dish.restaurant || 'Restaurant'} is currently closed. Cannot add to cart.`);
       return;
     }
 
@@ -326,7 +375,6 @@ const fetchDishes = async (reset = false) => {
       
       if (result.success) {
         setSuccessMessage(`${dish.name} added to cart!`);
-        setTimeout(() => setSuccessMessage(''), 3000);
         
         window.dispatchEvent(new CustomEvent('cartUpdated', { 
           detail: { 
@@ -351,7 +399,6 @@ const fetchDishes = async (reset = false) => {
               const addResult = await addToCart(dishId, 1);
               if (addResult.success) {
                 setSuccessMessage(`Cart cleared and ${dish.name} added!`);
-                setTimeout(() => setSuccessMessage(''), 3000);
               }
             }
           }
@@ -363,12 +410,12 @@ const fetchDishes = async (reset = false) => {
             window.location.reload();
           }
         } else {
-          alert(result.error || 'Failed to add to cart');
+          setErrorMessage(result.error || 'Failed to add to cart');
         }
       }
     } catch (error) {
       console.error('Add to cart error:', error);
-      alert(`Failed to add to cart: ${error.message || 'Unknown error'}`);
+      setErrorMessage('Failed to add to cart. Please try again.');
     } finally {
       setAddingToCart(null);
     }
@@ -376,8 +423,14 @@ const fetchDishes = async (reset = false) => {
 
   const handleOrderNow = async (dish) => {
     if (!dish || (!dish._id && !dish.id)) {
-      console.error('Invalid dish object:', dish);
-      alert('Error: Invalid dish data');
+      setErrorMessage('Invalid dish data. Please try again.');
+      return;
+    }
+
+    // ✅ CHECK IF SELLER IS OFFLINE - Show notification instead of alert
+    const isOffline = !dish.isSellerOnline || dish.sellerDashboardStatus === 'offline';
+    if (isOffline) {
+      setErrorMessage(`${dish.restaurant || 'Restaurant'} is currently closed. Please try again later.`);
       return;
     }
 
@@ -385,13 +438,14 @@ const fetchDishes = async (reset = false) => {
       id: dish._id || dish.id,
       name: dish.name,
       restaurant: dish.restaurant || dish.restaurantName || 'Restaurant',
-      price: dish.currentPrice || `₹${dish.price}`,
+      price: dish.price,
       image: dish.image ? `http://localhost:5000${dish.image}` : 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg',
       rating: dish.rating || '4.2',
       deliveryTime: dish.deliveryTime || '25-30 min',
       category: dish.category,
       type: dish.type,
-      description: dish.description || `Delicious ${dish.name}`
+      description: dish.description || `Delicious ${dish.name}`,
+      restaurantId: dish.restaurantId
     };
 
     navigate('/address', { 
@@ -403,7 +457,16 @@ const fetchDishes = async (reset = false) => {
   };
 
   const handleDishClick = (dish) => {
-    onShowDishDetails(dish._id || dish.id);
+    // ✅ CHECK IF SELLER IS OFFLINE - Show notification instead of alert
+    const isOffline = !dish.isSellerOnline || dish.sellerDashboardStatus === 'offline';
+    if (isOffline) {
+      setInfoMessage(`${dish.restaurant || 'Restaurant'} is currently closed. Dish details unavailable.`);
+      return;
+    }
+
+    const dishId = dish._id || dish.id;
+    console.log('🍽️ Dish clicked:', dish.name, 'ID:', dishId);
+    onShowDishDetails(dishId);
   };
 
   const DishCard = ({ dish }) => {
@@ -412,14 +475,14 @@ const fetchDishes = async (reset = false) => {
     const isLiked = isInWishlist(dishId);
     const isAnimating = animatingHeart === dishId;
     
-    // CHECK SELLER STATUS
-    const isOffline = !dish.isSellerOnline || dish.sellerDashboardStatus === 'offline';
+    const isSellerOnline = dish.isSellerOnline === true || dish.sellerDashboardStatus === 'online';
+    const isOffline = !isSellerOnline;
     
     return (
       <div className={`bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden border transition-all duration-200 group relative ${
         isOffline 
-          ? 'opacity-60 border-red-200 dark:border-red-900' 
-          : 'border-gray-100 dark:border-gray-700 hover:shadow-lg'
+          ? 'border-red-200 dark:border-red-900 cursor-not-allowed' 
+          : 'border-gray-100 dark:border-gray-700 hover:shadow-lg cursor-pointer'
       }`}>
         {isBeingAdded && (
           <div className="absolute inset-0 bg-green-500 bg-opacity-90 z-10 flex items-center justify-center rounded-xl">
@@ -430,21 +493,21 @@ const fetchDishes = async (reset = false) => {
           </div>
         )}
         
-        <div className="relative cursor-pointer" onClick={() => !isOffline && handleDishClick(dish)}>
+        <div className="relative" onClick={() => handleDishClick(dish)}>
           <img
             src={dish.image ? `http://localhost:5000${dish.image}` : 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg'}
             alt={dish.name}
             className={`w-full h-48 object-cover transition-transform duration-300 ${
-              isOffline ? 'grayscale' : 'group-hover:scale-105'
+              isOffline ? '' : 'group-hover:scale-105'
             }`}
             onError={(e) => {
               e.target.src = 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg';
             }}
           />
           
-          {/* OFFLINE OVERLAY */}
+          {/* ✅ OFFLINE OVERLAY */}
           {isOffline && (
-            <div className="absolute inset-0 bg-black bg-opacity-60 flex items-center justify-center">
+            <div className="absolute inset-0 bg-black bg-opacity-60 flex items-center justify-center pointer-events-none">
               <div className="text-center text-white">
                 <XCircle className="w-12 h-12 mx-auto mb-2" />
                 <p className="font-semibold text-lg">Restaurant Closed</p>
@@ -452,7 +515,8 @@ const fetchDishes = async (reset = false) => {
               </div>
             </div>
           )}
-
+          
+          {/* VEG/NON-VEG INDICATOR */}
           <div className={`absolute top-2 right-2 w-4 h-4 rounded-sm border-2 ${
             dish.type === 'veg' ? 'border-green-500 bg-white' : 'border-red-500 bg-white'
           } flex items-center justify-center`}>
@@ -468,6 +532,7 @@ const fetchDishes = async (reset = false) => {
             {isOffline ? 'Closed' : 'Open Now'}
           </div>
 
+          {/* HOVER EFFECT - Only when online */}
           {!isOffline && (
             <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all duration-300 flex items-center justify-center">
               <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-white dark:bg-gray-800 px-3 py-1 rounded-full text-sm font-medium">
@@ -484,24 +549,20 @@ const fetchDishes = async (reset = false) => {
             </h3>
             <button
               onClick={(e) => handleLikeClick(dish, e)}
-              disabled={wishlistLoading || isOffline}
+              disabled={wishlistLoading}
               className={`relative flex items-center justify-center w-8 h-8 rounded-full transition-all duration-200 ${
-                isOffline 
-                  ? 'bg-gray-100 cursor-not-allowed' 
-                  : isLiked 
-                    ? 'bg-red-50 hover:bg-red-100' 
-                    : 'bg-gray-50 hover:bg-gray-100'
+                isLiked 
+                  ? 'bg-red-50 hover:bg-red-100' 
+                  : 'bg-gray-50 hover:bg-gray-100'
               } disabled:opacity-50`}
             >
               <Heart className={`w-5 h-5 transition-all duration-200 ${
-                isOffline 
-                  ? 'text-gray-300' 
-                  : isLiked 
-                    ? 'text-red-500 fill-red-500' 
-                    : 'text-gray-400'
+                isLiked 
+                  ? 'text-red-500 fill-red-500' 
+                  : 'text-gray-400'
               } ${isAnimating ? 'animate-heart-pop' : ''}`} />
               
-              {isAnimating && !isOffline && (
+              {isAnimating && (
                 <>
                   <Heart className="absolute w-4 h-4 text-red-500 fill-red-500 animate-heart-float-1" />
                   <Heart className="absolute w-3 h-3 text-red-500 fill-red-500 animate-heart-float-2" />
@@ -515,17 +576,18 @@ const fetchDishes = async (reset = false) => {
             {dish.restaurant || dish.restaurantName}
           </p>
 
+          {/* WARNING WHEN OFFLINE */}
           {isOffline && (
-            <div className="flex items-center space-x-1 mb-2">
-              <AlertCircle className="w-4 h-4 text-red-500" />
-              <span className="text-xs text-red-600 font-medium">Restaurant dashboard offline</span>
+            <div className="flex items-center space-x-1 mb-2 bg-red-50 dark:bg-red-900/20 px-2 py-1 rounded">
+              <AlertCircle className="w-3 h-3 text-red-500" />
+              <span className="text-xs text-red-600 dark:text-red-400 font-medium">Restaurant currently closed</span>
             </div>
           )}
 
           <div className="flex items-center justify-between text-sm mb-3">
             <div className="flex items-center space-x-2">
               <span className="font-bold text-gray-900 dark:text-white">
-                {dish.currentPrice || `₹${dish.price}`}
+                ₹{dish.price}
               </span>
             </div>
             <div className="flex items-center space-x-1 bg-green-100 dark:bg-green-900 px-2 py-1 rounded">
@@ -546,7 +608,7 @@ const fetchDishes = async (reset = false) => {
               disabled={cartLoading || isBeingAdded || isOffline}
               className={`flex-1 flex items-center justify-center space-x-2 font-medium py-2 px-4 rounded-lg transition-colors ${
                 isOffline
-                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
                   : 'bg-orange-500 hover:bg-orange-600 text-white disabled:bg-orange-300'
               }`}
             >
@@ -571,7 +633,7 @@ const fetchDishes = async (reset = false) => {
               disabled={isBeingAdded || isOffline}
               className={`flex items-center justify-center font-medium py-2 px-3 rounded-lg transition-colors ${
                 isOffline
-                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
                   : 'bg-orange-600 hover:bg-orange-700 text-white disabled:bg-orange-400'
               }`}
             >
@@ -583,73 +645,100 @@ const fetchDishes = async (reset = false) => {
     );
   };
 
-  const RestaurantCard = ({ restaurant }) => (
-    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 overflow-hidden border border-gray-100 dark:border-gray-700 cursor-pointer hover:scale-105">
-      <div className="relative">
-        <img
-          src={restaurant.bannerImage ? `http://localhost:5000${restaurant.bannerImage}` : 'https://images.pexels.com/photos/262978/pexels-photo-262978.jpeg'}
-          alt={restaurant.name}
-          className="w-full h-40 object-cover"
-          onError={(e) => {
-            e.target.src = 'https://images.pexels.com/photos/262978/pexels-photo-262978.jpeg';
-          }}
-        />
-        {restaurant.isNew && (
-          <div className="absolute top-2 left-2 bg-green-500 text-white px-2 py-1 rounded text-xs font-semibold">
-            NEW
-          </div>
-        )}
-      </div>
+  const RestaurantCard = ({ restaurant }) => {
+    const isSellerOnline = restaurant.isSellerOnline === true || restaurant.dashboardStatus === 'online';
+    
+    const handleRestaurantClick = () => {
+      console.log('🍽️ Restaurant clicked:', restaurant.name);
+      if (onShowRestaurantMenu) {
+        onShowRestaurantMenu(restaurant.id || restaurant._id);
+      }
+    };
 
-      <div className="p-4">
-        <div className="flex items-start justify-between mb-2">
-          <div className="flex-1">
-            <h3 className="font-semibold text-lg text-gray-900 dark:text-white mb-1">
-              {restaurant.name}
-            </h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              {restaurant.cuisine?.join(', ') || restaurant.type}
+    return (
+      <div 
+        onClick={handleRestaurantClick}
+        className="bg-white dark:bg-gray-800 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 overflow-hidden border border-gray-100 dark:border-gray-700 cursor-pointer hover:scale-105"
+      >
+        <div className="relative">
+          <img
+            src={restaurant.bannerImage ? `http://localhost:5000${restaurant.bannerImage}` : 'https://images.pexels.com/photos/262978/pexels-photo-262978.jpeg'}
+            alt={restaurant.name}
+            className="w-full h-40 object-cover"
+            onError={(e) => {
+              e.target.src = 'https://images.pexels.com/photos/262978/pexels-photo-262978.jpeg';
+            }}
+          />
+          {restaurant.isNew && (
+            <div className="absolute top-2 left-2 bg-green-500 text-white px-2 py-1 rounded text-xs font-semibold">
+              NEW
+            </div>
+          )}
+          
+          <div className={`absolute bottom-2 left-2 px-3 py-1 rounded-full text-xs font-semibold ${
+            isSellerOnline ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
+          }`}>
+            {isSellerOnline ? 'Open Now' : 'Closed'}
+          </div>
+        </div>
+
+        <div className="p-4">
+          <div className="flex items-start justify-between mb-2">
+            <div className="flex-1">
+              <h3 className="font-semibold text-lg text-gray-900 dark:text-white mb-1">
+                {restaurant.name}
+              </h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                {restaurant.cuisine?.join(', ') || restaurant.type}
+              </p>
+            </div>
+            {restaurant.logo && (
+              <img
+                src={`http://localhost:5000${restaurant.logo}`}
+                alt={`${restaurant.name} logo`}
+                className="w-12 h-12 rounded-lg object-cover border border-gray-200"
+              />
+            )}
+          </div>
+
+          <div className="flex items-center space-x-4 text-sm text-gray-500 dark:text-gray-400 mb-3">
+            <div className="flex items-center space-x-1">
+              <Star className="w-4 h-4 text-yellow-500 fill-current" />
+              <span>{restaurant.rating || '4.2'}</span>
+            </div>
+            <div className="flex items-center space-x-1">
+              <Clock className="w-4 h-4" />
+              <span>{restaurant.deliveryTime || '25-30 min'}</span>
+            </div>
+            <div className="flex items-center space-x-1">
+              <Truck className="w-4 h-4" />
+              <span>₹{restaurant.deliveryFee || 25}</span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-1 text-gray-500 dark:text-gray-400">
+              <MapPin className="w-4 h-4" />
+              <span className="text-sm truncate">{restaurant.address?.city}</span>
+            </div>
+            <span className="text-sm font-medium text-orange-600">
+              {restaurant.dishCount || 0} dishes
+            </span>
+          </div>
+          
+          <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+            <p className="text-xs text-center text-gray-500 dark:text-gray-400 font-medium">
+              Click to view menu →
             </p>
           </div>
-          {restaurant.logo && (
-            <img
-              src={`http://localhost:5000${restaurant.logo}`}
-              alt={`${restaurant.name} logo`}
-              className="w-12 h-12 rounded-lg object-cover border border-gray-200"
-            />
-          )}
-        </div>
-
-        <div className="flex items-center space-x-4 text-sm text-gray-500 dark:text-gray-400 mb-3">
-          <div className="flex items-center space-x-1">
-            <Star className="w-4 h-4 text-yellow-500 fill-current" />
-            <span>{restaurant.rating || '4.2'}</span>
-          </div>
-          <div className="flex items-center space-x-1">
-            <Clock className="w-4 h-4" />
-            <span>{restaurant.deliveryTime || '25-30 min'}</span>
-          </div>
-          <div className="flex items-center space-x-1">
-            <Truck className="w-4 h-4" />
-            <span>₹{restaurant.deliveryFee || 25}</span>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-1 text-gray-500 dark:text-gray-400">
-            <MapPin className="w-4 h-4" />
-            <span className="text-sm truncate">{restaurant.address?.city}</span>
-          </div>
-          <span className="text-sm font-medium text-orange-600">
-            {restaurant.dishCount || 0} dishes
-          </span>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      {/* ✅ SUCCESS NOTIFICATION (Green) */}
       {successMessage && (
         <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center space-x-2 animate-slide-down">
           <CheckCircle className="w-5 h-5" />
@@ -657,20 +746,38 @@ const fetchDishes = async (reset = false) => {
         </div>
       )}
 
+      {/* ✅ ERROR NOTIFICATION (Red) */}
+      {errorMessage && (
+        <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center space-x-2 animate-slide-down">
+          <XCircle className="w-5 h-5" />
+          <span className="font-medium">{errorMessage}</span>
+        </div>
+      )}
+
+      {/* ✅ INFO NOTIFICATION (Blue) */}
+      {infoMessage && (
+        <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 bg-blue-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center space-x-2 animate-slide-down">
+          <Info className="w-5 h-5" />
+          <span className="font-medium">{infoMessage}</span>
+        </div>
+      )}
+
+      {/* ✅ WISHLIST NOTIFICATION (Pink/Red) */}
       {wishlistMessage && (
-        <div className="fixed top-32 left-1/2 transform -translate-x-1/2 z-50 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center space-x-2 animate-slide-down">
+        <div className="fixed top-32 left-1/2 transform -translate-x-1/2 z-50 bg-pink-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center space-x-2 animate-slide-down">
           <Heart className="w-5 h-5" />
           <span className="font-medium">{wishlistMessage}</span>
         </div>
       )}
 
-      {/* Socket Connection Status Indicator (optional - for debugging) */}
+      {/* Socket Connection Status */}
       {!connected && (
         <div className="fixed top-4 right-4 bg-yellow-100 text-yellow-800 px-3 py-2 rounded-lg text-xs font-medium z-50">
           Real-time updates disconnected
         </div>
       )}
 
+      {/* Header */}
       <div className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
@@ -781,6 +888,7 @@ const fetchDishes = async (reset = false) => {
         </div>
       </div>
 
+      {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {error && (
           <div className="flex items-center justify-center py-16">
@@ -861,8 +969,7 @@ const fetchDishes = async (reset = false) => {
         )}
       </div>
 
-
-      {/* ✅ FIXED: Removed jsx attribute from style tag */}
+      {/* Animations */}
       <style>{`
         @keyframes slide-down {
           from {
@@ -928,4 +1035,3 @@ const fetchDishes = async (reset = false) => {
 };
 
 export default DiscoveryPage;
-    

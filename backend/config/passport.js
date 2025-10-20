@@ -1,39 +1,23 @@
-// backend/config/passport.js - EXPORT CONFIGURATION FUNCTION
+// config/passport.js - UPDATED: Don't auto-create users on Google login
 import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import User from '../models/User.js';
 
-// Export a configuration function instead of executing immediately
 export function configurePassport() {
   console.log('\n========================================');
   console.log('🔐 CONFIGURING PASSPORT');
   console.log('========================================\n');
 
-  // Check environment variables NOW (not at import time)
   const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
   const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-  const GOOGLE_CALLBACK_URL = process.env.GOOGLE_CALLBACK_URL || 'http://localhost:5000/api/auth/google/callback';
-
-  console.log('📋 Environment Variables Check:');
-  console.log('  GOOGLE_CLIENT_ID:', GOOGLE_CLIENT_ID ? `${GOOGLE_CLIENT_ID.substring(0, 30)}... ✅` : '❌ MISSING');
-  console.log('  GOOGLE_CLIENT_SECRET:', GOOGLE_CLIENT_SECRET ? '✅ Present (hidden)' : '❌ MISSING');
-  console.log('  GOOGLE_CALLBACK_URL:', GOOGLE_CALLBACK_URL);
+  const GOOGLE_CALLBACK_URL = process.env.GOOGLE_CALLBACK_URL || 'http://localhost:5000/api/auth/google';
 
   if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
     console.error('\n❌ CRITICAL: Google OAuth credentials missing!');
-    console.error('Google Sign-In will NOT work!');
-    console.error('Add to .env file:');
-    console.error('  GOOGLE_CLIENT_ID=your_client_id');
-    console.error('  GOOGLE_CLIENT_SECRET=your_client_secret');
-    console.error('========================================\n');
-    return false; // Return false to indicate failure
+    return false;
   }
 
-  console.log('\n✅ Google OAuth credentials found!');
-  console.log('🔧 Registering Google Strategy...\n');
-
   try {
-    // Configure Google Strategy
     passport.use(
       new GoogleStrategy(
         {
@@ -41,12 +25,13 @@ export function configurePassport() {
           clientSecret: GOOGLE_CLIENT_SECRET,
           callbackURL: GOOGLE_CALLBACK_URL,
           scope: ['profile', 'email'],
-          passReqToCallback: false
+          passReqToCallback: true  // ✅ Need req to check origin
         },
-        async (accessToken, refreshToken, profile, done) => {
+        async (req, accessToken, refreshToken, profile, done) => {
           try {
             console.log('\n🎯 Google OAuth Callback!');
             console.log('  Email:', profile.emails?.[0]?.value);
+            console.log('  State:', req.query.state);
 
             const email = profile.emails?.[0]?.value;
             if (!email) {
@@ -57,18 +42,38 @@ export function configurePassport() {
             let user = await User.findOne({ emailId: cleanEmail });
 
             if (user) {
-              console.log('✅ Existing user:', cleanEmail);
+              console.log('✅ Existing user found:', cleanEmail);
+              
+              // Link Google account if not already linked
               if (!user.googleId) {
+                console.log('🔗 Linking Google account to existing user');
                 user.googleId = profile.id;
-                user.authProvider = 'google';
+                
+                if (user.authProvider === 'local' && user.passwordHash) {
+                  user.authProvider = 'both';
+                } else {
+                  user.authProvider = 'google';
+                }
+                
                 await user.save();
               }
+              
               user.lastLogin = new Date();
               await user.save();
               return done(null, user);
             }
 
-            console.log('📝 Creating new user...');
+            // ✅ CRITICAL: Check if this is from signup or login
+            const isFromSignup = req.query.state === 'signup';
+            
+            if (!isFromSignup) {
+              // User doesn't exist and trying to login
+              console.log('❌ User not found, rejecting login attempt');
+              return done(null, false, { message: 'account_not_found' });
+            }
+
+            // ✅ NEW USER from signup: Create account
+            console.log('📝 Creating new user with Google (from signup)');
             user = new User({
               emailId: cleanEmail,
               name: profile.displayName || cleanEmail.split('@')[0],
@@ -93,32 +98,15 @@ export function configurePassport() {
     );
 
     console.log('✅✅✅ Google Strategy REGISTERED! ✅✅✅');
-    
-    // Verify registration
-    const strategies = Object.keys(passport._strategies || {});
-    console.log('📋 Registered strategies:', strategies);
-    
-    if (strategies.includes('google')) {
-      console.log('✅ CONFIRMED: Google strategy is active!');
-      console.log('========================================\n');
-      return true; // Return true to indicate success
-    } else {
-      console.error('❌ ERROR: Google strategy not in list!');
-      console.error('========================================\n');
-      return false;
-    }
+    return true;
 
   } catch (error) {
     console.error('\n❌❌❌ FATAL ERROR ❌❌❌');
     console.error('Failed to configure Google strategy!');
-    console.error('Error:', error.message);
-    console.error('Stack:', error.stack);
-    console.error('========================================\n');
     return false;
   }
 }
 
-// Serialize/Deserialize
 passport.serializeUser((user, done) => {
   done(null, user._id);
 });
@@ -132,5 +120,4 @@ passport.deserializeUser(async (id, done) => {
   }
 });
 
-// Export passport instance
 export default passport;

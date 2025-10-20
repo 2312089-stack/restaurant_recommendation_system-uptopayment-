@@ -1,10 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
-import { useAuth } from '../contexts/AuthContext';
 
 const LoginScreen = ({ onLoginComplete, onForgotPassword, onCreateAccount }) => {
-  const { login } = useAuth();
-
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -13,10 +10,34 @@ const LoginScreen = ({ onLoginComplete, onForgotPassword, onCreateAccount }) => 
 
   const API_BASE_URL = "http://localhost:5000/api";
 
-  // ✅ Google Sign-In Handler
+  // ✅ NEW: Check for Google OAuth errors in URL when component mounts
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const errorParam = urlParams.get('error');
+    const messageParam = urlParams.get('message');
+
+    if (errorParam === 'account_not_found') {
+      setError(messageParam || 'Account not found. Please sign up first using the "Create New Account" button below.');
+    } else if (errorParam === 'google_auth_failed') {
+      setError('Google authentication failed. Please try again.');
+    } else if (errorParam === 'google_not_configured') {
+      setError('Google sign-in is temporarily unavailable. Please use email/password login.');
+    } else if (errorParam === 'no_user') {
+      setError('Authentication failed. Please try again.');
+    } else if (errorParam === 'auth_failed') {
+      setError('Authentication failed. Please try again.');
+    }
+
+    // Clean URL after showing error
+    if (errorParam) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
+
   const handleGoogleSignIn = () => {
-    // Redirect to backend Google OAuth route
-    window.location.href = `${API_BASE_URL}/auth/google`;
+    // Clear any existing errors before redirecting
+    setError('');
+    window.location.href = `${API_BASE_URL}/auth/google?signup=false`;
   };
 
   const handleLogin = async () => {
@@ -43,7 +64,8 @@ const LoginScreen = ({ onLoginComplete, onForgotPassword, onCreateAccount }) => 
       const data = await res.json();
 
       if (data.success && data.token) {
-        login(data.token, data.user);
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
         
         setUsername('');
         setPassword('');
@@ -51,9 +73,16 @@ const LoginScreen = ({ onLoginComplete, onForgotPassword, onCreateAccount }) => 
         
         onLoginComplete();
       } else {
-        setError(data.error || "Login failed");
+        if (data.hint === 'account_not_found') {
+          setError("Account not found. Please sign up first using the 'Create New Account' button below.");
+        } else if (data.hint === 'google_only') {
+          setError("This account uses Google Sign-In. Please click 'Continue with Google' button above.");
+        } else {
+          setError(data.error || "Login failed");
+        }
       }
     } catch (err) {
+      console.error('Login error:', err);
       setError("Network error. Please try again.");
     } finally {
       setLoading(false);
@@ -61,7 +90,7 @@ const LoginScreen = ({ onLoginComplete, onForgotPassword, onCreateAccount }) => 
   };
 
   const handleKeyPress = (e) => {
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' && username && password.length >= 6 && !loading) {
       handleLogin();
     }
   };
@@ -69,7 +98,6 @@ const LoginScreen = ({ onLoginComplete, onForgotPassword, onCreateAccount }) => 
   return (
     <div className="min-h-screen bg-white flex items-center justify-center p-6">
       <div className="w-full max-w-md">
-        {/* Logo */}
         <div className="text-center mb-8">
           <div className="relative w-20 h-20 mx-auto mb-4">
             <div className="absolute w-full h-full bg-orange-500 rounded-full shadow-lg"></div>
@@ -92,14 +120,12 @@ const LoginScreen = ({ onLoginComplete, onForgotPassword, onCreateAccount }) => 
           <p className="text-gray-500">Please Login to your account</p>
         </div>
 
-        {/* Error message */}
         {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded mb-4 text-sm">
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4 text-sm">
             {error}
           </div>
         )}
 
-        {/* ✅ Google Sign-In Button */}
         <button
           onClick={handleGoogleSignIn}
           disabled={loading}
@@ -114,14 +140,12 @@ const LoginScreen = ({ onLoginComplete, onForgotPassword, onCreateAccount }) => 
           Continue with Google
         </button>
 
-        {/* Divider */}
         <div className="flex items-center my-6">
           <div className="flex-1 border-t border-gray-300"></div>
           <span className="px-4 text-gray-500 text-sm">OR</span>
           <div className="flex-1 border-t border-gray-300"></div>
         </div>
 
-        {/* Login Form */}
         <div className="space-y-4 mb-6">
           <input
             type="email"
@@ -129,7 +153,7 @@ const LoginScreen = ({ onLoginComplete, onForgotPassword, onCreateAccount }) => 
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             onKeyPress={handleKeyPress}
-            className="w-full px-4 py-3 bg-gray-100 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-orange-500"
+            className="w-full px-4 py-3 bg-gray-100 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"
             disabled={loading}
           />
           
@@ -140,7 +164,7 @@ const LoginScreen = ({ onLoginComplete, onForgotPassword, onCreateAccount }) => 
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               onKeyPress={handleKeyPress}
-              className="w-full px-4 py-3 pr-12 bg-gray-100 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="w-full px-4 py-3 pr-12 bg-gray-100 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"
               disabled={loading}
             />
             <button
@@ -154,14 +178,12 @@ const LoginScreen = ({ onLoginComplete, onForgotPassword, onCreateAccount }) => 
           </div>
         </div>
 
-        {/* Password Requirements */}
         <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 mb-4">
           <p className="text-orange-800 text-sm text-center">
             Password must be at least 6 characters long
           </p>
         </div>
 
-        {/* Forgot Password */}
         <div className="text-center mb-6">
           <button
             onClick={onForgotPassword}
@@ -172,7 +194,6 @@ const LoginScreen = ({ onLoginComplete, onForgotPassword, onCreateAccount }) => 
           </button>
         </div>
 
-        {/* Login Button */}
         <button
           onClick={handleLogin}
           disabled={loading || !username || password.length < 6}
@@ -181,7 +202,6 @@ const LoginScreen = ({ onLoginComplete, onForgotPassword, onCreateAccount }) => 
           {loading ? "Logging in..." : "Login"}
         </button>
 
-        {/* Create Account */}
         <button
           onClick={onCreateAccount}
           disabled={loading}

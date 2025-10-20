@@ -9,6 +9,9 @@ import NotificationPanel from './NotificationPanel';
 import { useSocket } from '../../contexts/SocketContext';
 import PaymentSettlementPage from './PaymentSettlementPage';
 import AnalyticsInsights from './AnalyticsInsights';
+import SellerSettings from './SellerSettings';
+import SellerSupport from './SellerSupport';
+import OfferManagementModal from './OfferManagementModal'; // ← NEW
 
 const API_BASE = 'http://localhost:5000/api';
 
@@ -47,7 +50,8 @@ const [rejectingOrder, setRejectingOrder] = useState(null);
   const [reviewStats, setReviewStats] = useState(null);
   const [reviewFilter, setReviewFilter] = useState('all');
   const [reviewSort, setReviewSort] = useState('newest');
-
+const [showOfferModal, setShowOfferModal] = useState(false);
+const [offerDish, setOfferDish] = useState(null);
   // Form States
   const [dishForm, setDishForm] = useState({
     name: '', price: '', category: 'Main Course', type: 'veg',
@@ -75,19 +79,7 @@ const [rejectingOrder, setRejectingOrder] = useState(null);
   const [profileImages, setProfileImages] = useState({ logo: null, bannerImage: null });
   const [profileImagePreviews, setProfileImagePreviews] = useState({ logo: null, bannerImage: null });
 
-  const sidebarItems = [
-    { id: 'overview', label: 'Overview', icon: Home },
-    { id: 'profile', label: 'Restaurant Profile', icon: User },
-    { id: 'menu', label: 'Menu Management', icon: ChefHat },
-    { id: 'orders', label: 'Order Management', icon: ShoppingBag },
-    { id: 'reservations', label: 'Dining Reservations', icon: Calendar },
-    { id: 'payments', label: 'Payments & Settlements', icon: CreditCard },
-    { id: 'analytics', label: 'Analytics & Insights', icon: BarChart3 },
-    { id: 'reviews', label: 'Reviews & Ratings', icon: Star },
-    { id: 'offers', label: 'Offers & Notifications', icon: Tag },
-    { id: 'settings', label: 'Settings & Support', icon: Settings }
-  ];
-
+ 
   const getAuthToken = () => localStorage.getItem('sellerToken') || localStorage.getItem('token');
 
   // Socket Authentication & Status Management
@@ -261,6 +253,81 @@ useEffect(() => {
     loadDishes();
   }
 }, [success]);
+// In SellerDashboard.jsx - Replace the handleSaveOffer function with this:
+// ✅ FIXED: Update offer handler with correct endpoint
+// ✅ COMPLETE FIXED HANDLER with full debugging
+const handleSaveOffer = async (dishId, offerData) => {
+  console.log('\n🎯 ========== FRONTEND: SAVE OFFER START ==========');
+  console.log('Dish ID:', dishId);
+  console.log('Offer Data:', JSON.stringify(offerData, null, 2));
+  
+  try {
+    setLoading(true);
+    setError('');
+    
+    const token = getAuthToken();
+    
+    if (!token) {
+      console.error('❌ No auth token found');
+      setError('Authentication required. Please login again.');
+      return;
+    }
+    
+    console.log('✅ Auth token present');
+    console.log('📡 Making request to:', `${API_BASE}/seller/menu/dish/${dishId}/offer`);
+
+    // ✅ CRITICAL: Send exact structure backend expects
+    const requestBody = {
+      hasOffer: offerData.hasOffer || false,
+      discountPercentage: offerData.hasOffer ? (offerData.discountPercentage || 0) : 0,
+      validUntil: offerData.hasOffer && offerData.validUntil ? offerData.validUntil : null
+    };
+    
+    console.log('📦 Request body:', JSON.stringify(requestBody, null, 2));
+
+    const response = await fetch(`${API_BASE}/seller/menu/dish/${dishId}/offer`, {
+      method: 'PATCH',
+      headers: { 
+        'Authorization': `Bearer ${token}`, 
+        'Content-Type': 'application/json' 
+      },
+      body: JSON.stringify(requestBody)
+    });
+
+    console.log('📊 Response status:', response.status, response.statusText);
+    
+    const data = await response.json();
+    console.log('📊 Response data:', JSON.stringify(data, null, 2));
+    
+    if (response.ok && data.success) {
+      const successMsg = offerData.hasOffer 
+        ? `✅ ${offerData.discountPercentage}% offer activated successfully!` 
+        : '✅ Offer removed successfully';
+      
+      console.log('✅ Success:', successMsg);
+      setSuccess(successMsg);
+      setShowOfferModal(false);
+      setOfferDish(null);
+      
+      // Reload dishes to show updated offer
+      console.log('🔄 Reloading dishes...');
+      await loadDishes();
+      console.log('✅ Dishes reloaded');
+    } else {
+      const errorMsg = data.error || data.message || 'Failed to update offer';
+      console.error('❌ Server error:', errorMsg);
+      console.error('❌ Full error details:', data.details || 'No details');
+      setError(errorMsg);
+    }
+  } catch (err) {
+    console.error('❌ Network/Parse error:', err);
+    console.error('❌ Error stack:', err.stack);
+    setError('Failed to update offer: ' + err.message);
+  } finally {
+    setLoading(false);
+    console.log('🎯 ========== FRONTEND: SAVE OFFER END ==========\n');
+  }
+};
 
 // API Calls
 const loadSellerData = async () => {
@@ -702,43 +769,87 @@ const handleAcceptOrder = async (orderId) => {
     }
   };
 
-  const handleDishSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
+// Replace the handleDishSubmit function in SellerDashboard.jsx with this:
+// Replace the handleDishSubmit function in SellerDashboard.jsx with this:
 
-    try {
-      const token = getAuthToken();
-      const formData = new FormData();
+// Replace the handleDishSubmit function in SellerDashboard.jsx with this:
 
-      Object.keys(dishForm).forEach(key => formData.append(key, dishForm[key]));
-      if (selectedFile) formData.append('dishImages', selectedFile);
+const handleDishSubmit = async (e) => {
+  e.preventDefault();
+  setLoading(true);
+  setError('');
 
-      const url = editingDish ? `${API_BASE}/seller/menu/dish/${editingDish._id}` : `${API_BASE}/seller/menu/dish`;
-      const method = editingDish ? 'PATCH' : 'POST';
+  try {
+    const token = getAuthToken();
+    const url = editingDish 
+      ? `${API_BASE}/seller/menu/dish/${editingDish._id}` 
+      : `${API_BASE}/seller/menu/dish`;
+    const method = editingDish ? 'PATCH' : 'POST';
 
-      const response = await fetch(url, {
-        method,
-        headers: { 'Authorization': `Bearer ${token}` },
-        body: formData
-      });
+    console.log('📤 Submitting dish:', { 
+      method, 
+      editingDish: !!editingDish, 
+      dishForm,
+      hasImage: !!selectedFile 
+    });
 
-      const data = await response.json();
-      if (response.ok) {
-        setSuccess(editingDish ? 'Dish updated successfully!' : 'Dish added successfully!');
-        resetDishForm();
-        loadDishes();
-        setShowModal(false);
-      } else {
-        setError(data.error || 'Failed to save dish');
-      }
-    } catch (err) {
-      console.error('Dish submission error:', err);
-      setError('Failed to save dish');
-    } finally {
-      setLoading(false);
+    // ✅ ALWAYS USE FORMDATA (backend expects this format)
+    const formData = new FormData();
+    
+    // Append all dish fields
+    formData.append('name', dishForm.name);
+    formData.append('price', dishForm.price);
+    formData.append('category', dishForm.category);
+    formData.append('type', dishForm.type);
+    formData.append('description', dishForm.description);
+    formData.append('availability', dishForm.availability);
+    formData.append('preparationTime', dishForm.preparationTime || 30);
+    
+    // ✅ Add restaurantId when editing (Mongoose schema requires this field name)
+    if (editingDish && editingDish.seller) {
+      formData.append('restaurantId', editingDish.seller);
+      console.log('✅ Including restaurantId:', editingDish.seller);
     }
-  };
+    
+    // Add image if selected
+    if (selectedFile) {
+      formData.append('dishImages', selectedFile);
+      console.log('✅ Including new image');
+    }
+
+    const response = await fetch(url, {
+      method,
+      headers: { 
+        'Authorization': `Bearer ${token}`
+        // Don't set Content-Type - browser will set it with boundary for FormData
+      },
+      body: formData
+    });
+
+    const data = await response.json();
+    
+    if (response.ok) {
+      setSuccess(editingDish ? '✅ Dish updated successfully!' : '✅ Dish added successfully!');
+      resetDishForm();
+      await loadDishes();
+      setShowModal(false);
+    } else {
+      // Show detailed validation errors
+      const errorMsg = data.details && data.details.length > 0
+        ? `${data.error}: ${data.details.map(d => d.message || d).join(', ')}`
+        : data.error || 'Failed to save dish';
+      setError(errorMsg);
+      console.error('❌ Dish save error:', data);
+      console.error('❌ Validation details:', data.details);
+    }
+
+  } catch (err) {
+    console.error('❌ Dish submission error:', err);
+    setError('Failed to save dish: ' + err.message);
+  } finally {
+    setLoading(false);
+  }
+};
 
   const handleDeleteDish = async (dishId) => {
     if (!window.confirm('Are you sure you want to delete this dish?')) return;
@@ -1285,6 +1396,14 @@ const handleAcceptOrder = async (orderId) => {
                   className="flex-1 flex items-center justify-center space-x-1 px-3 py-2 text-sm bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200">
                   <Edit3 className="w-4 h-4" /><span>Edit</span>
                 </button>
+                <button onClick={() => {
+  setOfferDish(dish);
+  setShowOfferModal(true);
+}}
+  className="flex-1 flex items-center justify-center space-x-1 px-3 py-2 text-sm bg-orange-100 text-orange-700 rounded-md hover:bg-orange-200">
+  <Tag className="w-4 h-4" />
+  <span>{dish.offer?.hasOffer ? 'Edit Offer' : 'Add Offer'}</span>
+</button>
                 <button onClick={() => handleDeleteDish(dish._id)}
                   className="flex items-center justify-center px-3 py-2 text-sm bg-red-100 text-red-700 rounded-md hover:bg-red-200">
                   <Trash2 className="w-4 h-4" />
@@ -1344,6 +1463,17 @@ const handleAcceptOrder = async (orderId) => {
                 <p className="text-gray-500 text-sm">No reviews yet</p>
               </div>
             )}
+            {showOfferModal && offerDish && (
+  <OfferManagementModal
+    dish={offerDish}
+    onClose={() => {
+      setShowOfferModal(false);
+      setOfferDish(null);
+    }}
+    onSave={handleSaveOffer}
+    loading={loading}
+  />
+)}
           </div>
         </div>
 
@@ -1464,21 +1594,39 @@ const handleAcceptOrder = async (orderId) => {
       <p className="text-gray-500">{title} section will be implemented</p>
     </div>
   );
+
+
+// Add to sidebarItems array (around line 630)
+const sidebarItems = [
+  { id: 'overview', label: 'Overview', icon: Home },
+  { id: 'profile', label: 'Restaurant Profile', icon: Building },
+  { id: 'menu', label: 'Menu Management', icon: ChefHat },
+  { id: 'offers', label: 'Offer Management', icon: Tag }, // ← NEW
+  { id: 'orders', label: 'Orders', icon: ShoppingBag },
+  { id: 'reviews', label: 'Reviews', icon: Star },
+  { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+  { id: 'payments', label: 'Payments', icon: CreditCard },
+  { id: 'settings', label: 'Settings', icon: Settings },
+  { id: 'support', label: 'Support', icon: MessageCircle }
+];
+
+// Update renderContent function (around line 650)
 const renderContent = () => {
   switch (activeSection) {
     case 'overview': return renderOverview();
     case 'profile': return renderProfile();
     case 'menu': return renderMenu();
-    case 'reviews': return renderReviews();
+    case 'offers': return <OfferManagementModal onBack={() => setActiveSection('overview')} />; // ← FIXED: Modal not Model
     case 'orders': return renderOrders();
-    case 'reservations': return renderPlaceholder('Reservations', Calendar);
+    case 'reviews': return renderReviews();
+    case 'analytics': return <AnalyticsInsights />;
     case 'payments': return <PaymentSettlementPage />;
-    case 'analytics': return <AnalyticsInsights />; // ✅ Changed this line
-    case 'offers': return renderPlaceholder('Offers', Tag);
-    case 'settings': return renderPlaceholder('Settings', Settings);
+    case 'settings': return <SellerSettings onBack={() => setActiveSection('overview')} />;
+    case 'support': return <SellerSupport onBack={() => setActiveSection('overview')} />;
     default: return renderOverview();
   }
 };
+
 
   const getSellerEmail = () => sellerData?.email || 'Loading...';
   const getSellerDisplayName = () => sellerData?.businessDetails?.ownerName || sellerData?.businessName || sellerData?.email || 'Restaurant Owner';

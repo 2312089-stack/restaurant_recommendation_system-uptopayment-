@@ -6,6 +6,40 @@ import Order from '../models/Order.js';
 
 const router = express.Router();
 
+// ✅ GET RECENT ORDERS (for reorder functionality)
+router.get('/recent', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user._id || req.user.userId || req.user.id;
+    const limit = parseInt(req.query.limit) || 4;
+
+    console.log('📦 Fetching recent orders for user:', userId);
+
+    // Get recent completed/delivered orders
+    const recentOrders = await OrderHistory.find({
+      customerId: userId,
+      currentStatus: { $in: ['delivered', 'completed'] },
+      isTemporary: false
+    })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+
+    console.log(`✅ Found ${recentOrders.length} recent orders`);
+
+    res.json({
+      success: true,
+      orders: recentOrders,
+      count: recentOrders.length
+    });
+  } catch (error) {
+    console.error('❌ Error fetching recent orders:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch recent orders'
+    });
+  }
+});
+
 // ✅ GET ALL ORDER HISTORY
 router.get('/', authenticateToken, async (req, res) => {
   try {
@@ -193,7 +227,7 @@ router.post('/:orderId/cancel', authenticateToken, async (req, res) => {
       });
     }
 
-    const cancellableStatuses = ['pending_seller'];
+    const cancellableStatuses = ['pending_seller', 'seller_accepted'];
     if (!cancellableStatuses.includes(history.currentStatus)) {
       return res.status(400).json({
         success: false,

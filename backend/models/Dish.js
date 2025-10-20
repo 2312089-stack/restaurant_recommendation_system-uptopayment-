@@ -1,8 +1,7 @@
-// models/Dish.js - COMPLETE FIXED VERSION
+// models/Dish.js - FIXED VERSION (Removed Duplicate Offer Field)
 import mongoose from 'mongoose';
 
 const dishSchema = new mongoose.Schema({
-  // Basic Information
   name: {
     type: String,
     required: [true, 'Dish name is required'],
@@ -23,7 +22,6 @@ const dishSchema = new mongoose.Schema({
     min: [0, 'Price cannot be negative']
   },
   
-  // Category & Type
   category: {
     type: String,
     required: [true, 'Category is required'],
@@ -46,7 +44,6 @@ const dishSchema = new mongoose.Schema({
     default: 'veg'
   },
   
-  // Availability & Settings
   availability: {
     type: Boolean,
     default: true,
@@ -65,7 +62,6 @@ const dishSchema = new mongoose.Schema({
     default: null
   },
   
-  // ✅ CRITICAL: Seller References (both fields for compatibility)
   seller: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Seller',
@@ -80,7 +76,6 @@ const dishSchema = new mongoose.Schema({
     index: true
   },
   
-  // Seller Details (denormalized for performance)
   sellerName: {
     type: String,
     required: true
@@ -91,7 +86,6 @@ const dishSchema = new mongoose.Schema({
     required: true
   },
   
-  // Location Information
   location: {
     street: String,
     city: String,
@@ -111,7 +105,6 @@ const dishSchema = new mongoose.Schema({
     }
   },
   
-  // Rating System
   rating: {
     average: {
       type: Number,
@@ -126,7 +119,6 @@ const dishSchema = new mongoose.Schema({
     }
   },
   
-  // Analytics
   orderCount: {
     type: Number,
     default: 0,
@@ -139,7 +131,6 @@ const dishSchema = new mongoose.Schema({
     min: 0
   },
   
-  // Status Flags
   isActive: {
     type: Boolean,
     default: true,
@@ -151,22 +142,23 @@ const dishSchema = new mongoose.Schema({
     default: false
   },
   
-  // Offers & Promotions
-  offer: {
-    hasOffer: {
-      type: Boolean,
-      default: false
-    },
-    discountPercentage: {
-      type: Number,
-      default: 0,
-      min: 0,
-      max: 70
-    },
-    validUntil: Date
+  // Add this to your Dish schema
+offer: {
+  hasOffer: {
+    type: Boolean,
+    default: false
   },
+  discountPercentage: {
+    type: Number,
+    min: 0,
+    max: 100,
+    default: 0
+  },
+  validUntil: {
+    type: Date
+  }
+},
   
-  // Additional Details
   ingredients: [String],
   
   nutritionalInfo: {
@@ -193,9 +185,8 @@ const dishSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
-// ✅ CRITICAL: Pre-save hook to sync seller and restaurantId
+// Pre-save hook to sync seller and restaurantId
 dishSchema.pre('save', function(next) {
-  // Sync seller and restaurantId if one is missing
   if (this.seller && !this.restaurantId) {
     this.restaurantId = this.seller;
   }
@@ -205,7 +196,7 @@ dishSchema.pre('save', function(next) {
   next();
 });
 
-// ✅ Indexes for Query Performance
+// Indexes
 dishSchema.index({ seller: 1, availability: 1 });
 dishSchema.index({ restaurantId: 1, availability: 1 });
 dishSchema.index({ category: 1, availability: 1 });
@@ -216,7 +207,14 @@ dishSchema.index({ 'rating.average': -1 });
 dishSchema.index({ isActive: 1, availability: 1 });
 dishSchema.index({ createdAt: -1 });
 
-// ✅ Text Search Index
+// ✅ INDEX FOR OFFERS - Critical for performance
+dishSchema.index({ 
+  'offer.hasOffer': 1, 
+  'offer.validUntil': 1, 
+  availability: 1 
+});
+
+// Text Search Index
 dishSchema.index({
   name: 'text',
   description: 'text',
@@ -229,7 +227,7 @@ dishSchema.index({
   }
 });
 
-// ✅ Virtual Properties
+// Virtual Properties
 dishSchema.virtual('formattedPrice').get(function() {
   return `₹${this.price}`;
 });
@@ -237,9 +235,16 @@ dishSchema.virtual('formattedPrice').get(function() {
 dishSchema.virtual('currentPrice').get(function() {
   if (this.offer?.hasOffer && this.offer.validUntil && new Date(this.offer.validUntil) > new Date()) {
     const discount = Math.round(this.price - (this.price * this.offer.discountPercentage / 100));
-    return `₹${discount}`;
+    return discount;
   }
-  return `₹${this.price}`;
+  return this.price;
+});
+
+dishSchema.virtual('discountedPrice').get(function() {
+  if (this.offer?.hasOffer && this.offer.validUntil && new Date(this.offer.validUntil) > new Date()) {
+    return Math.round(this.price - (this.price * this.offer.discountPercentage / 100));
+  }
+  return this.price;
 });
 
 dishSchema.virtual('ratingDisplay').get(function() {
@@ -253,21 +258,24 @@ dishSchema.virtual('offerText').get(function() {
   return null;
 });
 
-// ✅ Instance Methods
+// ✅ NEW: Check if offer is active
+dishSchema.virtual('hasActiveOffer').get(function() {
+  return this.offer?.hasOffer && 
+         this.offer?.validUntil && 
+         new Date(this.offer.validUntil) > new Date();
+});
 
-// Increment view count
+// Instance Methods
 dishSchema.methods.incrementViewCount = function() {
   this.viewCount += 1;
   return this.save();
 };
 
-// Increment order count
 dishSchema.methods.incrementOrderCount = function() {
   this.orderCount += 1;
   return this.save();
 };
 
-// Update rating
 dishSchema.methods.updateRating = function(newRating) {
   const currentTotal = this.rating.average * this.rating.count;
   this.rating.count += 1;
@@ -275,12 +283,10 @@ dishSchema.methods.updateRating = function(newRating) {
   return this.save();
 };
 
-// Check if dish is available
 dishSchema.methods.isAvailable = function() {
   return this.isActive && this.availability;
 };
 
-// Get discount amount
 dishSchema.methods.getDiscountAmount = function() {
   if (this.offer?.hasOffer && this.offer.validUntil && new Date(this.offer.validUntil) > new Date()) {
     return Math.round(this.price * this.offer.discountPercentage / 100);
@@ -288,9 +294,17 @@ dishSchema.methods.getDiscountAmount = function() {
   return 0;
 };
 
-// ✅ Static Methods
+// ✅ NEW: Update offer method
+dishSchema.methods.updateOffer = function(offerData) {
+  this.offer = {
+    hasOffer: offerData.hasOffer || false,
+    discountPercentage: offerData.discountPercentage || 0,
+    validUntil: offerData.validUntil || null
+  };
+  return this.save();
+};
 
-// Find dishes by seller
+// Static Methods
 dishSchema.statics.findBySeller = function(sellerId, options = {}) {
   const query = { 
     $or: [
@@ -309,7 +323,6 @@ dishSchema.statics.findBySeller = function(sellerId, options = {}) {
     .limit(options.limit || 100);
 };
 
-// Find popular dishes
 dishSchema.statics.findPopular = function(limit = 20) {
   return this.find({ 
     isActive: true, 
@@ -319,7 +332,32 @@ dishSchema.statics.findPopular = function(limit = 20) {
     .limit(limit);
 };
 
-// Search dishes
+// ✅ NEW: Find active offers
+dishSchema.statics.findActiveOffers = function(options = {}) {
+  const query = {
+    isActive: true,
+    availability: true,
+    'offer.hasOffer': true,
+    'offer.validUntil': { $gt: new Date() }
+  };
+
+  if (options.category) {
+    query.category = options.category;
+  }
+
+  if (options.type) {
+    query.type = options.type;
+  }
+
+  if (options.city) {
+    query['location.city'] = { $regex: options.city, $options: 'i' };
+  }
+
+  return this.find(query)
+    .sort({ 'offer.discountPercentage': -1, 'rating.average': -1 })
+    .limit(options.limit || 20);
+};
+
 dishSchema.statics.searchDishes = function(query, options = {}) {
   const searchQuery = {
     $text: { $search: query },
@@ -340,7 +378,6 @@ dishSchema.statics.searchDishes = function(query, options = {}) {
     .limit(options.limit || 20);
 };
 
-// Get dishes by category
 dishSchema.statics.findByCategory = function(category, options = {}) {
   return this.find({
     category,
@@ -350,24 +387,6 @@ dishSchema.statics.findByCategory = function(category, options = {}) {
     .sort(options.sort || { 'rating.average': -1 })
     .limit(options.limit || 20);
 };
-
-// ✅ Validation Methods
-
-// Validate before deletion
-dishSchema.pre('remove', async function(next) {
-  // Check if dish has pending orders
-  const Order = mongoose.model('Order');
-  const pendingOrders = await Order.countDocuments({
-    dish: this._id,
-    orderStatus: { $in: ['confirmed', 'preparing', 'ready', 'out_for_delivery'] }
-  });
-  
-  if (pendingOrders > 0) {
-    next(new Error('Cannot delete dish with pending orders'));
-  } else {
-    next();
-  }
-});
 
 const Dish = mongoose.model('Dish', dishSchema);
 

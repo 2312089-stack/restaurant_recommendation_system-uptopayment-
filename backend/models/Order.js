@@ -1,4 +1,4 @@
-// models/Order.js - FIXED VERSION
+// models/Order.js - FIXED VERSION with Required customerId
 import mongoose from 'mongoose';
 
 const orderSchema = new mongoose.Schema({
@@ -7,21 +7,25 @@ const orderSchema = new mongoose.Schema({
     required: true, 
     unique: true,
     default: function() {
-      // ✅ FIX: Generate orderId as default value
       const timestamp = Date.now().toString().slice(-8);
       const random = Math.random().toString(36).substr(2, 4).toUpperCase();
       return `ORDER_${timestamp}_${random}`;
     }
   },
+  
+  // ✅ CRITICAL FIX: Make customerId REQUIRED
   customerId: {
-  type: mongoose.Schema.Types.ObjectId,
-  ref: 'User',
-  index: true  // For fast customer queries
-},
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true,  // ← Make it required!
+    index: true
+  },
+  
   dish: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Dish'
   },
+  
   seller: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Seller',
@@ -63,25 +67,23 @@ const orderSchema = new mongoose.Schema({
     default: 'pending' 
   },
 
-  // ✅ Add new statuses for seller confirmation flow
   orderStatus: { 
     type: String, 
     enum: [
-      'pending_seller',      // Waiting for seller confirmation
-      'seller_accepted',     // Seller confirmed the order
-      'seller_rejected',     // Seller declined the order
-      'payment_pending',     // Customer needs to pay
-      'payment_completed',   // Payment successful
-      'preparing',           // Restaurant is cooking
-      'ready',              // Order ready for pickup/delivery
-      'out_for_delivery',   // On the way
-      'delivered',          // Successfully delivered
-      'cancelled'           // Cancelled by customer/admin
+      'pending_seller',
+      'seller_accepted',
+      'seller_rejected',
+      'payment_pending',
+      'payment_completed',
+      'preparing',
+      'ready',
+      'out_for_delivery',
+      'delivered',
+      'cancelled'
     ], 
     default: 'pending_seller'
   },
 
-  // Order timeline
   orderTimeline: [{
     status: { type: String, required: true },
     timestamp: { type: Date, default: Date.now },
@@ -93,7 +95,6 @@ const orderSchema = new mongoose.Schema({
     message: String
   }],
 
-  // Seller response tracking
   sellerResponse: {
     acceptedAt: Date,
     rejectedAt: Date,
@@ -103,7 +104,6 @@ const orderSchema = new mongoose.Schema({
   estimatedDelivery: { type: String, default: '25-30 minutes' },
   actualDeliveryTime: { type: Date, default: null },
 
-  // Cancellation fields
   cancelledAt: { type: Date, default: null },
   cancellationReason: { type: String, default: null },
   cancelledBy: { 
@@ -112,7 +112,6 @@ const orderSchema = new mongoose.Schema({
     default: null 
   },
 
-  // Refund tracking
   refundStatus: {
     type: String,
     enum: ['none', 'pending', 'processing', 'completed', 'failed'],
@@ -150,11 +149,12 @@ const orderSchema = new mongoose.Schema({
 
 // Indexes
 orderSchema.index({ orderId: 1 }, { unique: true });
+orderSchema.index({ customerId: 1, createdAt: -1 }); // ← Updated index
 orderSchema.index({ customerEmail: 1, createdAt: -1 });
 orderSchema.index({ seller: 1, orderStatus: 1, createdAt: -1 });
 orderSchema.index({ orderStatus: 1 });
 
-// ✅ Update status with timeline
+// Methods
 orderSchema.methods.updateStatus = function(newStatus, actor = 'system', message = '') {
   this.orderStatus = newStatus;
   
@@ -172,7 +172,6 @@ orderSchema.methods.updateStatus = function(newStatus, actor = 'system', message
   return this.save();
 };
 
-// ✅ Accept order (seller)
 orderSchema.methods.acceptOrder = function() {
   this.orderStatus = 'seller_accepted';
   this.sellerResponse.acceptedAt = new Date();
@@ -185,7 +184,6 @@ orderSchema.methods.acceptOrder = function() {
   return this.save();
 };
 
-// ✅ Reject order (seller)
 orderSchema.methods.rejectOrder = function(reason) {
   this.orderStatus = 'seller_rejected';
   this.sellerResponse.rejectedAt = new Date();
@@ -202,16 +200,13 @@ orderSchema.methods.rejectOrder = function(reason) {
   return this.save();
 };
 
-// Static method to generate order ID (kept for manual generation if needed)
 orderSchema.statics.generateOrderId = function() {
   const timestamp = Date.now().toString().slice(-8);
   const random = Math.random().toString(36).substr(2, 4).toUpperCase();
   return `ORDER_${timestamp}_${random}`;
 };
 
-// ✅ FIXED: Simplified pre-save hook
 orderSchema.pre('save', function(next) {
-  // Add initial timeline entry only for new documents
   if (this.isNew && this.orderTimeline.length === 0) {
     this.orderTimeline.push({
       status: this.orderStatus,

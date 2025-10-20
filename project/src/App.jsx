@@ -12,7 +12,7 @@ import SignupScreen from "./customer/SignupScreen";
 
 // Customer Main app components
 import Header from "./customer/Header";
-import Home from "./pages/Home"; // ✅ Import the Home page component
+import Home from "./pages/Home";
 import VerifyEmailChange from "./customer/VerifyEmailChange";
 import Settings from "./customer/SettingsComponent";
 import PaymentSuccessPage from './customer/PaymentSuccessPage';
@@ -20,8 +20,9 @@ import DishDetailsPage from "./customer/DishDetailsPage";
 import DiscoveryPage from "./customer/DiscoveryPage";
 import WishlistPage from "./customer/WishlistPage";
 import OrderHistoryApp from './customer/OrderHistoryApp';
-import CartPage from "./customer/CartPage";
+import CartPage from "./customer/CartPage"; // ✅ FIXED: Ensure this matches exact file name
 import AuthSuccess from './customer/AuthSuccess';
+import RestaurantMenuPage from './customer/RestaurantMenuPage'; // 🆕 NEW: Import RestaurantMenuPage
 
 // Customer Order flow page components
 import AddressPage from "./customer/AddressPage";
@@ -114,7 +115,7 @@ const ProtectedMainView = ({ currentView, renderMainView, setCurrentView }) => {
   const { isAuthenticated, loading } = useAuth();
 
   useEffect(() => {
-    const protectedViews = ['main', 'settings', 'discovery', 'dish-details', 'cart', 'wishlist', 'order-history'];
+    const protectedViews = ['main', 'settings', 'discovery', 'dish-details', 'cart', 'wishlist', 'order-history', 'restaurant-menu'];
     
     if (!loading && !isAuthenticated && protectedViews.includes(currentView)) {
       console.log('Not authenticated, redirecting to login');
@@ -148,6 +149,7 @@ const ProtectedSellerRoute = ({ children }) => {
 function App() {
   const [currentView, setCurrentView] = useState("splash");
   const [selectedDishId, setSelectedDishId] = useState(null);
+  const [selectedRestaurantId, setSelectedRestaurantId] = useState(null); // 🆕 NEW: For restaurant menu
 
   // Show splash for 3 seconds
   useEffect(() => {
@@ -257,6 +259,19 @@ function App() {
     setCurrentView("discovery");
   };
 
+  // 🆕 NEW: Restaurant menu handlers
+  const handleShowRestaurantMenu = (restaurantId) => {
+    console.log("handleShowRestaurantMenu called with restaurantId:", restaurantId);
+    setSelectedRestaurantId(restaurantId);
+    setCurrentView("restaurant-menu");
+  };
+
+  const handleCloseRestaurantMenu = () => {
+    console.log("handleCloseRestaurantMenu called");
+    setSelectedRestaurantId(null);
+    setCurrentView("discovery");
+  };
+
   const handleLogout = async () => {
     console.log("handleLogout called");
     setCurrentView("login");
@@ -329,7 +344,6 @@ function App() {
                 onOpenOrderHistory={handleOpenOrderHistory}
                 onLogout={handleLogout} 
               />
-              {/* ✅ Use the Home component with all necessary props */}
               <Home 
                 onOpenDiscovery={handleOpenDiscovery}
                 onNavigateToLogin={handleBackToLogin}
@@ -347,6 +361,7 @@ function App() {
             <DiscoveryPage 
               onBack={handleCloseDiscovery} 
               onShowDishDetails={handleShowDishDetails}
+              onShowRestaurantMenu={handleShowRestaurantMenu} // 🆕 NEW: Pass handler
             />
           );
 
@@ -355,6 +370,15 @@ function App() {
             <DishDetailsPage 
               dishId={selectedDishId}
               onBack={handleCloseDishDetails}
+            />
+          );
+
+        // 🆕 NEW: Restaurant menu view
+        case "restaurant-menu":
+          return (
+            <RestaurantMenuPage 
+              restaurantId={selectedRestaurantId}
+              onBack={handleCloseRestaurantMenu}
             />
           );
 
@@ -419,8 +443,12 @@ function App() {
                         }
                       >
                         <Routes>
-                                  <Route path="/auth-success" element={<AuthSuccess />} />
-
+                          {/* Customer auth success */}
+                          <Route path="/auth-success" element={<AuthSuccess />} />
+                          
+                          {/* 🆕 NEW: Restaurant menu route */}
+                          <Route path="/restaurant/:restaurantId" element={<RestaurantMenuPage />} />
+                          
                           {/* Customer reset password routes */}
                           <Route path="/reset-password/:token" element={<ResetPasswordScreen />} />
                           <Route path="/reset-password-settings/:token" element={<ResetPasswordFromSettings />} />

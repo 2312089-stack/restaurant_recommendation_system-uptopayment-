@@ -1,3 +1,4 @@
+// src/contexts/SocketContext.jsx - COMPLETE WORKING VERSION
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { io } from 'socket.io-client';
 
@@ -33,12 +34,12 @@ export const SocketProvider = ({ children }) => {
     const customerToken = localStorage.getItem('token');
     
     if (!sellerToken && !customerToken) {
-      console.log('No token found, skipping socket connection');
+      console.log('❌ No token found, skipping socket connection');
       return;
     }
 
     if (socketRef.current?.connected) {
-      console.log('Socket already connected, reusing existing connection');
+      console.log('✅ Socket already connected, reusing existing connection');
       return;
     }
 
@@ -52,66 +53,112 @@ export const SocketProvider = ({ children }) => {
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
       reconnectionAttempts: Infinity,
-      timeout: 10000,
-      auth: {
-        token: sellerToken || customerToken,
-        type: sellerToken ? 'seller' : 'customer'
-      }
+      timeout: 10000
     });
 
     socketRef.current = newSocket;
 
-// In SocketContext.jsx - Update seller-accepted-order listener
-newSocket.on('seller-accepted-order', (data) => {
-  console.log('🎉 SELLER ACCEPTED ORDER EVENT RECEIVED:', {
-    orderId: data.orderId,
-    orderMongoId: data.orderMongoId,
-    status: data.status,
-    customerEmail: data.customerEmail,
-    timestamp: new Date().toISOString()
-  });
-  
-  const notification = {
-    id: Date.now(),
-    type: 'seller-accepted',
-    title: '🎉 Restaurant Accepted Your Order!',
-    message: data.message || 'The restaurant has confirmed your order. You can now proceed with payment.',
-    timestamp: new Date(),
-    read: false,
-    orderId: data.orderId,
-    orderMongoId: data.orderMongoId || data._id,
-    status: 'seller_accepted'
-  };
-  
-  setNotifications(prev => [notification, ...prev]);
-  
-  // Browser notification
-  if ('Notification' in window && Notification.permission === 'granted') {
-    new Notification('Order Accepted! 🎉', {
-      body: notification.message,
-      icon: '/logo192.png',
-      requireInteraction: true
+    // ==================== CONNECTION ====================
+    newSocket.on('connect', () => {
+      console.log('✅ Socket connected:', newSocket.id);
+      setConnected(true);
+      
+      // ✅ CRITICAL FIX: Authenticate immediately on connect
+      if (customerToken) {
+        console.log('🔐 Authenticating as customer...');
+        newSocket.emit('authenticate-user', customerToken);
+      } else if (sellerToken) {
+        console.log('🔐 Authenticating as seller...');
+        newSocket.emit('authenticate-seller', sellerToken);
+      }
     });
-  }
-  
-  // Dispatch to both ConfirmationPage and OrderTracking
-  window.dispatchEvent(new CustomEvent('seller-accepted-order', { 
-    detail: data,
-    bubbles: true
-  }));
-  
-  window.dispatchEvent(new CustomEvent('order-status-updated', { 
-    detail: data,
-    bubbles: true
-  }));
-});
-newSocket.on('authenticated', (data) => {
-  console.log('✅ Authenticated:', data);
-  setConnected(true);
-});
-    // Listen for order-confirmed event
+
+    newSocket.on('authenticated', (data) => {
+      console.log('✅ AUTHENTICATED:', data);
+      setConnected(true);
+    });
+
+    newSocket.on('auth-error', (error) => {
+      console.error('❌ AUTH ERROR:', error);
+      setConnected(false);
+    });
+
+    // ==================== CRITICAL FIX: NEW-NOTIFICATION LISTENER ====================
+    newSocket.on('new-notification', (data) => {
+      console.log('🔔 NEW NOTIFICATION EVENT RECEIVED:', data);
+      
+      const notification = data.notification;
+      
+      // Add to notifications state
+      setNotifications(prev => [notification, ...prev]);
+      
+      // Browser notification
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification(notification.title, {
+          body: notification.message,
+          icon: '/logo192.png',
+          badge: '/logo192.png',
+          requireInteraction: true
+        });
+      }
+      
+      // Play audio
+      try {
+        const audio = new Audio('/notification.mp3');
+        audio.play().catch(e => console.log('🔇 Audio disabled:', e.message));
+      } catch (e) {
+        console.log('Audio not available');
+      }
+      
+      // Dispatch custom event for other components
+      window.dispatchEvent(new CustomEvent('new-notification', { 
+        detail: notification,
+        bubbles: true
+      }));
+    });
+
+    // ==================== SELLER ACCEPTED ORDER ====================
+    newSocket.on('seller-accepted-order', (data) => {
+      console.log('🎉 SELLER ACCEPTED ORDER EVENT:', data);
+      
+      const notification = {
+        id: Date.now(),
+        type: 'seller-accepted',
+        title: '🎉 Restaurant Accepted Your Order!',
+        message: data.message || 'The restaurant has confirmed your order. You can now proceed with payment.',
+        timestamp: new Date(),
+        read: false,
+        orderId: data.orderId,
+        orderMongoId: data.orderMongoId || data._id,
+        status: 'seller_accepted'
+      };
+      
+      setNotifications(prev => [notification, ...prev]);
+      
+      // Browser notification
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification('Order Accepted! 🎉', {
+          body: notification.message,
+          icon: '/logo192.png',
+          requireInteraction: true
+        });
+      }
+      
+      // Dispatch events
+      window.dispatchEvent(new CustomEvent('seller-accepted-order', { 
+        detail: data,
+        bubbles: true
+      }));
+      
+      window.dispatchEvent(new CustomEvent('order-status-updated', { 
+        detail: data,
+        bubbles: true
+      }));
+    });
+
+    // ==================== ORDER CONFIRMED ====================
     newSocket.on('order-confirmed', (data) => {
-      console.log('✅ Order confirmed event:', data);
+      console.log('✅ ORDER CONFIRMED EVENT:', data);
       
       const notification = {
         id: Date.now(),
@@ -134,12 +181,15 @@ newSocket.on('authenticated', (data) => {
         });
       }
       
-      window.dispatchEvent(new CustomEvent('order-confirmed', { detail: data }));
+      window.dispatchEvent(new CustomEvent('order-confirmed', { 
+        detail: data,
+        bubbles: true
+      }));
     });
 
-    // Listen for order status updates
+    // ==================== ORDER STATUS UPDATED ====================
     newSocket.on('order-status-updated', (data) => {
-      console.log('📦 Order status updated event:', data);
+      console.log('📦 ORDER STATUS UPDATED EVENT:', data);
       
       const statusMessages = {
         'seller_accepted': '✅ Restaurant accepted your order!',
@@ -166,6 +216,7 @@ newSocket.on('authenticated', (data) => {
       
       setNotifications(prev => [notification, ...prev]);
       
+      // Show browser notification for important statuses
       if ('Notification' in window && Notification.permission === 'granted') {
         if (['seller_accepted', 'seller_rejected', 'ready', 'out_for_delivery', 'delivered'].includes(data.status)) {
           new Notification(notification.title, {
@@ -175,27 +226,26 @@ newSocket.on('authenticated', (data) => {
         }
       }
       
-      window.dispatchEvent(new CustomEvent('order-status-updated', { detail: data }));
+      window.dispatchEvent(new CustomEvent('order-status-updated', { 
+        detail: data,
+        bubbles: true
+      }));
     });
 
-    // Listen for status-update event (alternative)
+    // ==================== STATUS UPDATE (ALTERNATIVE) ====================
     newSocket.on('status-update', (data) => {
-      console.log('📦 Status update event:', data);
-      window.dispatchEvent(new CustomEvent('status-update', { detail: data }));
+      console.log('📦 STATUS UPDATE EVENT:', data);
+      window.dispatchEvent(new CustomEvent('status-update', { 
+        detail: data,
+        bubbles: true
+      }));
     });
-newSocket.on('connect', () => {
-  console.log('✅ Socket connected:', newSocket.id);
-  setConnected(true);
-});
 
-// Listen for new orders (sellers)
-newSocket.on('new-order', (data) => {
-  console.log('🔔 New order received:', data);
+    // ==================== NEW ORDER (FOR SELLERS) ====================
+    newSocket.on('new-order', (data) => {
+      console.log('🔔 NEW ORDER RECEIVED:', data);
 
-
-
-
-  const notification = {
+      const notification = {
         id: Date.now(),
         type: 'new-order',
         title: data.notification?.title || 'New Order',
@@ -206,16 +256,16 @@ newSocket.on('new-order', (data) => {
       };
       
       setNotifications(prev => [notification, ...prev]);
-// In SocketContext.jsx, around line 220
-try {
-  const audio = new Audio('/notification.mp3');
-  audio.play().catch(e => {
-    console.log('🔇 Audio notification disabled:', e.message);
-  });
-} catch (e) {
-  console.log('Audio not available');
-}
 
+      // Play audio for new orders
+      try {
+        const audio = new Audio('/notification.mp3');
+        audio.play().catch(e => console.log('🔇 Audio disabled:', e.message));
+      } catch (e) {
+        console.log('Audio not available');
+      }
+
+      // Browser notification
       if ('Notification' in window && Notification.permission === 'granted') {
         new Notification(notification.title, {
           body: notification.message,
@@ -224,9 +274,13 @@ try {
         });
       }
 
-      window.dispatchEvent(new CustomEvent('new-order', { detail: data.order }));
+      window.dispatchEvent(new CustomEvent('new-order', { 
+        detail: data.order,
+        bubbles: true
+      }));
     });
 
+    // ==================== DISCONNECT ====================
     newSocket.on('disconnect', (reason) => {
       console.log('❌ Socket disconnected:', reason);
       setConnected(false);
@@ -239,6 +293,7 @@ try {
       }
     });
 
+    // ==================== ERROR HANDLERS ====================
     newSocket.on('connect_error', (error) => {
       console.error('Socket connection error:', error.message);
       setConnected(false);
@@ -257,12 +312,13 @@ try {
     // Request notification permission
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission().then(permission => {
-        console.log('Notification permission:', permission);
+        console.log('📢 Notification permission:', permission);
       });
     }
 
+    // Cleanup
     return () => {
-      console.log('Cleaning up socket connection');
+      console.log('🧹 Cleaning up socket connection');
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }
@@ -272,7 +328,7 @@ try {
         socketRef.current = null;
       }
     };
-  }, []);
+  }, []); // Empty dependency array - only run once
 
   const value = {
     socket,
@@ -281,7 +337,7 @@ try {
     unreadCount: notifications.filter(n => !n.read).length,
     markAsRead: (id) => {
       setNotifications(prev => 
-        prev.map(n => n.id === id ? { ...n, read: true } : n)
+        prev.map(n => (n.id === id || n._id === id) ? { ...n, read: true } : n)
       );
     },
     markAllAsRead: () => {
@@ -289,7 +345,7 @@ try {
     },
     clearNotifications: () => setNotifications([]),
     removeNotification: (id) => {
-      setNotifications(prev => prev.filter(n => n.id !== id));
+      setNotifications(prev => prev.filter(n => n.id !== id && n._id !== id));
     }
   };
 
