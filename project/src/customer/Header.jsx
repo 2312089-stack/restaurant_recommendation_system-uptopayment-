@@ -1,15 +1,13 @@
-// src/customer/Header.jsx - COMPLETE VERSION WITH NOTIFICATIONS
+// src/customer/Header.jsx - FIXED VERSION WITH IMPROVED GOOGLE TRANSLATE
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation as useRouterLocation } from 'react-router-dom';
 import {
-  Search,
   MapPin,
   Bell,
   ShoppingCart,
   User,
   Home,
   Compass,
-  Calendar,
   Package,
   Heart,
   Sun,
@@ -21,27 +19,31 @@ import {
   Plus,
   Trash2,
   X,
-  ArrowRight
+  ArrowRight,
+  Languages
 } from 'lucide-react';
 import { useCart } from '../contexts/CartContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../contexts/SocketContext';
+import { useLocation } from '../contexts/LocationContext';
 import NotificationPanel from './NotificationPanel';
 
 const Header = ({ onOpenSettings, onOpenDiscovery, onOpenCart, onOpenWishlist, onOpenOrderHistory, onLogout }) => {
   const navigate = useNavigate();
+  const routerLocation = useRouterLocation();
   const { logout, user: authUser, authToken } = useAuth();
   const { socket, connected } = useSocket();
+  const { location: contextLocation, detectLocation: contextDetectLocation, isLoading: locationLoading } = useLocation();
 
-  const [location, setLocation] = useState("Detecting location...");
   const [isLocationDropdownOpen, setIsLocationDropdownOpen] = useState(false);
   const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
   const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState(false);
   const [isCartDropdownOpen, setIsCartDropdownOpen] = useState(false);
-  const [isDarkMode, setIsDarkMode] = useState(false);
-const [showNotifications, setShowNotifications] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    const saved = localStorage.getItem('darkMode');
+    return saved === 'true';
+  });
 
-  // Notification states
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loadingNotifications, setLoadingNotifications] = useState(false);
@@ -60,102 +62,125 @@ const [showNotifications, setShowNotifications] = useState(false);
     refreshCart
   } = useCart();
 
-  // Fetch notifications on mount
-// Replace your existing fetchNotifications useEffect with this:
-useEffect(() => {
-  // Fetch on mount
-  if (authToken) {
-    fetchNotifications();
-  }
+  // Initialize Google Translate
+  useEffect(() => {
+    const initGoogleTranslate = () => {
+      if (!document.getElementById("google-translate-script")) {
+        const script = document.createElement("script");
+        script.id = "google-translate-script";
+        script.src = "//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit";
+        script.async = true;
+        document.body.appendChild(script);
+      }
 
-  // Refresh every 30 seconds
-  const interval = setInterval(() => {
-    if (authToken && !isNotificationPanelOpen) {
-      fetchNotifications();
+      window.googleTranslateElementInit = function() {
+        try {
+          const element = document.getElementById("google_translate_element");
+          if (element && window.google && window.google.translate) {
+            element.innerHTML = "";
+            new window.google.translate.TranslateElement(
+              {
+                pageLanguage: "en",
+                includedLanguages: "en,ta,hi,te,kn,ml,bn,mr,gu,pa,ur",
+                layout: window.google.translate.TranslateElement.InlineLayout.SIMPLE,
+                autoDisplay: false
+              },
+              "google_translate_element"
+            );
+          }
+        } catch (error) {
+          console.error("❌ Google Translate error:", error);
+        }
+      };
+    };
+
+    initGoogleTranslate();
+  }, []);
+
+  // Reinitialize when dropdown opens
+  useEffect(() => {
+    if (isAccountDropdownOpen) {
+      const timer = setTimeout(() => {
+        if (window.google && window.google.translate) {
+          const element = document.getElementById("google_translate_element");
+          if (element) {
+            element.innerHTML = "";
+            try {
+              new window.google.translate.TranslateElement(
+                {
+                  pageLanguage: "en",
+                  includedLanguages: "en,ta,hi,te,kn,ml,bn,mr,gu,pa,ur",
+                  layout: window.google.translate.TranslateElement.InlineLayout.SIMPLE,
+                  autoDisplay: false
+                },
+                "google_translate_element"
+              );
+            } catch (error) {
+              console.error("❌ Reinitialize error:", error);
+            }
+          }
+        }
+      }, 200);
+      return () => clearTimeout(timer);
     }
-  }, 30000);
+  }, [isAccountDropdownOpen]);
 
-  return () => clearInterval(interval);
-}, [authToken]);
+  useEffect(() => {
+    if (authToken) fetchNotifications();
+    const interval = setInterval(() => {
+      if (authToken && !isNotificationPanelOpen) fetchNotifications();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [authToken]);
 
-
-  // Listen for new notifications from socket
   useEffect(() => {
     if (!socket) return;
-
     const handleNewNotification = (data) => {
-      console.log('🔔 New notification received:', data);
-      
       const newNotification = data.notification;
       setNotifications(prev => [newNotification, ...prev]);
       setUnreadCount(prev => prev + 1);
-      
       if ('Notification' in window && Notification.permission === 'granted') {
         new Notification(newNotification.title, {
           body: newNotification.message,
-          icon: '/logo192.png',
-          badge: '/logo192.png'
+          icon: '/logo192.png'
         });
       }
-
-      try {
-        const audio = new Audio('/notification.mp3');
-        audio.play().catch(e => console.log('Audio play failed:', e));
-      } catch (e) {
-        console.log('Audio not available');
-      }
     };
-
-    const handleOrderStatusUpdate = (data) => {
-      console.log('📦 Order status updated:', data);
-      fetchNotifications();
-    };
-
-    const handleSellerAcceptedOrder = (data) => {
-      console.log('🎉 Seller accepted order:', data);
-      fetchNotifications();
-    };
-
     socket.on('new-notification', handleNewNotification);
-    socket.on('order-status-updated', handleOrderStatusUpdate);
-    socket.on('seller-accepted-order', handleSellerAcceptedOrder);
-    
+    socket.on('order-status-updated', fetchNotifications);
+    socket.on('seller-accepted-order', fetchNotifications);
     return () => {
       socket.off('new-notification', handleNewNotification);
-      socket.off('order-status-updated', handleOrderStatusUpdate);
-      socket.off('seller-accepted-order', handleSellerAcceptedOrder);
+      socket.off('order-status-updated', fetchNotifications);
+      socket.off('seller-accepted-order', fetchNotifications);
     };
   }, [socket]);
 
-  // Request notification permission
   useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission().then(permission => {
-        console.log('Notification permission:', permission);
-      });
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+      document.body.classList.add('dark');
+      document.documentElement.style.colorScheme = 'dark';
+      localStorage.setItem('darkMode', 'true');
+    } else {
+      document.documentElement.classList.remove('dark');
+      document.body.classList.remove('dark');
+      document.documentElement.style.colorScheme = 'light';
+      localStorage.setItem('darkMode', 'false');
     }
-  }, []);
+  }, [isDarkMode]);
 
   const fetchNotifications = async () => {
     if (!authToken) return;
-    
     try {
       setLoadingNotifications(true);
-      
       const response = await fetch(`${API_BASE_URL}/notifications?limit=50`, {
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json'
-        }
+        headers: { 'Authorization': `Bearer ${authToken}`, 'Content-Type': 'application/json' }
       });
-
       if (response.ok) {
         const data = await response.json();
-        console.log('✅ Notifications fetched:', data);
         setNotifications(data.notifications || []);
         setUnreadCount(data.unreadCount || 0);
-      } else {
-        console.error('Failed to fetch notifications:', response.status);
       }
     } catch (error) {
       console.error('❌ Error fetching notifications:', error);
@@ -168,16 +193,10 @@ useEffect(() => {
     try {
       const response = await fetch(`${API_BASE_URL}/notifications/${notificationId}/read`, {
         method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json'
-        }
+        headers: { 'Authorization': `Bearer ${authToken}`, 'Content-Type': 'application/json' }
       });
-
       if (response.ok) {
-        setNotifications(prev =>
-          prev.map(n => n._id === notificationId ? { ...n, read: true } : n)
-        );
+        setNotifications(prev => prev.map(n => n._id === notificationId ? { ...n, read: true } : n));
         setUnreadCount(prev => Math.max(0, prev - 1));
       }
     } catch (error) {
@@ -189,12 +208,8 @@ useEffect(() => {
     try {
       const response = await fetch(`${API_BASE_URL}/notifications/mark-all-read`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json'
-        }
+        headers: { 'Authorization': `Bearer ${authToken}`, 'Content-Type': 'application/json' }
       });
-
       if (response.ok) {
         setNotifications(prev => prev.map(n => ({ ...n, read: true })));
         setUnreadCount(0);
@@ -206,217 +221,34 @@ useEffect(() => {
 
   const handleDeleteNotification = async (notificationId, e) => {
     if (e) e.stopPropagation();
-    
     try {
       const response = await fetch(`${API_BASE_URL}/notifications/${notificationId}`, {
         method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json'
-        }
+        headers: { 'Authorization': `Bearer ${authToken}`, 'Content-Type': 'application/json' }
       });
-
       if (response.ok) {
         const wasUnread = notifications.find(n => n._id === notificationId && !n.read);
         setNotifications(prev => prev.filter(n => n._id !== notificationId));
-        if (wasUnread) {
-          setUnreadCount(prev => Math.max(0, prev - 1));
-        }
+        if (wasUnread) setUnreadCount(prev => Math.max(0, prev - 1));
       }
     } catch (error) {
       console.error('Failed to delete notification:', error);
     }
   };
-useEffect(() => {
-  if (!socket) return;
 
-  const handleNewNotification = (data) => {
-    console.log('🔔 NEW NOTIFICATION RECEIVED:', data);
-    
-    const newNotification = data.notification;
-    
-    // Add to notifications array
-    setNotifications(prev => [newNotification, ...prev]);
-    setUnreadCount(prev => prev + 1);
-    
-    // Browser notification
-    if ('Notification' in window && Notification.permission === 'granted') {
-      new Notification(newNotification.title, {
-        body: newNotification.message,
-        icon: '/logo192.png',
-        badge: '/logo192.png',
-        requireInteraction: false
-      });
+  const handleNotificationClick = (notification) => {
+    if (!notification.read) handleMarkAsRead(notification._id);
+    if (notification.data?.actionUrl) {
+      navigate(notification.data.actionUrl);
+    } else if (notification.orderMongoId) {
+      navigate(`/order-tracking/${notification.orderMongoId}`);
     }
-
-    // Play audio
-    try {
-      const audio = new Audio('/notification.mp3');
-      audio.play().catch(e => console.log('Audio play failed:', e));
-    } catch (e) {
-      console.log('Audio not available');
-    }
+    setIsNotificationPanelOpen(false);
   };
-
-  // CRITICAL: Listen for the 'new-notification' event from backend
-  socket.on('new-notification', handleNewNotification);
-  
-  return () => {
-    socket.off('new-notification', handleNewNotification);
-  };
-}, [socket]);
-const handleNotificationClick = (notification) => {
-  // Mark as read if unread
-  if (!notification.read) {
-    handleMarkAsRead(notification._id);
-  }
-
-  // Navigate to action URL
-  if (notification.data?.actionUrl) {
-    navigate(notification.data.actionUrl);
-  } else if (notification.orderMongoId) {
-    navigate(`/order-tracking/${notification.orderMongoId}`);
-  }
-  
-  // Close both notification indicators
-  setShowNotifications(false);
-  setIsNotificationPanelOpen(false);
-};
-
-  const detectLocation = useCallback(() => {
-    if (!navigator.geolocation) {
-      setLocation('Location not supported');
-      return;
-    }
-
-    setLocation("Detecting location...");
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const { latitude, longitude } = position.coords;
-        try {
-          const response = await fetch(
-            `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`
-          );
-          const data = await response.json();
-          const locationString = `${data.locality || data.city || 'Unknown'}, ${data.principalSubdivision}`;
-          setLocation(locationString);
-        } catch (error) {
-          console.error('Error fetching location:', error);
-          setLocation('Location unavailable');
-        }
-      },
-      (error) => {
-        console.error('Error getting location:', error);
-        setLocation('Enable location access');
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
-    );
-  }, []);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token && refreshCart) {
-      refreshCart();
-    }
+    if (refreshCart) refreshCart();
   }, [refreshCart]);
-
-  useEffect(() => {
-    const handleCartUpdate = (event) => {
-      console.log('Cart updated, refreshing header cart...', event.detail);
-      if (refreshCart) {
-        refreshCart();
-      }
-    };
-
-    window.addEventListener('cartUpdated', handleCartUpdate);
-    return () => window.removeEventListener('cartUpdated', handleCartUpdate);
-  }, [refreshCart]);
-
-  useEffect(() => {
-    detectLocation();
-    const locationInterval = setInterval(detectLocation, 300000);
-    return () => clearInterval(locationInterval);
-  }, [detectLocation]);
-
-  useEffect(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  }, [isDarkMode]);
-
-  const toggleDarkMode = () => setIsDarkMode(!isDarkMode);
-
-  const openSettings = () => {
-    if (onOpenSettings) onOpenSettings();
-    setIsAccountDropdownOpen(false);
-  };
-
-  const handleWishlistClick = (e) => {
-    e.preventDefault();
-    if (onOpenWishlist) onOpenWishlist();
-  };
-
-  const handleOrderHistoryClick = (e) => {
-    e.preventDefault();
-    if (onOpenOrderHistory) onOpenOrderHistory();
-  };
-
-  const handleLogout = async () => {
-    if (window.confirm('Are you sure you want to logout?')) {
-      await logout();
-      setIsAccountDropdownOpen(false);
-      if (onLogout) onLogout();
-    }
-  };
-
-  const handleDiscoverClick = (e) => {
-    e.preventDefault();
-    if (onOpenDiscovery) onOpenDiscovery();
-  };
-
-  const handleHomeClick = (e) => {
-    e.preventDefault();
-    console.log('Home clicked');
-  };
-
-  const handleCartClick = useCallback(() => {
-    if (onOpenCart) onOpenCart();
-    setIsCartDropdownOpen(false);
-  }, [onOpenCart]);
-
-  const handleQuantityChange = useCallback(async (dishId, newQuantity) => {
-    try {
-      await updateQuantity(dishId, newQuantity);
-    } catch (error) {
-      console.error('Error updating quantity:', error);
-    }
-  }, [updateQuantity]);
-
-  const handleRemoveItem = useCallback(async (dishId, dishName = 'Item') => {
-    try {
-      await removeItem(dishId);
-    } catch (error) {
-      console.error('Error removing item:', error);
-    }
-  }, [removeItem]);
-
-  const handleClearCart = useCallback(async () => {
-    if (window.confirm('Are you sure you want to clear your cart?')) {
-      try {
-        await clearCart();
-        setIsCartDropdownOpen(false);
-      } catch (error) {
-        console.error('Error clearing cart:', error);
-      }
-    }
-  }, [clearCart]);
-
-  const handleProceedToOrder = useCallback(() => {
-    if (onOpenCart) onOpenCart();
-    setIsCartDropdownOpen(false);
-  }, [onOpenCart]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -426,10 +258,52 @@ const handleNotificationClick = (notification) => {
         setIsCartDropdownOpen(false);
       }
     };
-
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  const toggleDarkMode = () => setIsDarkMode(!isDarkMode);
+
+  const handleQuantityChange = useCallback(async (dishId, newQuantity) => {
+    try {
+      await updateQuantity(dishId, newQuantity);
+    } catch (error) {
+      console.error('Error updating quantity:', error);
+    }
+  }, [updateQuantity]);
+
+  const handleRemoveItem = useCallback(async (dishId) => {
+    try {
+      await removeItem(dishId);
+    } catch (error) {
+      console.error('Error removing item:', error);
+    }
+  }, [removeItem]);
+
+  const handleProceedToOrder = useCallback(() => {
+    if (onOpenCart) onOpenCart();
+    setIsCartDropdownOpen(false);
+  }, [onOpenCart]);
+
+  const displayLocation = () => {
+    if (locationLoading) return "Detecting location...";
+    if (contextLocation.city && contextLocation.state) {
+      return `${contextLocation.city}, ${contextLocation.state}`;
+    }
+    if (contextLocation.fullAddress) return contextLocation.fullAddress;
+    return "Location unavailable";
+  };
+
+  // Logo Component with SVG Image
+  const Logo = () => (
+    <div className="relative w-10 h-10 bg-gradient-to-br from-orange-500 to-orange-600 rounded-full flex items-center justify-center shadow-lg overflow-hidden">
+      <img 
+        src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='48' fill='%23f97316'/%3E%3Ccircle cx='30' cy='65' r='8' fill='none' stroke='white' stroke-width='3'/%3E%3Ccircle cx='70' cy='65' r='8' fill='none' stroke='white' stroke-width='3'/%3E%3Cline x1='20' y1='45' x2='35' y2='38' stroke='white' stroke-width='2'/%3E%3Cline x1='25' y1='35' x2='38' y2='30' stroke='white' stroke-width='2'/%3E%3Cline x1='35' y1='25' x2='37' y2='38' stroke='white' stroke-width='2'/%3E%3Cline x1='38' y1='20' x2='45' y2='28' stroke='white' stroke-width='1.5'/%3E%3Cline x1='70' y1='30' x2='72' y2='42' stroke='white' stroke-width='2'/%3E%3Cline x1='75' y1='25' x2='85' y2='30' stroke='white' stroke-width='2'/%3E%3Crect x='75' y='15' width='10' height='10' fill='white' rx='1'/%3E%3C/svg%3E"
+        alt="TasteSphere Logo" 
+        className="w-full h-full object-cover"
+      />
+    </div>
+  );
 
   return (
     <>
@@ -439,111 +313,74 @@ const handleNotificationClick = (notification) => {
             <div className="flex items-center justify-between h-16">
               {/* Logo */}
               <div className="flex items-center space-x-3">
-                <div className="w-12 h-12 relative">
-                  <div className="w-full h-full bg-orange-500 rounded-lg flex items-center justify-center relative overflow-hidden">
-                    <div className="relative">
-                      <div className="w-6 h-6 bg-white rounded-full opacity-90"></div>
-                      <div className="absolute -top-1 -right-1 w-3 h-3 bg-white rounded-full opacity-70"></div>
-                      <div className="absolute top-1 left-1 w-2 h-2 bg-orange-500 rounded-full"></div>
-                    </div>
-                    <div className="absolute bottom-0 right-0 w-4 h-4 bg-orange-600 rounded-tl-full opacity-50"></div>
-                  </div>
-                </div>
+                <Logo />
                 <div>
-                  <span className="text-xl font-bold text-gray-900 dark:text-white">TasteSphere</span>
+                  <span className="text-xl font-bold bg-gradient-to-r from-orange-500 to-orange-600 bg-clip-text text-transparent">TasteSphere</span>
                   <div className="text-xs text-gray-500 dark:text-gray-400 -mt-1">Food Delivery</div>
                 </div>
               </div>
 
-              {/* Search & Location */}
-              <div className="flex-1 max-w-2xl mx-8">
-                <div className="flex space-x-4">
-                  {/* Location Dropdown */}
-                  <div className="relative dropdown-container">
-                    <button
-                      onClick={() => setIsLocationDropdownOpen(!isLocationDropdownOpen)}
-                      className="flex items-center space-x-2 px-3 py-2 bg-gray-50 dark:bg-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                    >
-                      <MapPin className="w-4 h-4 text-orange-500" />
-                      <div className="text-left">
-                        <div className="text-xs text-gray-500 dark:text-gray-400 leading-none">Deliver to</div>
-                        <div className="text-sm font-medium truncate max-w-32 text-gray-900 dark:text-white leading-tight">
-                          {location}
-                        </div>
+              {/* Location */}
+              <div className="flex-1 max-w-xs mx-4">
+                <div className="relative dropdown-container">
+                  <button
+                    onClick={() => setIsLocationDropdownOpen(!isLocationDropdownOpen)}
+                    className="flex items-center space-x-2 px-3 py-2 bg-gray-50 dark:bg-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors w-full"
+                  >
+                    <MapPin className={`w-4 h-4 ${locationLoading ? 'animate-pulse text-orange-400' : 'text-orange-500'}`} />
+                    <div className="text-left flex-1 min-w-0">
+                      <div className="text-xs text-gray-500 dark:text-gray-400 leading-none">
+                        {locationLoading ? 'Locating...' : 'Deliver to'}
                       </div>
-                      <ChevronDown className="w-4 h-4 text-gray-400" />
-                    </button>
-
-                    {isLocationDropdownOpen && (
-                      <div className="absolute top-14 left-0 w-80 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-4 z-50">
-                        <h3 className="font-semibold mb-3 text-gray-900 dark:text-white">Choose Location</h3>
-                        <div className="mb-3">
-                          <button
-                            onClick={() => {
-                              detectLocation();
-                              setIsLocationDropdownOpen(false);
-                            }}
-                            className="flex items-center space-x-2 text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 text-sm font-medium"
-                          >
-                            <MapPin className="w-4 h-4" />
-                            <span>Use current location</span>
-                          </button>
-                        </div>
-                        <input
-                          type="text"
-                          placeholder="Search for area, street name..."
-                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
-                          onKeyPress={(e) => {
-                            if (e.key === 'Enter') {
-                              setLocation(e.target.value);
-                              setIsLocationDropdownOpen(false);
-                            }
-                          }}
-                        />
+                      <div className="text-sm font-medium truncate text-gray-900 dark:text-white leading-tight">
+                        {displayLocation()}
                       </div>
-                    )}
-                  </div>
-
-                  {/* Search Bar */}
-                  <div className="flex-1 relative">
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                      <input
-                        type="text"
-                        placeholder="Search for restaurants, dishes, cuisines..."
-                        className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
-                        onKeyPress={(e) => {
-                          if (e.key === 'Enter' && e.target.value.trim()) {
-                            handleDiscoverClick(e);
-                          }
-                        }}
-                      />
                     </div>
-                  </div>
+                    <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                  </button>
+
+                  {isLocationDropdownOpen && (
+                    <div className="absolute top-14 left-0 w-80 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-4 z-50">
+                      <h3 className="font-semibold mb-3 text-gray-900 dark:text-white">Choose Location</h3>
+                      <button
+                        onClick={() => {
+                          contextDetectLocation(false);
+                          setIsLocationDropdownOpen(false);
+                        }}
+                        disabled={locationLoading}
+                        className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <MapPin className={`w-4 h-4 ${locationLoading ? 'animate-spin' : ''}`} />
+                        <span>{locationLoading ? 'Detecting...' : 'Detect My Location'}</span>
+                      </button>
+                      {contextLocation.accuracy && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 text-center">
+                          Accuracy: ±{contextLocation.accuracy}m
+                        </p>
+                      )}
+                      {contextLocation.latitude && contextLocation.longitude && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 text-center">
+                          {contextLocation.latitude.toFixed(4)}, {contextLocation.longitude.toFixed(4)}
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 
               {/* Icons */}
               <div className="flex items-center space-x-4">
-                {/* Notifications Bell */}
+                {/* Notifications */}
                 <div className="relative dropdown-container">
                   <button
-                    onClick={() => {
-                      setIsNotificationPanelOpen(!isNotificationPanelOpen);
-                      if (!isNotificationPanelOpen && authToken) {
-                        fetchNotifications();
-                      }
-                    }}
+                    onClick={() => setIsNotificationPanelOpen(!isNotificationPanelOpen)}
                     className="relative p-2 text-gray-600 hover:text-orange-500 dark:text-gray-400 dark:hover:text-orange-500 transition-colors"
                   >
                     <Bell className="w-5 h-5" />
                     {unreadCount > 0 && (
-                      <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold animate-pulse">
+                      <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
                         {unreadCount > 99 ? '99+' : unreadCount}
                       </span>
-                    )}
-                    {connected && (
-                      <span className="absolute bottom-0 right-0 w-2 h-2 bg-green-500 rounded-full"></span>
                     )}
                   </button>
                 </div>
@@ -551,120 +388,62 @@ const handleNotificationClick = (notification) => {
                 {/* Cart */}
                 <div className="relative dropdown-container">
                   <button
-                    onClick={handleCartClick}
-                    className="relative p-2 text-gray-600 hover:text-orange-500 dark:text-gray-400 dark:hover:text-orange-500 transition-colors group"
-                    disabled={cartLoading}
+                    onClick={() => setIsCartDropdownOpen(!isCartDropdownOpen)}
+                    className="relative p-2 text-gray-600 hover:text-orange-500 dark:text-gray-400 dark:hover:text-orange-500 transition-colors"
                   >
-                    <ShoppingCart className={`w-5 h-5 ${cartLoading ? 'animate-pulse' : ''}`} />
+                    <ShoppingCart className="w-5 h-5" />
                     {itemCount > 0 && (
-                      <span className={`absolute -top-1 -right-1 w-5 h-5 bg-orange-500 text-white text-xs rounded-full flex items-center justify-center font-bold ${cartLoading ? 'animate-pulse' : 'animate-bounce'}`}>
+                      <span className="absolute -top-1 -right-1 w-5 h-5 bg-orange-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
                         {itemCount > 99 ? '99+' : itemCount}
                       </span>
                     )}
-                    
-                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                      {cartError ? 'Error loading cart' : itemCount === 0 ? 'Your cart is empty' : `${itemCount} items • ₹${totalAmount}`}
-                    </div>
                   </button>
 
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setIsCartDropdownOpen(!isCartDropdownOpen);
-                    }}
-                    disabled={cartLoading}
-                    className="absolute -right-2 -top-1 w-4 h-4 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-400 text-white text-xs rounded-full flex items-center justify-center transition-colors"
-                    title="Quick view cart"
-                  >
-                    <ChevronDown className="w-2 h-2" />
-                  </button>
-
-                  {/* Cart Quick View Dropdown */}
-                  {isCartDropdownOpen && (
+                  {isCartDropdownOpen && items.length > 0 && (
                     <div className="absolute top-12 right-0 w-96 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-50">
                       <div className="p-4 border-b border-gray-200 dark:border-gray-700">
                         <div className="flex justify-between items-center">
                           <h3 className="font-semibold text-gray-900 dark:text-white">Cart ({itemCount})</h3>
                           <button onClick={() => setIsCartDropdownOpen(false)}>
-                            <X className="w-4 h-4 text-gray-500" />
+                            <X className="w-4 h-4 text-gray-500 dark:text-gray-400" />
                           </button>
                         </div>
                       </div>
 
-                      {cartError && (
-                        <div className="p-4 bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800">
-                          <p className="text-sm text-red-600 dark:text-red-400">{cartError}</p>
-                        </div>
-                      )}
-
-                      <div className="max-h-64 overflow-y-auto p-4">
-                        {cartLoading ? (
-                          <div className="text-center py-8">
-                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500 mx-auto"></div>
-                          </div>
-                        ) : items && items.length > 0 ? (
-                          <div className="space-y-3">
-                            {items.map((item) => (
-                              <div key={item.dishId} className="flex space-x-3 bg-gray-50 dark:bg-gray-700 rounded-lg p-2">
-                                <img
-                                  src={item.dishImage || 'https://via.placeholder.com/60'}
-                                  alt={item.dishName}
-                                  className="w-16 h-16 object-cover rounded"
-                                  onError={(e) => e.target.src = 'https://via.placeholder.com/60'}
-                                />
-                                <div className="flex-1 min-w-0">
-                                  <h4 className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                                    {item.dishName}
-                                  </h4>
-                                  <p className="text-xs text-gray-500 dark:text-gray-400">₹{item.price}</p>
-                                  <div className="flex items-center space-x-2 mt-1">
-                                    <button
-                                      onClick={() => handleQuantityChange(item.dishId, item.quantity - 1)}
-                                      className="p-1 bg-white dark:bg-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-500"
-                                    >
-                                      <Minus className="w-3 h-3" />
-                                    </button>
-                                    <span className="text-sm font-medium">{item.quantity}</span>
-                                    <button
-                                      onClick={() => handleQuantityChange(item.dishId, item.quantity + 1)}
-                                      className="p-1 bg-white dark:bg-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-500"
-                                    >
-                                      <Plus className="w-3 h-3" />
-                                    </button>
-                                    <button
-                                      onClick={() => handleRemoveItem(item.dishId, item.dishName)}
-                                      className="ml-auto p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
-                                    >
-                                      <Trash2 className="w-3 h-3" />
-                                    </button>
-                                  </div>
-                                </div>
+                      <div className="max-h-64 overflow-y-auto p-4 space-y-3">
+                        {items.map((item) => (
+                          <div key={item.dishId} className="flex space-x-3 bg-gray-50 dark:bg-gray-700 rounded-lg p-2">
+                            <img src={item.dishImage || 'https://via.placeholder.com/60'} alt={item.dishName} className="w-16 h-16 object-cover rounded" />
+                            <div className="flex-1">
+                              <h4 className="text-sm font-medium text-gray-900 dark:text-white truncate">{item.dishName}</h4>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">₹{item.price}</p>
+                              <div className="flex items-center space-x-2 mt-1">
+                                <button onClick={() => handleQuantityChange(item.dishId, item.quantity - 1)} className="p-1 bg-white dark:bg-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-500">
+                                  <Minus className="w-3 h-3 text-gray-900 dark:text-white" />
+                                </button>
+                                <span className="text-sm font-medium text-gray-900 dark:text-white">{item.quantity}</span>
+                                <button onClick={() => handleQuantityChange(item.dishId, item.quantity + 1)} className="p-1 bg-white dark:bg-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-500">
+                                  <Plus className="w-3 h-3 text-gray-900 dark:text-white" />
+                                </button>
+                                <button onClick={() => handleRemoveItem(item.dishId)} className="ml-auto p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded">
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
                               </div>
-                            ))}
+                            </div>
                           </div>
-                        ) : (
-                          <div className="text-center py-8">
-                            <ShoppingCart className="w-12 h-12 text-gray-300 mx-auto mb-2" />
-                            <p className="text-sm text-gray-500 dark:text-gray-400">Your cart is empty</p>
-                          </div>
-                        )}
+                        ))}
                       </div>
 
-                      {items && items.length > 0 && (
-                        <div className="p-4 border-t border-gray-200 dark:border-gray-700">
-                          <div className="flex justify-between mb-3">
-                            <span className="font-semibold text-gray-900 dark:text-white">Total</span>
-                            <span className="font-bold text-orange-600">₹{totalAmount}</span>
-                          </div>
-                          <button
-                            onClick={handleProceedToOrder}
-                            className="w-full bg-orange-500 text-white py-2 rounded-lg hover:bg-orange-600 transition-colors flex items-center justify-center space-x-2"
-                          >
-                            <span>View Full Cart</span>
-                            <ArrowRight className="w-4 h-4" />
-                          </button>
+                      <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+                        <div className="flex justify-between mb-3">
+                          <span className="font-semibold text-gray-900 dark:text-white">Total</span>
+                          <span className="font-bold text-orange-600">₹{totalAmount}</span>
                         </div>
-                      )}
+                        <button onClick={handleProceedToOrder} className="w-full bg-orange-500 text-white py-2 rounded-lg hover:bg-orange-600 flex items-center justify-center space-x-2">
+                          <span>View Full Cart</span>
+                          <ArrowRight className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -679,86 +458,85 @@ const handleNotificationClick = (notification) => {
                   </button>
 
                   {isAccountDropdownOpen && (
-                    <div className="absolute top-12 right-0 w-64 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">
-                      <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-                        <p className="font-semibold text-gray-900 dark:text-white">
-                          {authUser?.emailId || authUser?.email || 'Guest User'}
-                        </p>
-                        {authUser?.name && <p className="text-sm text-gray-500 dark:text-gray-400">{authUser.name}</p>}
-                      </div>
-                      <div className="p-2">
-                        <button
-                          onClick={toggleDarkMode}
-                          className="w-full flex items-center space-x-2 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-                        >
-                          {isDarkMode ? (
-                            <Sun className="w-4 h-4 text-gray-600 dark:text-gray-400" />
-                          ) : (
-                            <Moon className="w-4 h-4 text-gray-600 dark:text-gray-400" />
-                          )}
-                          <span className="text-sm text-gray-900 dark:text-white">{isDarkMode ? 'Light Mode' : 'Dark Mode'}</span>
-                        </button>
+                    <>
+                      {/* Backdrop */}
+                      <div 
+                        className="fixed inset-0 z-40" 
+                        onClick={() => setIsAccountDropdownOpen(false)}
+                      />
+                      
+                      {/* Dropdown Menu */}
+                      <div className="absolute top-12 right-0 w-80 bg-white dark:bg-gray-800 rounded-lg shadow-2xl border border-gray-200 dark:border-gray-700 z-50">
+                        <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                          <p className="font-semibold text-gray-900 dark:text-white">
+                            {authUser?.emailId || 'Guest User'}
+                          </p>
+                        </div>
+                        
+                        <div className="p-3 space-y-1">
+                          {/* Dark Mode Toggle */}
+                          <button 
+                            onClick={toggleDarkMode} 
+                            className="w-full flex items-center space-x-3 px-4 py-3 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                          >
+                            {isDarkMode ? <Sun className="w-5 h-5 text-gray-600 dark:text-gray-400" /> : <Moon className="w-5 h-5 text-gray-600 dark:text-gray-400" />}
+                            <span className="text-sm text-gray-900 dark:text-white font-medium">{isDarkMode ? 'Light Mode' : 'Dark Mode'}</span>
+                          </button>
 
-                        <button
-                          onClick={openSettings}
-                          className="w-full flex items-center space-x-2 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-                        >
-                          <Settings className="w-4 h-4 text-gray-600 dark:text-gray-400" />
-                          <span className="text-sm text-gray-900 dark:text-white">Settings</span>
-                        </button>
+                          {/* Language Selector - IMPROVED */}
+                          <div className="w-full px-4 py-3 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">
+                            <div className="flex items-center space-x-3 mb-3">
+                              <Languages className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                              <span className="text-sm text-gray-900 dark:text-white font-medium">Language</span>
+                            </div>
+                            
+                            {/* Google Translate Container with improved z-index */}
+                            <div id="google_translate_element" className="translate-wrapper relative z-[60]"></div>
+                          </div>
 
-                        <button
-                          onClick={handleLogout}
-                          className="w-full flex items-center space-x-2 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors text-red-600 dark:text-red-400"
-                        >
-                          <LogOut className="w-4 h-4" />
-                          <span className="text-sm">Logout</span>
-                        </button>
+                          {/* Settings */}
+                          <button 
+                            onClick={onOpenSettings} 
+                            className="w-full flex items-center space-x-3 px-4 py-3 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                          >
+                            <Settings className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                            <span className="text-sm text-gray-900 dark:text-white font-medium">Settings</span>
+                          </button>
+
+                          {/* Logout */}
+                          <button 
+                            onClick={logout} 
+                            className="w-full flex items-center space-x-3 px-4 py-3 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg text-red-600 dark:text-red-400 transition-colors"
+                          >
+                            <LogOut className="w-5 h-5" />
+                            <span className="text-sm font-medium">Logout</span>
+                          </button>
+                        </div>
                       </div>
-                    </div>
+                    </>
                   )}
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Navigation Tabs */}
+          {/* Navigation */}
           <div className="border-t border-gray-200 dark:border-gray-700">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              <nav className="flex space-x-8 overflow-x-auto">
-                <button
-                  onClick={handleHomeClick}
-                  className="flex items-center space-x-2 px-3 py-3 text-orange-600 border-b-2 border-orange-600 font-medium"
-                >
+              <nav className="flex space-x-8">
+                <button onClick={() => navigate('/home')} className="flex items-center space-x-2 px-3 py-3 text-orange-600 border-b-2 border-orange-600 font-medium">
                   <Home className="w-4 h-4" />
                   <span>Home</span>
                 </button>
-                
-                <button
-                  onClick={handleDiscoverClick}
-                  className="flex items-center space-x-2 px-3 py-3 text-gray-600 hover:text-orange-600 dark:text-gray-400 dark:hover:text-orange-600 transition-colors"
-                >
+                <button onClick={onOpenDiscovery} className="flex items-center space-x-2 px-3 py-3 text-gray-600 hover:text-orange-600 dark:text-gray-400 dark:hover:text-orange-600 transition-colors">
                   <Compass className="w-4 h-4" />
                   <span>Discover</span>
                 </button>
-                
-                <button className="flex items-center space-x-2 px-3 py-3 text-gray-600 hover:text-orange-600 dark:text-gray-400 dark:hover:text-orange-600 transition-colors">
-                  <Calendar className="w-4 h-4" />
-                  <span>Reservations</span>
-                </button>
-                
-                <button
-                  onClick={handleOrderHistoryClick}
-                  className="flex items-center space-x-2 px-3 py-3 text-gray-600 hover:text-orange-600 dark:text-gray-400 dark:hover:text-orange-600 transition-colors"
-                >
+                <button onClick={onOpenOrderHistory} className="flex items-center space-x-2 px-3 py-3 text-gray-600 hover:text-orange-600 dark:text-gray-400 dark:hover:text-orange-600 transition-colors">
                   <Package className="w-4 h-4" />
                   <span>Orders</span>
                 </button>
-                
-                <button
-                  onClick={handleWishlistClick}
-                  className="flex items-center space-x-2 px-3 py-3 text-gray-600 hover:text-orange-600 dark:text-gray-400 dark:hover:text-orange-600 transition-colors"
-                >
+                <button onClick={onOpenWishlist} className="flex items-center space-x-2 px-3 py-3 text-gray-600 hover:text-orange-600 dark:text-gray-400 dark:hover:text-orange-600 transition-colors">
                   <Heart className="w-4 h-4" />
                   <span>Wishlist</span>
                 </button>
@@ -768,7 +546,6 @@ const handleNotificationClick = (notification) => {
         </header>
       </div>
 
-      {/* Notification Panel Component */}
       <NotificationPanel
         isOpen={isNotificationPanelOpen}
         onClose={() => setIsNotificationPanelOpen(false)}
@@ -780,6 +557,96 @@ const handleNotificationClick = (notification) => {
         onNotificationClick={handleNotificationClick}
         loading={loadingNotifications}
       />
+
+      <style jsx global>{`
+        body {
+          top: 0 !important;
+        }
+        
+        .goog-te-banner-frame {
+          display: none !important;
+        }
+
+        .skiptranslate iframe {
+          visibility: hidden !important;
+          height: 0 !important;
+        }
+
+        /* IMPROVED TRANSLATE STYLING */
+        .translate-wrapper {
+          min-height: 40px;
+        }
+
+        #google_translate_element {
+          position: relative;
+          z-index: 60 !important;
+        }
+
+        #google_translate_element .goog-te-gadget {
+          font-size: 0 !important;
+          line-height: normal !important;
+        }
+
+        #google_translate_element .goog-te-gadget > span,
+        #google_translate_element .goog-te-gadget > div > span {
+          display: none !important;
+        }
+
+        #google_translate_element select.goog-te-combo {
+          width: 100% !important;
+          padding: 10px 12px !important;
+          border: 2px solid #e5e7eb !important;
+          border-radius: 8px !important;
+          background-color: #ffffff !important;
+          color: #111827 !important;
+          font-size: 14px !important;
+          font-weight: 500 !important;
+          cursor: pointer !important;
+          outline: none !important;
+          transition: all 0.2s !important;
+          appearance: auto !important;
+          position: relative !important;
+          z-index: 60 !important;
+        }
+
+        #google_translate_element select.goog-te-combo:hover {
+          border-color: #f97316 !important;
+          background-color: #fff7ed !important;
+        }
+
+        #google_translate_element select.goog-te-combo:focus {
+          border-color: #f97316 !important;
+          box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.1) !important;
+        }
+
+        .dark #google_translate_element select.goog-te-combo {
+          background-color: #1f2937 !important;
+          border-color: #4b5563 !important;
+          color: #ffffff !important;
+        }
+
+        .dark #google_translate_element select.goog-te-combo:hover {
+          border-color: #f97316 !important;
+          background-color: #374151 !important;
+        }
+
+        #google_translate_element select.goog-te-combo option {
+          padding: 10px !important;
+          background-color: #ffffff !important;
+          color: #111827 !important;
+          font-size: 14px !important;
+        }
+
+        .dark #google_translate_element select.goog-te-combo option {
+          background-color: #1f2937 !important;
+          color: #ffffff !important;
+        }
+
+        /* Make dropdown menu appear above everything */
+        #google_translate_element .goog-te-combo-frame {
+          z-index: 9999 !important;
+        }
+      `}</style>
     </>
   );
 };

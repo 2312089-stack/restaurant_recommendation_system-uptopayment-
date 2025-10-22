@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Tag, Clock, TrendingUp, ArrowRight, Zap, Star, Loader2 } from 'lucide-react';
+import { Tag, Clock, ArrowRight, Zap, Star, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 const API_BASE = 'http://localhost:5000/api';
@@ -9,6 +9,13 @@ const SpecialOffers = () => {
   const [offers, setOffers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [processingDeal, setProcessingDeal] = useState(null);
+
+  // Check authentication
+  const isAuthenticated = () => {
+    const token = localStorage.getItem('token');
+    return Boolean(token);
+  };
 
   useEffect(() => {
     loadOffers();
@@ -18,7 +25,6 @@ const SpecialOffers = () => {
     try {
       console.log('🎁 Loading special offers from offers endpoint...');
       
-      // ✅ FIXED: Use the correct offers endpoint
       const response = await fetch(`${API_BASE}/discovery/dishes/offers?limit=8&sortBy=discount`);
       const data = await response.json();
 
@@ -76,8 +82,68 @@ const SpecialOffers = () => {
     return timeLeft < 24 * 60 * 60 * 1000; // Less than 24 hours
   };
 
-  const handleDishClick = (dishId) => {
-    navigate(`/dish/${dishId}`);
+  // Handle Grab Deal - Navigate directly to address page (similar to reorder flow)
+  const handleGrabDeal = async (dish) => {
+    // Check authentication first
+    if (!isAuthenticated()) {
+      alert('Please log in to grab this deal');
+      navigate('/login');
+      return;
+    }
+
+    setProcessingDeal(dish._id);
+
+    try {
+      console.log('🎁 Processing deal for:', dish.name);
+
+      // Calculate discounted price
+      const discountedPrice = calculateDiscountedPrice(dish.price, dish.offer.discountPercentage);
+      
+      // Prepare item data for checkout with offer details
+      const orderItem = {
+        _id: dish._id,
+        dishId: dish._id,
+        id: dish._id,
+        name: dish.name,
+        price: `₹${discountedPrice}`,
+        originalPrice: discountedPrice,
+        actualPrice: dish.price, // Store original price for reference
+        image: dish.image,
+        restaurant: dish.restaurantName || dish.restaurant || 'Restaurant',
+        category: dish.category || 'Food',
+        type: dish.type || 'veg',
+        quantity: 1,
+        offer: {
+          hasOffer: true,
+          discountPercentage: dish.offer.discountPercentage,
+          validUntil: dish.offer.validUntil,
+          savedAmount: dish.price - discountedPrice
+        }
+      };
+
+      console.log('📦 Prepared order item with offer:', orderItem);
+
+      // Navigate directly to address page with item data
+      navigate('/address', {
+        state: {
+          item: orderItem,
+          orderType: 'single',
+          fromCart: false,
+          hasOffer: true,
+          offerDetails: {
+            discount: dish.offer.discountPercentage,
+            savedAmount: dish.price - discountedPrice,
+            validUntil: dish.offer.validUntil
+          }
+        }
+      });
+
+    } catch (err) {
+      console.error('❌ Error processing deal:', err);
+      alert(err.message || 'Failed to process deal');
+    } finally {
+      setProcessingDeal(null);
+    }
   };
 
   if (loading) {
@@ -144,7 +210,7 @@ const SpecialOffers = () => {
             </p>
           </div>
           <button 
-            onClick={() => navigate('/offers')}
+            onClick={() => navigate('/discovery')}
             className="hidden md:flex items-center space-x-2 text-orange-600 hover:text-orange-700 font-semibold transition-colors"
           >
             <span>View All Offers</span>
@@ -157,12 +223,12 @@ const SpecialOffers = () => {
           {offers.map((dish) => {
             const discountedPrice = calculateDiscountedPrice(dish.price, dish.offer.discountPercentage);
             const isFlash = isFlashDeal(dish.offer.validUntil);
+            const isProcessing = processingDeal === dish._id;
             
             return (
               <div
                 key={dish._id}
-                onClick={() => handleDishClick(dish._id)}
-                className="bg-white dark:bg-gray-800 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 overflow-hidden border border-gray-100 dark:border-gray-700 group cursor-pointer"
+                className="bg-white dark:bg-gray-800 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 overflow-hidden border border-gray-100 dark:border-gray-700 group"
               >
                 {/* Image Section */}
                 <div className="relative">
@@ -256,13 +322,24 @@ const SpecialOffers = () => {
 
                   {/* CTA Button */}
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDishClick(dish._id);
-                    }}
-                    className="w-full bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-semibold py-3 px-4 rounded-lg transition-all duration-200 transform hover:-translate-y-1 shadow-md hover:shadow-lg"
+                    onClick={() => handleGrabDeal(dish)}
+                    disabled={isProcessing}
+                    className={`w-full font-semibold py-3 px-4 rounded-lg transition-all duration-200 transform shadow-md hover:shadow-lg flex items-center justify-center space-x-2 ${
+                      isProcessing
+                        ? 'bg-orange-400 text-white cursor-wait'
+                        : 'bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white hover:-translate-y-1'
+                    }`}
                   >
-                    Grab Deal Now
+                    {isProcessing ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Processing...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Grab Deal Now</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
@@ -270,30 +347,10 @@ const SpecialOffers = () => {
           })}
         </div>
 
-        {/* Promo Code Section */}
-        <div className="mt-8 bg-gradient-to-r from-orange-500 to-red-500 rounded-xl p-6 text-white">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            <div>
-              <h3 className="text-xl font-bold mb-2">Have a Promo Code?</h3>
-              <p className="opacity-90">Enter your code and save even more!</p>
-            </div>
-            <div className="flex items-center space-x-3 w-full md:w-auto">
-              <input
-                type="text"
-                placeholder="Enter promo code"
-                className="px-4 py-2 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-300 flex-1 md:flex-none"
-              />
-              <button className="bg-white text-orange-600 font-semibold px-6 py-2 rounded-lg hover:bg-orange-50 transition-colors whitespace-nowrap">
-                Apply
-              </button>
-            </div>
-          </div>
-        </div>
-
         {/* View All Mobile Button */}
         <div className="md:hidden mt-6 text-center">
           <button 
-            onClick={() => navigate('/offers')}
+            onClick={() => navigate('/discovery')}
             className="inline-flex items-center space-x-2 text-orange-600 hover:text-orange-700 font-semibold transition-colors"
           >
             <span>View All Offers</span>

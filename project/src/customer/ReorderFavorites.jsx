@@ -120,12 +120,12 @@ const ReorderFavorites = ({ onNavigateToLogin, onNavigateToDiscovery, onNavigate
   // Loading State
   if (loading) {
     return (
-      <section className="py-8 bg-white">
+      <section className="py-8 bg-white dark:bg-gray-900 transition-colors duration-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
               <Loader2 className="w-12 h-12 animate-spin text-orange-500 mx-auto mb-4" />
-              <p className="text-gray-600">Loading your favorites...</p>
+              <p className="text-gray-600 dark:text-gray-400">Loading your favorites...</p>
             </div>
           </div>
         </div>
@@ -136,12 +136,12 @@ const ReorderFavorites = ({ onNavigateToLogin, onNavigateToDiscovery, onNavigate
   // Error State
   if (error) {
     return (
-      <section className="py-8 bg-white">
+      <section className="py-8 bg-white dark:bg-gray-900 transition-colors duration-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
               <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-              <p className="text-gray-600 mb-4">{error}</p>
+              <p className="text-gray-600 dark:text-gray-400 mb-4">{error}</p>
               <button 
                 onClick={() => window.location.reload()}
                 className="text-orange-500 hover:text-orange-600 font-medium"
@@ -158,12 +158,12 @@ const ReorderFavorites = ({ onNavigateToLogin, onNavigateToDiscovery, onNavigate
   // Empty State - Not Authenticated
   if (!isAuthenticated()) {
     return (
-      <section className="py-8 bg-white">
+      <section className="py-8 bg-white dark:bg-gray-900 transition-colors duration-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center py-12">
-            <ShoppingCart className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">Login to See Your Favorites</h3>
-            <p className="text-gray-600 mb-6">Sign in to view and reorder your previously ordered dishes</p>
+            <ShoppingCart className="w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">Login to See Your Favorites</h3>
+            <p className="text-gray-600 dark:text-gray-400 mb-6">Sign in to view and reorder your previously ordered dishes</p>
             <button
               onClick={() => onNavigateToLogin && onNavigateToLogin()}
               className="bg-orange-500 hover:bg-orange-600 text-white font-semibold py-3 px-6 rounded-lg transition-colors"
@@ -179,12 +179,12 @@ const ReorderFavorites = ({ onNavigateToLogin, onNavigateToDiscovery, onNavigate
   // Empty State - No Order History
   if (favorites.length === 0) {
     return (
-      <section className="py-8 bg-white">
+      <section className="py-8 bg-white dark:bg-gray-900 transition-colors duration-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center py-12">
-            <ShoppingCart className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">No Order History Yet</h3>
-            <p className="text-gray-600 mb-6">Start ordering to see your favorites here!</p>
+            <ShoppingCart className="w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">No Order History Yet</h3>
+            <p className="text-gray-600 dark:text-gray-400 mb-6">Start ordering to see your favorites here!</p>
             <button
               onClick={() => onNavigateToDiscovery && onNavigateToDiscovery()}
               className="bg-orange-500 hover:bg-orange-600 text-white font-semibold py-3 px-6 rounded-lg transition-colors"
@@ -199,16 +199,16 @@ const ReorderFavorites = ({ onNavigateToLogin, onNavigateToDiscovery, onNavigate
 
   // Main Reorder Section with Data
   return (
-    <section className="py-8 bg-white">
+    <section className="py-8 bg-white dark:bg-gray-900 transition-colors duration-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">Reorder Your Favorites</h2>
-            <p className="text-gray-600 mt-1">Your go-to dishes, just one click away</p>
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Reorder Your Favorites</h2>
+            <p className="text-gray-600 dark:text-gray-400 mt-1">Your go-to dishes, just one click away</p>
           </div>
           <button 
             onClick={() => onNavigateToOrderHistory && onNavigateToOrderHistory()}
-            className="text-orange-600 hover:text-orange-700 font-semibold transition-colors"
+            className="text-orange-600 hover:text-orange-700 dark:text-orange-500 dark:hover:text-orange-400 font-semibold transition-colors"
           >
             View All
           </button>
@@ -220,7 +220,7 @@ const ReorderFavorites = ({ onNavigateToLogin, onNavigateToDiscovery, onNavigate
             {favorites.map(item => (
               <div 
                 key={item._id} 
-                className="bg-white rounded-xl shadow-md hover:shadow-lg transition-shadow duration-200 border border-gray-100 w-64 flex-shrink-0"
+                className="bg-white dark:bg-gray-800 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 border border-gray-100 dark:border-gray-700 w-64 flex-shrink-0"
               >
                 <div className="relative">
                   <img 
@@ -231,9 +231,9 @@ const ReorderFavorites = ({ onNavigateToLogin, onNavigateToDiscovery, onNavigate
                       e.target.src = 'https://images.pexels.com/photos/1640777/pexels-photo-1640777.jpeg?auto=compress&cs=tinysrgb&w=400';
                     }}
                   />
-                  <div className="absolute top-2 right-2 bg-white bg-opacity-90 px-2 py-1 rounded-lg text-xs font-semibold flex items-center">
+                  <div className="absolute top-2 right-2 bg-white dark:bg-gray-800 bg-opacity-90 dark:bg-opacity-90 px-2 py-1 rounded-lg text-xs font-semibold flex items-center">
                     <Heart className="w-3 h-3 mr-1 text-red-500 fill-current" />
-                    {item.totalOrders || 1}
+                    <span className="text-gray-900 dark:text-white">{item.totalOrders || 1}</span>
                   </div>
                   {!item.isAvailable && (
                     <div className="absolute inset-0 bg-black bg-opacity-50 rounded-t-xl flex items-center justify-center">
@@ -245,20 +245,20 @@ const ReorderFavorites = ({ onNavigateToLogin, onNavigateToDiscovery, onNavigate
                 <div className="p-4">
                   <div className="flex items-start justify-between mb-2">
                     <div className="flex-1">
-                      <h3 className="font-semibold text-gray-900 line-clamp-1">{item.name}</h3>
-                      <p className="text-sm text-gray-500">{item.restaurantName || item.seller?.businessName || 'Restaurant'}</p>
+                      <h3 className="font-semibold text-gray-900 dark:text-white line-clamp-1">{item.name}</h3>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">{item.restaurantName || item.seller?.businessName || 'Restaurant'}</p>
                     </div>
-                    <div className="flex items-center space-x-1 bg-green-100 px-2 py-1 rounded">
-                      <Star className="w-3 h-3 text-green-600 fill-current" />
-                      <span className="text-xs font-semibold text-green-600">
+                    <div className="flex items-center space-x-1 bg-green-100 dark:bg-green-900/30 px-2 py-1 rounded">
+                      <Star className="w-3 h-3 text-green-600 dark:text-green-400 fill-current" />
+                      <span className="text-xs font-semibold text-green-600 dark:text-green-400">
                         {typeof item.rating === 'object' ? (item.rating?.average || 4.5) : (item.rating || 4.5)}
                       </span>
                     </div>
                   </div>
                   
                   <div className="flex items-center justify-between mb-3">
-                    <span className="font-bold text-gray-900">₹{item.price}</span>
-                    <span className="text-xs text-gray-400">Last: {item.lastOrderedText || 'Recently'}</span>
+                    <span className="font-bold text-gray-900 dark:text-white">₹{item.price}</span>
+                    <span className="text-xs text-gray-400 dark:text-gray-500">Last: {item.lastOrderedText || 'Recently'}</span>
                   </div>
                   
                   <button 
@@ -266,7 +266,7 @@ const ReorderFavorites = ({ onNavigateToLogin, onNavigateToDiscovery, onNavigate
                     disabled={!item.isAvailable || addingToCart === item._id}
                     className={`w-full flex items-center justify-center space-x-2 font-semibold py-2 px-4 rounded-lg transition-colors duration-200 ${
                       !item.isAvailable 
-                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        ? 'bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-not-allowed'
                         : addingToCart === item._id
                           ? 'bg-orange-400 text-white cursor-wait'
                           : 'bg-orange-500 hover:bg-orange-600 text-white'

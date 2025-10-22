@@ -1,3 +1,4 @@
+// src/pages/Home.jsx - UPDATED VERSION
 import React, { useState } from 'react';
 import HeroSection from "../customer/HeroSection";
 import ReorderFavorites from "../customer/ReorderFavorites";
@@ -13,9 +14,33 @@ import DiscoveryWrapper from "../customer/DiscoveryWrapper";
 const Home = ({ 
   onNavigateToLogin,
   onNavigateToOrderHistory,
-  onNavigateToCart
+  onNavigateToCart,
+  onOpenDiscovery
 }) => {
   const [showDiscovery, setShowDiscovery] = useState(false);
+
+  // Scroll handlers for footer links
+  const handleScrollToPopularNearYou = () => {
+    document.getElementById('popular-near-you-section')?.scrollIntoView({ 
+      behavior: 'smooth',
+      block: 'start'
+    });
+  };
+
+  const handleScrollToPersonalizedForYou = () => {
+    document.getElementById('personalized-section')?.scrollIntoView({ 
+      behavior: 'smooth',
+      block: 'start'
+    });
+  };
+
+  const handleOpenDiscovery = () => {
+    if (onOpenDiscovery) {
+      onOpenDiscovery();
+    } else {
+      setShowDiscovery(true);
+    }
+  };
 
   // If discovery is open, show the wrapper which handles navigation
   if (showDiscovery) {
@@ -26,47 +51,43 @@ const Home = ({
     );
   }
 
-  // Normal home page
+  // Normal home page with dark mode support
   return (
-    <>
-      <HeroSection onOpenDiscovery={() => setShowDiscovery(true)} />
+    <div className="min-h-screen bg-white dark:bg-gray-900 transition-colors duration-200">
+      <HeroSection onOpenDiscovery={handleOpenDiscovery} />
+      
       <ReorderFavorites 
         onNavigateToLogin={onNavigateToLogin}
-        onNavigateToDiscovery={() => setShowDiscovery(true)}
+        onNavigateToDiscovery={handleOpenDiscovery}
         onNavigateToOrderHistory={onNavigateToOrderHistory}
       />
-      <PopularNearYou />
-      <RecommendedForYou onNavigateToCart={onNavigateToCart} />
-      <TrendingInCity />
+      
+      {/* Popular Near You Section with ID */}
+      <div id="popular-near-you-section">
+        <PopularNearYou />
+      </div>
+      
+      {/* Personalized For You Section with ID */}
+      <div id="personalized-section">
+        <RecommendedForYou onNavigateToCart={onNavigateToCart} />
+      </div>
+      
+      {/* Trending Section with ID */}
+      <div id="trending-section">
+        <TrendingInCity />
+      </div>
+      
       <RecentlyViewed />
       <MostViewed />
-<SpecialOffers />  {/* ← Add this line */}
-      <Footer />
-    </>
-  );
-};
-// Temporary debug component
-const TestMostViewed = () => {
-  const [data, setData] = React.useState(null);
-  
-  React.useEffect(() => {
-    fetch('http://localhost:5000/api/view-history/most-viewed?limit=4')
-      .then(r => r.json())
-      .then(d => {
-        console.log('✅ Test fetch result:', d);
-        setData(d);
-      })
-      .catch(e => console.error('❌ Test fetch error:', e));
-  }, []);
-  
-  return (
-    <div className="p-4 bg-yellow-100 border border-yellow-400">
-      <h3>Debug: Most Viewed API Test</h3>
-      <pre>{JSON.stringify(data, null, 2)}</pre>
+      <SpecialOffers />
+      
+      <Footer 
+        onNavigateToDiscovery={handleOpenDiscovery}
+        onScrollToPopularNearYou={handleScrollToPopularNearYou}
+        onScrollToPersonalizedForYou={handleScrollToPersonalizedForYou}
+      />
     </div>
   );
 };
 
-// Then render it in Home:
-<TestMostViewed />
 export default Home;

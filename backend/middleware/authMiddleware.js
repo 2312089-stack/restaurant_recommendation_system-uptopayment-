@@ -1,12 +1,15 @@
-// middleware/authMiddleware.js - FIXED VERSION
+// middleware/authMiddleware.js - COMPLETE FIXED VERSION
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 
+// ============================================================
+// EXISTING FUNCTION - Keep this as is
+// ============================================================
 export const authenticateToken = async (req, res, next) => {
   try {
     console.log('🔐 Authentication middleware called');
     console.log('Request URL:', req.method, req.originalUrl);
-      console.log('🔐 Auth middleware - Headers:', {
+    console.log('🔐 Auth middleware - Headers:', {
       authorization: req.headers.authorization ? 'Present' : 'Missing',
       authLength: req.headers.authorization?.length,
       xAccessToken: req.headers['x-access-token'] ? 'Present' : 'Missing'
@@ -77,7 +80,7 @@ export const authenticateToken = async (req, res, next) => {
       hasPhone: !!user.phone || !!user.phoneNumber || !!user.mobileNumber
     });
 
-    // ✅ CRITICAL FIX: Comprehensive field mapping
+    // Comprehensive field mapping
     req.user = {
       // ID fields
       id: user._id.toString(),
@@ -146,6 +149,9 @@ export const authenticateToken = async (req, res, next) => {
   }
 };
 
+// ============================================================
+// EXISTING FUNCTION - Keep this as is
+// ============================================================
 export const authenticateSellerToken = async (req, res, next) => {
   try {
     console.log('🏪 Seller authentication middleware called');
@@ -208,6 +214,144 @@ export const authenticateSellerToken = async (req, res, next) => {
   }
 };
 
+// ============================================================
+// NEW FUNCTION - Optional Authentication
+// ============================================================
+export const optionalAuth = async (req, res, next) => {
+  try {
+    let token = null;
 
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
+    } else if (req.headers['x-access-token']) {
+      token = req.headers['x-access-token'];
+    }
+
+    if (token) {
+      try {
+        token = token.trim();
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const userId = decoded.id || decoded.userId || decoded.user?.id || decoded._id;
+
+        if (userId) {
+          const user = await User.findById(userId).select('-passwordHash');
+          
+          if (user) {
+            req.user = {
+              id: user._id.toString(),
+              userId: user._id.toString(),
+              email: user.emailId || user.email,
+              emailId: user.emailId || user.email,
+              phone: user.phone || user.phoneNumber || user.mobileNumber,
+              phoneNumber: user.phone || user.phoneNumber || user.mobileNumber,
+              name: user.name || user.fullName,
+              fullName: user.fullName || user.name,
+              role: user.role,
+              user: user
+            };
+            console.log('✅ Optional auth: User authenticated');
+          }
+        }
+      } catch (error) {
+        // Invalid token, but continue without user
+        console.log('⚠️ Optional auth: Invalid token, continuing without user');
+        req.user = null;
+      }
+    } else {
+      console.log('ℹ️ Optional auth: No token provided, continuing without user');
+    }
+
+    next();
+  } catch (error) {
+    console.log('⚠️ Optional auth error, continuing without user:', error.message);
+    next();
+  }
+};
+// middleware/authMiddleware.js - ADD THIS FUNCTION
+
+// Add this function to your existing backend/middleware/authMiddleware.js
+
+/**
+ * Admin Authorization Middleware
+ * Verifies that the authenticated user has admin privileges
+ * Must be used AFTER authenticateToken middleware
+ */
+export const requireAdmin = async (req, res, next) => {
+  try {
+    console.log('🔐 Admin authorization check');
+    
+    // User is already authenticated by authenticateToken
+    const user = req.user;
+    
+    if (!user) {
+      console.log('❌ No user found in request');
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required',
+        code: 'NOT_AUTHENTICATED'
+      });
+    }
+
+    console.log('👤 Checking admin privileges for:', {
+      userId: user.id,
+      email: user.email,
+      role: user.role
+    });
+
+    // Check if user has admin role
+    if (user.role !== 'admin') {
+      console.log('❌ Access denied: User role is', user.role);
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied. Admin privileges required.',
+        code: 'NOT_ADMIN',
+        requiredRole: 'admin',
+        currentRole: user.role
+      });
+    }
+
+    console.log('✅ Admin access granted:', user.email);
+    
+    // Add admin flag for convenience
+    req.isAdmin = true;
+    
+    next();
+  } catch (error) {
+    console.error('🚨 Admin authorization error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Authorization check failed',
+      code: 'AUTH_CHECK_ERROR',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Optional Admin Check
+ * Checks if user is admin but doesn't block request if not
+ * Useful for routes that have different behavior for admins
+ */
+export const checkAdmin = async (req, res, next) => {
+  try {
+    const user = req.user;
+    req.isAdmin = user && user.role === 'admin';
+    console.log('ℹ️ Admin check:', req.isAdmin ? 'Is admin' : 'Not admin');
+    next();
+  } catch (error) {
+    console.error('Admin check error:', error);
+    req.isAdmin = false;
+    next();
+  }
+};
+
+// Export both middlewares
+export default { requireAdmin, checkAdmin };
+
+// ============================================================
+// EXPORTS - These MUST come AFTER the function definitions
+// ============================================================
 export { authenticateToken as authenticateUser };
-export { authenticateSellerToken as authenticateSeller }; // Add only this ONE line
+export { authenticateSellerToken as authenticateSeller };
+export const protect = authenticateToken; // Alias for customer support routes

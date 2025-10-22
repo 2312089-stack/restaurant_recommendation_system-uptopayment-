@@ -24,6 +24,7 @@ import CartPage from "./customer/CartPage"; // ✅ FIXED: Ensure this matches ex
 import AuthSuccess from './customer/AuthSuccess';
 import RestaurantMenuPage from './customer/RestaurantMenuPage'; // 🆕 NEW: Import RestaurantMenuPage
 
+
 // Customer Order flow page components
 import AddressPage from "./customer/AddressPage";
 import OrderSummaryPage from "./customer/OrderSummaryPage";
@@ -45,8 +46,16 @@ import SellerSignup from "./components/seller/auth/SellerSignup";
 import SellerForgotPassword from "./components/seller/auth/SellerForgotPassword";
 import SellerResetPassword from "./components/seller/auth/SellerResetPassword";
 import SellerDashboard from "./components/seller/SellerDashboard";
+import AdminLogin from "./components/admin/AdminLogin";
 
+// Add these imports at the top of App.js
+import HelpCenter from "./pages/HelpCenter";
+import ContactUs from "./pages/ContactUs";
+import PrivacyPolicy from "./pages/PrivacyPolicy";
+import TermsOfService from "./pages/TermsOfService";
+import RefundPolicy from "./pages/RefundPolicy";
 // Error Boundary Component
+import AdminDashboard from "./components/admin/AdminDashboard";
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -136,7 +145,16 @@ const ProtectedMainView = ({ currentView, renderMainView, setCurrentView }) => {
 
   return renderMainView();
 };
-
+const ProtectedAdminRoute = ({ children }) => {
+  const token = localStorage.getItem('adminToken');
+  const userRole = localStorage.getItem('userRole');
+  
+  if (!token || userRole !== 'admin') {
+    return <Navigate to="/admin/login" replace />;
+  }
+  
+  return children;
+};
 // Protected Seller Route Component
 const ProtectedSellerRoute = ({ children }) => {
   const token = localStorage.getItem('sellerToken');
@@ -467,7 +485,15 @@ function App() {
                           {/* Order history and dish details */}
                           <Route path="/dish/:dishId" element={<DishDetailsPage />} />
                           <Route path="/order-history" element={<OrderHistoryApp />} />
-
+<Route path="/admin/login" element={<AdminLogin />} />
+                            <Route 
+  path="/admin/dashboard" 
+  element={
+    <ProtectedAdminRoute>
+      <AdminDashboard />
+    </ProtectedAdminRoute>
+  } 
+/>
                           {/* Seller routes */}
                           <Route 
                             path="/seller/login" 
@@ -515,7 +541,15 @@ function App() {
                             } 
                           />
                           <Route path="/seller/reset-password/:token" element={<SellerResetPassword />} />
-
+{/* Admin Dashboard Route - Add after seller routes */}
+<Route 
+  path="/admin/dashboard" 
+  element={
+    <ProtectedAdminRoute>
+      <AdminDashboard />
+    </ProtectedAdminRoute>
+  } 
+/>
                           {/* Protected seller dashboard route */}
                           <Route 
                             path="/seller/dashboard" 
@@ -525,7 +559,12 @@ function App() {
                               </ProtectedSellerRoute>
                             } 
                           />
-
+{/* 🆕 ADD THESE PUBLIC SUPPORT PAGES HERE */}
+<Route path="/help-center" element={<HelpCenter />} />
+<Route path="/contact-us" element={<ContactUs />} />
+<Route path="/privacy-policy" element={<PrivacyPolicy />} />
+<Route path="/terms-of-service" element={<TermsOfService />} />
+<Route path="/refund-policy" element={<RefundPolicy />} />
                           {/* Main app route */}
                           <Route path="*" element={<MainViewComponent />} />
                         </Routes>

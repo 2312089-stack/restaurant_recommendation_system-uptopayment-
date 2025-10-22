@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { MapPin, Star, Clock, Truck, ArrowRight, Plus, Loader2, AlertCircle, Check } from 'lucide-react';
 import { useLocation } from '../contexts/LocationContext';
 import { useCart } from '../contexts/CartContext';
+import MapModal from './MapModal'; // Import the map modal
 
 const API_BASE = 'http://localhost:5000/api';
 
@@ -9,8 +10,9 @@ const PopularNearYou = () => {
   const [dishes, setDishes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [addingToCart, setAddingToCart] = useState(null); // Track which dish is being added
+  const [addingToCart, setAddingToCart] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
+  const [isMapOpen, setIsMapOpen] = useState(false); // Map modal state
   
   // USE LOCATION CONTEXT
   const { location: userLocation } = useLocation();
@@ -78,9 +80,6 @@ const PopularNearYou = () => {
           );
           
           if (shouldClear) {
-            // You might need to import clearCart from useCart
-            // await clearCart();
-            // await addToCart(dish.id, 1, '');
             setSuccessMessage('Please clear your cart first');
           }
         } else if (result.requiresAuth) {
@@ -102,6 +101,11 @@ const PopularNearYou = () => {
   const handleDishClick = (dish) => {
     console.log('Dish clicked:', dish.name);
     // TODO: Navigate to restaurant page or show dish details
+  };
+
+  // Open map modal
+  const handleOpenMap = () => {
+    setIsMapOpen(true);
   };
 
   if (loading) {
@@ -151,6 +155,14 @@ const PopularNearYou = () => {
         </div>
       )}
 
+      {/* Map Modal */}
+      <MapModal 
+        isOpen={isMapOpen}
+        onClose={() => setIsMapOpen(false)}
+        userLocation={userLocation}
+        dishes={dishes}
+      />
+
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between mb-6">
           <div>
@@ -162,7 +174,10 @@ const PopularNearYou = () => {
               <span>{userCity ? `In ${userCity}` : 'Based on your location'}</span>
             </div>
           </div>
-          <button className="flex items-center space-x-2 text-orange-600 hover:text-orange-700 font-semibold transition-colors">
+          <button 
+            onClick={handleOpenMap}
+            className="flex items-center space-x-2 text-orange-600 hover:text-orange-700 font-semibold transition-colors"
+          >
             <span>See on Map</span>
             <ArrowRight className="w-4 h-4" />
           </button>

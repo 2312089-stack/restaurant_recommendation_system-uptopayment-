@@ -80,6 +80,8 @@ import analyticsRoutes from './routes/analyticsRoutes.js';
 import sellerStatusRoutesV2 from './routes/sellerStatusRoutes.js';
 import discoveryRoutes from './routes/discoveryRoutes.js';
 import notificationScheduler from './schedulers/notificationScheduler.js';
+import adminFAQRoutes from './routes/adminFAQRoutes.js';
+import adminAnalyticsRoutes from './routes/adminAnalyticsRoutes.js';
 
 // Import seller routes
 import sellerAuthRoutes from './routes/sellerAuth.js';
@@ -95,7 +97,8 @@ import notificationRoutes from './routes/notificationRoutes.js';
 import sellerSettingsRoutes from './routes/sellerSettings.js';
 import sellerSupportRoutes from './routes/sellerSupport.js';
 import offerRoutes from './routes/offerRoutes.js';
-
+import customerSupportRoutes from './routes/customerSupport.js';
+import adminRoutes from './routes/adminRoutes.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -184,7 +187,7 @@ app.use('/api/discovery', discoveryRoutes);
 // Order history route
 app.use('/api/order-history', orderHistoryRoutes);
 app.use('/api/seller/offers', offerRoutes);
-
+app.use('/api/support', customerSupportRoutes);
 // Customer Features
 app.use('/api/upload', uploadRoutes);
 app.use('/api/addresses', addressRoutes);
@@ -198,6 +201,10 @@ app.use('/api/seller/settings', sellerSettingsRoutes);
 app.use('/api/seller/support', sellerSupportRoutes);
 // Order routes
 app.use('/api/orders', orderRoutes);
+app.use('/api/admin/faqs', adminFAQRoutes);
+   app.use('/api/admin', adminRoutes);
+
+app.use('/api/admin/analytics', adminAnalyticsRoutes);
 
 // Payment routes
 app.use('/api/payment', paymentRoutes);
