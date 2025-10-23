@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Store, ShoppingBag, DollarSign, Activity, TrendingUp, AlertCircle, Clock, Package, ArrowUp, ArrowDown, Star, RefreshCw, CheckCircle, XCircle } from 'lucide-react';
-import { AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { Users, Store, ShoppingBag, DollarSign, Activity, TrendingUp, AlertCircle, Clock, Package, ArrowUp, ArrowDown, RefreshCw } from 'lucide-react';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 const API_BASE_URL = 'http://localhost:5000/api';
 
@@ -12,7 +12,6 @@ const AdminDashboard = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [period, setPeriod] = useState('month');
   
-  // Analytics state
   const [analytics, setAnalytics] = useState({
     revenue: null,
     userAnalytics: null,
@@ -21,7 +20,6 @@ const AdminDashboard = () => {
     systemStats: null
   });
 
-  // Management state
   const [users, setUsers] = useState([]);
   const [restaurants, setRestaurants] = useState([]);
   const [orders, setOrders] = useState([]);
@@ -29,10 +27,36 @@ const AdminDashboard = () => {
   useEffect(() => {
     const token = localStorage.getItem('adminToken');
     if (token) {
-      setAuthToken(token);
-      setIsAuthenticated(true);
+      console.log('📌 Found existing token, validating...');
+      validateAndSetToken(token);
+    } else {
+      setLoading(false);
     }
   }, []);
+
+  const validateAndSetToken = async (token) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/admin/test`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (response.ok) {
+        console.log('✅ Token is valid');
+        setAuthToken(token);
+        setIsAuthenticated(true);
+      } else {
+        console.log('❌ Token is invalid, clearing...');
+        localStorage.removeItem('adminToken');
+        setIsAuthenticated(false);
+      }
+    } catch (err) {
+      console.error('Token validation error:', err);
+      localStorage.removeItem('adminToken');
+      setIsAuthenticated(false);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (isAuthenticated && authToken) {
@@ -48,14 +72,46 @@ const AdminDashboard = () => {
     }
   }, [activeTab, period, isAuthenticated, authToken]);
 
-  const handleLogin = (token) => {
-    setAuthToken(token);
-    setIsAuthenticated(true);
-    localStorage.setItem('adminToken', token);
+  const handleLogin = async (email, password) => {
     setError(null);
+    setLoading(true);
+
+    try {
+      console.log('🔐 Attempting admin login...');
+      
+      const response = await fetch(`${API_BASE_URL}/admin/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+
+      const data = await response.json();
+      console.log('📨 Login response:', data);
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Login failed');
+      }
+
+      if (data.success && data.token) {
+        console.log('✅ Login successful, saving token');
+        localStorage.setItem('adminToken', data.token);
+        setAuthToken(data.token);
+        setIsAuthenticated(true);
+        setError(null);
+      } else {
+        throw new Error('Invalid response from server');
+      }
+    } catch (err) {
+      console.error('❌ Login error:', err);
+      setError(err.message);
+      setIsAuthenticated(false);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleLogout = () => {
+    console.log('🚪 Logging out...');
     setAuthToken('');
     setIsAuthenticated(false);
     localStorage.removeItem('adminToken');
@@ -69,12 +125,16 @@ const AdminDashboard = () => {
     setUsers([]);
     setRestaurants([]);
     setOrders([]);
+    setError(null);
   };
 
-  // Analytics fetching
   const fetchAllAnalytics = async () => {
     setLoading(true);
+    setError(null);
+    
     try {
+      console.log('📊 Fetching analytics with token:', authToken.substring(0, 20) + '...');
+      
       const [revenue, userAnalytics, orderAnalytics, restaurantAnalytics, systemStats] = await Promise.all([
         fetchAnalytics('revenue'),
         fetchAnalytics('users'),
@@ -84,10 +144,14 @@ const AdminDashboard = () => {
       ]);
 
       setAnalytics({ revenue, userAnalytics, orderAnalytics, restaurantAnalytics, systemStats });
-      setError(null);
+      console.log('✅ Analytics loaded successfully');
     } catch (err) {
-      console.error('Analytics fetch error:', err);
+      console.error('❌ Analytics fetch error:', err);
       setError(err.message);
+      
+      if (err.message.includes('expired') || err.message.includes('401')) {
+        handleLogout();
+      }
     } finally {
       setLoading(false);
     }
@@ -96,46 +160,59 @@ const AdminDashboard = () => {
   const fetchAnalytics = async (type) => {
     try {
       const response = await fetch(`${API_BASE_URL}/admin/analytics/${type}?period=${period}`, {
-        headers: { 'Authorization': `Bearer ${authToken}` }
+        headers: { 
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json'
+        }
       });
       
-      if (response.status === 401) {
-        handleLogout();
+      if (response.status === 401 || response.status === 403) {
         throw new Error('Session expired. Please login again.');
       }
       
-      if (!response.ok) throw new Error(`Failed to fetch ${type} analytics`);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `Failed to fetch ${type} analytics`);
+      }
       
       const data = await response.json();
-      return data.analytics;
+      return data.analytics || data;
     } catch (error) {
       console.error(`${type} analytics error:`, error);
-      return null;
+      throw error;
     }
   };
 
   const fetchSystemStats = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/admin/analytics/system-stats`, {
-        headers: { 'Authorization': `Bearer ${authToken}` }
+        headers: { 
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json'
+        }
       });
       
-      if (!response.ok) throw new Error('Failed to fetch system stats');
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to fetch system stats');
+      }
       
       const data = await response.json();
-      return data.stats;
+      return data.stats || data;
     } catch (error) {
       console.error('System stats error:', error);
-      return null;
+      throw error;
     }
   };
 
-  // User management
   const fetchUsers = async () => {
     try {
       setLoading(true);
       const response = await fetch(`${API_BASE_URL}/admin/users`, {
-        headers: { 'Authorization': `Bearer ${authToken}` }
+        headers: { 
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json'
+        }
       });
 
       if (!response.ok) throw new Error('Failed to fetch users');
@@ -166,7 +243,7 @@ const AdminDashboard = () => {
       fetchUsers();
     } catch (err) {
       console.error('Block user error:', err);
-      alert('Failed to block user');
+      alert('Failed to block user: ' + err.message);
     }
   };
 
@@ -184,16 +261,18 @@ const AdminDashboard = () => {
       fetchUsers();
     } catch (err) {
       console.error('Unblock user error:', err);
-      alert('Failed to unblock user');
+      alert('Failed to unblock user: ' + err.message);
     }
   };
 
-  // Restaurant management
   const fetchRestaurants = async () => {
     try {
       setLoading(true);
       const response = await fetch(`${API_BASE_URL}/admin/restaurants`, {
-        headers: { 'Authorization': `Bearer ${authToken}` }
+        headers: { 
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json'
+        }
       });
 
       if (!response.ok) throw new Error('Failed to fetch restaurants');
@@ -223,7 +302,7 @@ const AdminDashboard = () => {
       fetchRestaurants();
     } catch (err) {
       console.error('Approve restaurant error:', err);
-      alert('Failed to approve restaurant');
+      alert('Failed to approve restaurant: ' + err.message);
     }
   };
 
@@ -242,16 +321,18 @@ const AdminDashboard = () => {
       fetchRestaurants();
     } catch (err) {
       console.error('Reject restaurant error:', err);
-      alert('Failed to reject restaurant');
+      alert('Failed to reject restaurant: ' + err.message);
     }
   };
 
-  // Order management
   const fetchOrders = async () => {
     try {
       setLoading(true);
       const response = await fetch(`${API_BASE_URL}/admin/orders`, {
-        headers: { 'Authorization': `Bearer ${authToken}` }
+        headers: { 
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json'
+        }
       });
 
       if (!response.ok) throw new Error('Failed to fetch orders');
@@ -268,7 +349,7 @@ const AdminDashboard = () => {
   };
 
   if (!isAuthenticated) {
-    return <LoginForm onLogin={handleLogin} />;
+    return <LoginForm onLogin={handleLogin} error={error} loading={loading} />;
   }
 
   if (loading && activeTab === 'dashboard' && !analytics.systemStats) {
@@ -276,7 +357,8 @@ const AdminDashboard = () => {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-orange-500 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading dashboard...</p>
+          <p className="text-gray-600 font-medium">Loading dashboard...</p>
+          <p className="text-gray-400 text-sm mt-2">Fetching analytics data</p>
         </div>
       </div>
     );
@@ -286,7 +368,6 @@ const AdminDashboard = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Sidebar */}
       <div className="fixed left-0 top-0 h-full w-64 bg-gray-900 text-white">
         <div className="p-6">
           <h1 className="text-2xl font-bold">Admin Panel</h1>
@@ -294,43 +375,19 @@ const AdminDashboard = () => {
         </div>
         
         <nav className="mt-8">
-          <NavButton
-            icon={<Activity className="w-5 h-5 mr-3" />}
-            label="Dashboard"
-            active={activeTab === 'dashboard'}
-            onClick={() => setActiveTab('dashboard')}
-          />
-          <NavButton
-            icon={<Users className="w-5 h-5 mr-3" />}
-            label="Users"
-            active={activeTab === 'users'}
-            onClick={() => setActiveTab('users')}
-          />
-          <NavButton
-            icon={<Store className="w-5 h-5 mr-3" />}
-            label="Restaurants"
-            active={activeTab === 'restaurants'}
-            onClick={() => setActiveTab('restaurants')}
-          />
-          <NavButton
-            icon={<ShoppingBag className="w-5 h-5 mr-3" />}
-            label="Orders"
-            active={activeTab === 'orders'}
-            onClick={() => setActiveTab('orders')}
-          />
+          <NavButton icon={<Activity className="w-5 h-5 mr-3" />} label="Dashboard" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
+          <NavButton icon={<Users className="w-5 h-5 mr-3" />} label="Users" active={activeTab === 'users'} onClick={() => setActiveTab('users')} />
+          <NavButton icon={<Store className="w-5 h-5 mr-3" />} label="Restaurants" active={activeTab === 'restaurants'} onClick={() => setActiveTab('restaurants')} />
+          <NavButton icon={<ShoppingBag className="w-5 h-5 mr-3" />} label="Orders" active={activeTab === 'orders'} onClick={() => setActiveTab('orders')} />
         </nav>
 
         <div className="absolute bottom-0 left-0 right-0 p-6 border-t border-gray-800">
-          <button
-            onClick={handleLogout}
-            className="w-full bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm transition"
-          >
+          <button onClick={handleLogout} className="w-full bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm transition">
             Logout
           </button>
         </div>
       </div>
 
-      {/* Main Content */}
       <div className="ml-64 p-8">
         <div className="flex justify-between items-center mb-8">
           <div>
@@ -348,29 +405,18 @@ const AdminDashboard = () => {
             {activeTab === 'dashboard' && (
               <div className="flex space-x-3">
                 {['today', 'week', 'month', 'year'].map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => setPeriod(p)}
-                    className={`px-4 py-2 rounded-lg font-medium transition ${
-                      period === p
-                        ? 'bg-orange-500 text-white shadow-md'
-                        : 'bg-white text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
+                  <button key={p} onClick={() => setPeriod(p)} className={`px-4 py-2 rounded-lg font-medium transition ${period === p ? 'bg-orange-500 text-white shadow-md' : 'bg-white text-gray-600 hover:bg-gray-100'}`}>
                     {p.charAt(0).toUpperCase() + p.slice(1)}
                   </button>
                 ))}
               </div>
             )}
-            <button
-              onClick={() => {
-                if (activeTab === 'dashboard') fetchAllAnalytics();
-                else if (activeTab === 'users') fetchUsers();
-                else if (activeTab === 'restaurants') fetchRestaurants();
-                else if (activeTab === 'orders') fetchOrders();
-              }}
-              className="bg-white p-2 rounded-lg shadow hover:shadow-md transition"
-            >
+            <button onClick={() => {
+              if (activeTab === 'dashboard') fetchAllAnalytics();
+              else if (activeTab === 'users') fetchUsers();
+              else if (activeTab === 'restaurants') fetchRestaurants();
+              else if (activeTab === 'orders') fetchOrders();
+            }} className="bg-white p-2 rounded-lg shadow hover:shadow-md transition" title="Refresh">
               <RefreshCw className="w-5 h-5 text-gray-600" />
             </button>
           </div>
@@ -378,37 +424,26 @@ const AdminDashboard = () => {
 
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 flex items-center">
-            <AlertCircle className="w-5 h-5 text-red-500 mr-3" />
-            <p className="text-red-800">{error}</p>
+            <AlertCircle className="w-5 h-5 text-red-500 mr-3 flex-shrink-0" />
+            <div className="flex-1">
+              <p className="text-red-800 font-medium">{error}</p>
+              <button onClick={() => setError(null)} className="text-red-600 text-sm underline mt-1">
+                Dismiss
+              </button>
+            </div>
           </div>
         )}
 
         {activeTab === 'dashboard' && systemStats && (
-          <DashboardView 
-            revenue={revenue}
-            userAnalytics={userAnalytics}
-            orderAnalytics={orderAnalytics}
-            restaurantAnalytics={restaurantAnalytics}
-            systemStats={systemStats}
-          />
+          <DashboardView revenue={revenue} userAnalytics={userAnalytics} orderAnalytics={orderAnalytics} restaurantAnalytics={restaurantAnalytics} systemStats={systemStats} />
         )}
 
         {activeTab === 'users' && (
-          <UsersView 
-            users={users}
-            loading={loading}
-            onBlockUser={handleBlockUser}
-            onUnblockUser={handleUnblockUser}
-          />
+          <UsersView users={users} loading={loading} onBlockUser={handleBlockUser} onUnblockUser={handleUnblockUser} />
         )}
 
         {activeTab === 'restaurants' && (
-          <RestaurantsView 
-            restaurants={restaurants}
-            loading={loading}
-            onApprove={handleApproveRestaurant}
-            onReject={handleRejectRestaurant}
-          />
+          <RestaurantsView restaurants={restaurants} loading={loading} onApprove={handleApproveRestaurant} onReject={handleRejectRestaurant} />
         )}
 
         {activeTab === 'orders' && (
@@ -419,35 +454,13 @@ const AdminDashboard = () => {
   );
 };
 
-const LoginForm = ({ onLogin }) => {
+const LoginForm = ({ onLogin, error, loading }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async () => {
-    setError('');
-    setLoading(true);
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/admin/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Login failed');
-      }
-
-      onLogin(data.token);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onLogin(email, password);
   };
 
   return (
@@ -461,28 +474,15 @@ const LoginForm = ({ onLogin }) => {
           <p className="text-gray-500 mt-2">TasteSphere Admin Panel</p>
         </div>
 
-        <div className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@tastesphere.com"
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-            />
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="admin@tastesphere.com" className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent" required disabled={loading} />
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
-              placeholder="Enter your password"
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-            />
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter your password" className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent" required disabled={loading} />
           </div>
 
           {error && (
@@ -492,62 +492,28 @@ const LoginForm = ({ onLogin }) => {
             </div>
           )}
 
-          <button
-            onClick={handleSubmit}
-            disabled={loading}
-            className="w-full bg-orange-500 text-white py-3 rounded-lg font-medium hover:bg-orange-600 transition disabled:opacity-50"
-          >
+          <button type="submit" disabled={loading} className="w-full bg-orange-500 text-white py-3 rounded-lg font-medium hover:bg-orange-600 transition disabled:opacity-50 disabled:cursor-not-allowed">
             {loading ? 'Logging in...' : 'Login to Dashboard'}
           </button>
-        </div>
+        </form>
       </div>
     </div>
   );
 };
 
 const NavButton = ({ icon, label, active, onClick }) => (
-  <button
-    onClick={onClick}
-    className={`w-full flex items-center px-6 py-3 text-left transition ${
-      active ? 'bg-gray-800 border-l-4 border-orange-500' : 'hover:bg-gray-800'
-    }`}
-  >
-    {icon}
-    {label}
+  <button onClick={onClick} className={`w-full flex items-center px-6 py-3 text-left transition ${active ? 'bg-gray-800 border-l-4 border-orange-500' : 'hover:bg-gray-800'}`}>
+    {icon}{label}
   </button>
 );
 
 const DashboardView = ({ revenue, userAnalytics, orderAnalytics, restaurantAnalytics, systemStats }) => (
   <>
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-      <MetricCard
-        title="Total Revenue"
-        value={`₹${revenue?.summary?.totalRevenue?.toFixed(2) || '0.00'}`}
-        change="+12.5%"
-        icon={<DollarSign className="w-6 h-6" />}
-        color="green"
-      />
-      <MetricCard
-        title="Total Orders"
-        value={revenue?.summary?.totalOrders || 0}
-        change="+8.2%"
-        icon={<ShoppingBag className="w-6 h-6" />}
-        color="blue"
-      />
-      <MetricCard
-        title="Active Users"
-        value={userAnalytics?.activeUsers?.activeUserCount || 0}
-        change="+15.3%"
-        icon={<Users className="w-6 h-6" />}
-        color="purple"
-      />
-      <MetricCard
-        title="Avg Order Value"
-        value={`₹${revenue?.summary?.avgOrderValue?.toFixed(2) || '0.00'}`}
-        change="+5.1%"
-        icon={<TrendingUp className="w-6 h-6" />}
-        color="orange"
-      />
+      <MetricCard title="Total Revenue" value={`₹${revenue?.summary?.totalRevenue?.toFixed(2) || '0.00'}`} change="+12.5%" icon={<DollarSign className="w-6 h-6" />} color="green" />
+      <MetricCard title="Total Orders" value={revenue?.summary?.totalOrders || 0} change="+8.2%" icon={<ShoppingBag className="w-6 h-6" />} color="blue" />
+      <MetricCard title="Active Users" value={userAnalytics?.activeUsers?.activeUserCount || systemStats?.totalUsers || 0} change="+15.3%" icon={<Users className="w-6 h-6" />} color="purple" />
+      <MetricCard title="Restaurants" value={systemStats?.totalRestaurants || 0} change="+5.1%" icon={<Store className="w-6 h-6" />} color="orange" />
     </div>
 
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
@@ -571,53 +537,37 @@ const DashboardView = ({ revenue, userAnalytics, orderAnalytics, restaurantAnaly
       </div>
 
       <div className="bg-white rounded-xl shadow-md p-6">
-        <h2 className="text-xl font-bold text-gray-900 mb-4">Top Restaurants</h2>
+        <h2 className="text-xl font-bold text-gray-900 mb-4">System Stats</h2>
         <div className="space-y-4">
-          {revenue?.topRestaurants?.slice(0, 5).map((restaurant, index) => (
-            <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-              <div className="flex items-center space-x-3">
-                <div className="w-8 h-8 bg-orange-500 rounded-full flex items-center justify-center text-white font-bold text-sm">
-                  {index + 1}
-                </div>
-                <div>
-                  <p className="font-medium text-gray-900 text-sm">{restaurant.restaurantName}</p>
-                  <p className="text-xs text-gray-500">{restaurant.orders} orders</p>
-                </div>
-              </div>
-              <span className="font-bold text-green-600 text-sm">₹{restaurant.revenue.toFixed(0)}</span>
-            </div>
-          ))}
+          <StatItem label="Total Users" value={systemStats?.totalUsers || 0} icon={<Users className="w-5 h-5" />} />
+          <StatItem label="Restaurants" value={systemStats?.totalRestaurants || 0} icon={<Store className="w-5 h-5" />} />
+          <StatItem label="Total Orders" value={systemStats?.totalOrders || 0} icon={<ShoppingBag className="w-5 h-5" />} />
+          <StatItem label="Active Orders" value={systemStats?.activeOrders || 0} icon={<Clock className="w-5 h-5" />} />
+          <StatItem label="Total Dishes" value={systemStats?.totalDishes || 0} icon={<Package className="w-5 h-5" />} />
         </div>
-      </div>
-    </div>
-
-    <div className="bg-white rounded-xl shadow-md p-6">
-      <h2 className="text-xl font-bold text-gray-900 mb-6">System Overview</h2>
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        <StatBox label="Total Users" value={systemStats?.totalUsers || 0} icon={<Users className="w-5 h-5" />} color="blue" />
-        <StatBox label="Restaurants" value={systemStats?.totalRestaurants || 0} icon={<Store className="w-5 h-5" />} color="purple" />
-        <StatBox label="Total Orders" value={systemStats?.totalOrders || 0} icon={<ShoppingBag className="w-5 h-5" />} color="green" />
-        <StatBox label="Active Dishes" value={systemStats?.totalDishes || 0} icon={<Package className="w-5 h-5" />} color="orange" />
-        <StatBox label="Active Orders" value={systemStats?.activeOrders || 0} icon={<Clock className="w-5 h-5" />} color="red" />
-        <StatBox label="Pending Verification" value={systemStats?.pendingVerifications || 0} icon={<AlertCircle className="w-5 h-5" />} color="yellow" />
       </div>
     </div>
   </>
 );
 
-const UsersView = ({ users, loading, onBlockUser, onUnblockUser }) => {
-  if (loading) {
-    return <div className="text-center py-12">Loading users...</div>;
-  }
+const StatItem = ({ label, value, icon }) => (
+  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+    <div className="flex items-center space-x-3">
+      <div className="text-gray-600">{icon}</div>
+      <span className="text-sm text-gray-700">{label}</span>
+    </div>
+    <span className="font-bold text-gray-900">{value}</span>
+  </div>
+);
 
-  if (users.length === 0) {
-    return (
-      <div className="bg-white rounded-lg shadow-md p-12 text-center">
-        <Users className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-        <p className="text-gray-500">No users found</p>
-      </div>
-    );
-  }
+const UsersView = ({ users, loading, onBlockUser, onUnblockUser }) => {
+  if (loading) return <div className="text-center py-12">Loading users...</div>;
+  if (users.length === 0) return (
+    <div className="bg-white rounded-lg shadow-md p-12 text-center">
+      <Users className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+      <p className="text-gray-500">No users found</p>
+    </div>
+  );
 
   return (
     <div className="bg-white rounded-lg shadow-md overflow-hidden">
@@ -638,31 +588,17 @@ const UsersView = ({ users, loading, onBlockUser, onUnblockUser }) => {
               <td className="px-6 py-4 font-medium text-gray-900">{user.name}</td>
               <td className="px-6 py-4 text-sm text-gray-500">{user.emailId}</td>
               <td className="px-6 py-4 text-sm text-gray-900">{user.orderCount || 0}</td>
-              <td className="px-6 py-4 text-sm font-medium text-green-600">
-                ₹{(user.totalSpent || 0).toFixed(2)}
-              </td>
+              <td className="px-6 py-4 text-sm font-medium text-green-600">₹{(user.totalSpent || 0).toFixed(2)}</td>
               <td className="px-6 py-4">
-                <span className={`px-2 py-1 text-xs rounded-full ${
-                  user.isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                }`}>
+                <span className={`px-2 py-1 text-xs rounded-full ${user.isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
                   {user.isActive ? 'Active' : 'Blocked'}
                 </span>
               </td>
               <td className="px-6 py-4">
                 {user.isActive ? (
-                  <button
-                    onClick={() => onBlockUser(user._id)}
-                    className="text-red-600 hover:text-red-800 text-sm font-medium"
-                  >
-                    Block
-                  </button>
+                  <button onClick={() => onBlockUser(user._id)} className="text-red-600 hover:text-red-800 text-sm font-medium">Block</button>
                 ) : (
-                  <button
-                    onClick={() => onUnblockUser(user._id)}
-                    className="text-green-600 hover:text-green-800 text-sm font-medium"
-                  >
-                    Unblock
-                  </button>
+                  <button onClick={() => onUnblockUser(user._id)} className="text-green-600 hover:text-green-800 text-sm font-medium">Unblock</button>
                 )}
               </td>
             </tr>
@@ -674,18 +610,13 @@ const UsersView = ({ users, loading, onBlockUser, onUnblockUser }) => {
 };
 
 const RestaurantsView = ({ restaurants, loading, onApprove, onReject }) => {
-  if (loading) {
-    return <div className="text-center py-12">Loading restaurants...</div>;
-  }
-
-  if (restaurants.length === 0) {
-    return (
-      <div className="bg-white rounded-lg shadow-md p-12 text-center">
-        <Store className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-        <p className="text-gray-500">No restaurants found</p>
-      </div>
-    );
-  }
+  if (loading) return <div className="text-center py-12">Loading restaurants...</div>;
+  if (restaurants.length === 0) return (
+    <div className="bg-white rounded-lg shadow-md p-12 text-center">
+      <Store className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+      <p className="text-gray-500">No restaurants found</p>
+    </div>
+  );
 
   return (
     <div className="bg-white rounded-lg shadow-md overflow-hidden">
@@ -706,28 +637,20 @@ const RestaurantsView = ({ restaurants, loading, onApprove, onReject }) => {
               <td className="px-6 py-4 font-medium text-gray-900">{restaurant.businessName}</td>
               <td className="px-6 py-4 text-sm text-gray-500">{restaurant.email}</td>
               <td className="px-6 py-4 text-sm text-gray-900">{restaurant.stats?.orderCount || 0}</td>
-              <td className="px-6 py-4 text-sm font-medium text-green-600">
-                ₹{(restaurant.stats?.totalRevenue || 0).toFixed(2)}
+              <td className="px-6 py-4 text-sm font-medium text-green-600">₹{(restaurant.stats?.totalRevenue || 0).toFixed(2)}</td>
+              <td className="px-6 py-4">
+                <span className={`px-2 py-1 text-xs rounded-full ${restaurant.isVerified ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                  {restaurant.isVerified ? 'Verified' : 'Pending'}
+                </span>
               </td>
               <td className="px-6 py-4">
                 <div className="flex space-x-2">
-                  {!restaurant.isVerified && (
+                  {!restaurant.isVerified ? (
                     <>
-                      <button
-                        onClick={() => onApprove(restaurant._id)}
-                        className="text-green-600 hover:text-green-800 text-sm font-medium"
-                      >
-                        Approve
-                      </button>
-                      <button
-                        onClick={() => onReject(restaurant._id)}
-                        className="text-red-600 hover:text-red-800 text-sm font-medium"
-                      >
-                        Reject
-                      </button>
+                      <button onClick={() => onApprove(restaurant._id)} className="text-green-600 hover:text-green-800 text-sm font-medium">Approve</button>
+                      <button onClick={() => onReject(restaurant._id)} className="text-red-600 hover:text-red-800 text-sm font-medium">Reject</button>
                     </>
-                  )}
-                  {restaurant.isVerified && (
+                  ) : (
                     <span className="text-gray-400 text-sm">Verified</span>
                   )}
                 </div>
@@ -741,18 +664,13 @@ const RestaurantsView = ({ restaurants, loading, onApprove, onReject }) => {
 };
 
 const OrdersView = ({ orders, loading }) => {
-  if (loading) {
-    return <div className="text-center py-12">Loading orders...</div>;
-  }
-
-  if (orders.length === 0) {
-    return (
-      <div className="bg-white rounded-lg shadow-md p-12 text-center">
-        <ShoppingBag className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-        <p className="text-gray-500">No orders found</p>
-      </div>
-    );
-  }
+  if (loading) return <div className="text-center py-12">Loading orders...</div>;
+  if (orders.length === 0) return (
+    <div className="bg-white rounded-lg shadow-md p-12 text-center">
+      <ShoppingBag className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+      <p className="text-gray-500">No orders found</p>
+    </div>
+  );
 
   const getStatusColor = (status) => {
     const colors = {
@@ -784,29 +702,17 @@ const OrdersView = ({ orders, loading }) => {
         <tbody className="divide-y divide-gray-200">
           {orders.map((order) => (
             <tr key={order._id} className="hover:bg-gray-50">
-              <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                {order.orderId}
-              </td>
+              <td className="px-6 py-4 text-sm font-medium text-gray-900">{order.orderId}</td>
               <td className="px-6 py-4">
                 <div>
                   <p className="text-sm font-medium text-gray-900">{order.customerName}</p>
                   <p className="text-xs text-gray-500">{order.customerEmail}</p>
                 </div>
               </td>
-              <td className="px-6 py-4 text-sm text-gray-500">
-                {order.seller?.businessName || order.item?.restaurant || 'N/A'}
-              </td>
-              <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                ₹{order.totalAmount?.toFixed(2)}
-              </td>
+              <td className="px-6 py-4 text-sm text-gray-500">{order.seller?.businessName || order.item?.restaurant || 'N/A'}</td>
+              <td className="px-6 py-4 text-sm font-medium text-gray-900">₹{order.totalAmount?.toFixed(2)}</td>
               <td className="px-6 py-4">
-                <span className={`px-2 py-1 text-xs rounded-full ${
-                  order.paymentStatus === 'completed' 
-                    ? 'bg-green-100 text-green-800' 
-                    : order.paymentStatus === 'pending'
-                    ? 'bg-yellow-100 text-yellow-800'
-                    : 'bg-red-100 text-red-800'
-                }`}>
+                <span className={`px-2 py-1 text-xs rounded-full ${order.paymentStatus === 'completed' ? 'bg-green-100 text-green-800' : order.paymentStatus === 'pending' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
                   {order.paymentMethod === 'cod' ? 'COD' : order.paymentStatus}
                 </span>
               </td>
@@ -816,11 +722,7 @@ const OrdersView = ({ orders, loading }) => {
                 </span>
               </td>
               <td className="px-6 py-4 text-sm text-gray-500">
-                {new Date(order.createdAt).toLocaleDateString('en-IN', {
-                  day: '2-digit',
-                  month: 'short',
-                  year: 'numeric'
-                })}
+                {new Date(order.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
               </td>
             </tr>
           ))}
@@ -843,9 +745,7 @@ const MetricCard = ({ title, value, change, icon, color }) => {
   return (
     <div className="bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition-shadow">
       <div className="flex items-center justify-between mb-4">
-        <div className={`${colors[color]} text-white p-3 rounded-lg`}>
-          {icon}
-        </div>
+        <div className={`${colors[color]} text-white p-3 rounded-lg`}>{icon}</div>
         <div className={`flex items-center space-x-1 text-sm font-medium ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
           {isPositive ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />}
           <span>{change}</span>
@@ -857,25 +757,4 @@ const MetricCard = ({ title, value, change, icon, color }) => {
   );
 };
 
-const StatBox = ({ label, value, icon, color }) => {
-  const colors = {
-    blue: 'bg-blue-100 text-blue-600',
-    purple: 'bg-purple-100 text-purple-600',
-    green: 'bg-green-100 text-green-600',
-    orange: 'bg-orange-100 text-orange-600',
-    red: 'bg-red-100 text-red-600',
-    yellow: 'bg-yellow-100 text-yellow-600'
-  };
-
-  return (
-    <div className="bg-gray-50 rounded-lg p-4 hover:bg-gray-100 transition">
-      <div className={`${colors[color]} w-10 h-10 rounded-lg flex items-center justify-center mb-3`}>
-        {icon}
-      </div>
-      <p className="text-2xl font-bold text-gray-900 mb-1">{value}</p>
-      <p className="text-xs text-gray-600">{label}</p>
-    </div>
-  );
-};
-
-export default AdminDashboard; 
+export default AdminDashboard;

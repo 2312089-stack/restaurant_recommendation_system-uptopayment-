@@ -1,4 +1,4 @@
-// backend/controllers/sellerAnalyticsController.js - COMPLETE PRODUCTION VERSION
+// backend/controllers/sellerAnalyticsController.js - COMPLETE FIXED VERSION
 import Order from '../models/Order.js';
 import Dish from '../models/Dish.js';
 import Review from '../models/Review.js';
@@ -63,6 +63,7 @@ class SellerAnalyticsController {
 
     } catch (error) {
       console.error('❌ Analytics error:', error);
+      console.error('Stack:', error.stack);
       res.status(500).json({
         success: false,
         error: 'Failed to fetch analytics',
@@ -76,21 +77,25 @@ class SellerAnalyticsController {
     const endDate = new Date();
     let startDate = new Date();
 
-    switch (range) {
-      case 'week':
-        startDate.setDate(startDate.getDate() - 7);
-        break;
-      case 'month':
-        startDate.setDate(startDate.getDate() - 30);
-        break;
-      case 'year':
-        startDate.setFullYear(startDate.getFullYear() - 1);
-        break;
-      default:
-        startDate.setDate(startDate.getDate() - 7);
+    // ✅ TEMPORARY: Use all-time for testing
+    if (range === 'all') {
+      startDate = new Date('2020-01-01');
+    } else {
+      switch (range) {
+        case 'week':
+          startDate.setDate(endDate.getDate() - 7);
+          break;
+        case 'month':
+          startDate.setDate(endDate.getDate() - 30);
+          break;
+        case 'year':
+          startDate.setFullYear(endDate.getFullYear() - 1);
+          break;
+        default:
+          startDate.setDate(endDate.getDate() - 7);
+      }
     }
 
-    // Set to start of day for startDate, end of day for endDate
     startDate.setHours(0, 0, 0, 0);
     endDate.setHours(23, 59, 59, 999);
 
@@ -102,6 +107,8 @@ class SellerAnalyticsController {
     try {
       const sellerObjectId = new mongoose.Types.ObjectId(sellerId);
 
+      console.log('📊 Getting overview for seller:', sellerId);
+
       // Get completed orders for revenue calculation
       const orders = await Order.find({
         seller: sellerObjectId,
@@ -109,9 +116,14 @@ class SellerAnalyticsController {
         paymentStatus: 'completed'
       }).lean();
 
+      console.log(`📊 Found ${orders.length} completed payment orders`);
+
       const totalRevenue = orders.reduce((sum, order) => sum + (order.totalAmount || 0), 0);
       const totalOrders = orders.length;
       const averageOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+
+      console.log(`💰 Total Revenue: ₹${totalRevenue.toFixed(2)}`);
+      console.log(`📦 Total Orders: ${totalOrders}`);
 
       // Get average rating from reviews
       const reviews = await Review.find({
@@ -145,6 +157,8 @@ class SellerAnalyticsController {
   async getRevenueAnalytics(sellerId, startDate, endDate) {
     try {
       const sellerObjectId = new mongoose.Types.ObjectId(sellerId);
+
+      console.log('💰 Calculating revenue analytics...');
 
       // Current period orders
       const currentOrders = await Order.find({
@@ -229,7 +243,8 @@ class SellerAnalyticsController {
       }));
 
       // Payment method distribution
-      const paymentData = this.calculatePaymentDistribution(orders);
+      const completedPaymentOrders = orders.filter(o => o.paymentStatus === 'completed');
+      const paymentData = this.calculatePaymentDistribution(completedPaymentOrders);
 
       // Hourly distribution
       const hourlyData = this.calculateHourlyDistribution(orders);
@@ -256,56 +271,77 @@ class SellerAnalyticsController {
     try {
       const sellerObjectId = new mongoose.Types.ObjectId(sellerId);
 
+      console.log('🍽️  Calculating dish analytics...');
+
       // Get all active dishes
       const dishes = await Dish.find({
-        seller: sellerObjectId,
+        $or: [
+          { seller: sellerObjectId },
+          { restaurantId: sellerObjectId }
+        ],
         isActive: true
       }).lean();
 
+      console.log(`🍽️  Found ${dishes.length} active dishes`);
+
+      if (dishes.length === 0) {
+        return { topDishes: [], totalDishes: 0 };
+      }
+
+      // Get ALL completed payment orders
+      const allCompletedOrders = await Order.find({
+        seller: sellerObjectId,
+        createdAt: { $gte: startDate, $lte: endDate },
+        paymentStatus: 'completed'
+      }).lean();
+
+      console.log(`📦 Found ${allCompletedOrders.length} completed orders to analyze`);
+
       // Calculate stats for each dish
-      const dishStatsPromises = dishes.map(async (dish) => {
-        // Count orders containing this dish
-        const orderCount = await Order.countDocuments({
-          seller: sellerObjectId,
-          'item.dishId': dish._id.toString(),
-          createdAt: { $gte: startDate, $lte: endDate },
-          paymentStatus: 'completed'
+      const dishStats = dishes.map((dish) => {
+        const dishIdStr = dish._id.toString();
+        const dishName = dish.name;
+
+        // Match orders by dishId AND name
+        const matchingOrders = allCompletedOrders.filter(order => {
+          const itemDishId = order.item?.dishId?.toString();
+          const itemName = order.item?.name;
+          const directDishId = order.dish?.toString();
+
+          return (
+            itemDishId === dishIdStr ||
+            directDishId === dishIdStr ||
+            itemName === dishName
+          );
         });
 
-        // Calculate revenue from this dish
-        const revenueResult = await Order.aggregate([
-          {
-            $match: {
-              seller: sellerObjectId,
-              'item.dishId': dish._id.toString(),
-              createdAt: { $gte: startDate, $lte: endDate },
-              paymentStatus: 'completed'
-            }
-          },
-          {
-            $group: {
-              _id: null,
-              total: { $sum: '$totalAmount' }
-            }
-          }
-        ]);
+        const orderCount = matchingOrders.length;
+        const revenue = matchingOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+
+        if (orderCount > 0) {
+          console.log(`  🍽️  ${dishName}: ${orderCount} orders, ₹${revenue.toFixed(2)}`);
+        }
 
         return {
           _id: dish._id,
-          name: dish.name,
+          name: dishName,
           orders: orderCount,
-          revenue: revenueResult[0]?.total || 0,
+          revenue: Math.round(revenue * 100) / 100,
           rating: dish.rating?.average || 0,
           views: dish.viewCount || 0
         };
       });
 
-      const dishStats = await Promise.all(dishStatsPromises);
-
-      // Sort by orders and get top 5
+      // Sort by orders, revenue, views
       const topDishes = dishStats
-        .sort((a, b) => b.orders - a.orders)
+        .sort((a, b) => {
+          if (b.orders !== a.orders) return b.orders - a.orders;
+          if (b.revenue !== a.revenue) return b.revenue - a.revenue;
+          return b.views - a.views;
+        })
         .slice(0, 5);
+
+      console.log(`✅ Top ${topDishes.length} dishes calculated`);
 
       return {
         topDishes,
@@ -330,23 +366,19 @@ class SellerAnalyticsController {
         createdAt: { $gte: startDate, $lte: endDate }
       }).lean();
 
-      // Unique customers by email
       const customerEmails = new Set(orders.map(o => o.customerEmail));
       const total = customerEmails.size;
 
-      // Get all historical orders to determine new vs repeat
       const allOrders = await Order.find({
         seller: sellerObjectId
       }).lean();
 
-      // Count orders per customer
       const customerOrderCounts = {};
       allOrders.forEach(order => {
         const email = order.customerEmail;
         customerOrderCounts[email] = (customerOrderCounts[email] || 0) + 1;
       });
 
-      // New customers (first order in current period)
       const newCustomers = orders.filter(order => {
         const previousOrders = allOrders.filter(o => 
           o.customerEmail === order.customerEmail && 
@@ -357,7 +389,6 @@ class SellerAnalyticsController {
 
       const newCustomerCount = new Set(newCustomers.map(o => o.customerEmail)).size;
 
-      // Repeat customers (more than 1 order ever)
       const repeatCustomers = Array.from(customerEmails).filter(email => 
         customerOrderCounts[email] > 1
       ).length;
@@ -372,12 +403,7 @@ class SellerAnalyticsController {
       };
     } catch (error) {
       console.error('Customer analytics error:', error);
-      return {
-        total: 0,
-        new: 0,
-        repeat: 0,
-        repeatRate: 0
-      };
+      return { total: 0, new: 0, repeat: 0, repeatRate: 0 };
     }
   }
 
@@ -393,26 +419,22 @@ class SellerAnalyticsController {
 
       const totalOrders = orders.length;
 
-      // Acceptance rate
       const acceptedStatuses = ['seller_accepted', 'confirmed', 'preparing', 'ready', 'out_for_delivery', 'delivered'];
       const acceptedOrders = orders.filter(o => acceptedStatuses.includes(o.orderStatus)).length;
       const acceptanceRate = totalOrders > 0 ? (acceptedOrders / totalOrders) * 100 : 100;
 
-      // Cancellation rate
       const cancelledStatuses = ['cancelled', 'seller_rejected'];
       const cancelledOrders = orders.filter(o => cancelledStatuses.includes(o.orderStatus)).length;
       const cancellationRate = totalOrders > 0 ? (cancelledOrders / totalOrders) * 100 : 0;
 
-      // Average prep time (estimated from delivery data)
       const deliveredOrders = orders.filter(o => o.actualDeliveryTime && o.createdAt);
       const avgPrepTime = deliveredOrders.length > 0
         ? deliveredOrders.reduce((sum, o) => {
-            const prepTime = (new Date(o.actualDeliveryTime) - new Date(o.createdAt)) / 60000; // minutes
-            return sum + Math.min(prepTime, 120); // Cap at 120 minutes
+            const prepTime = (new Date(o.actualDeliveryTime) - new Date(o.createdAt)) / 60000;
+            return sum + Math.min(prepTime, 120);
           }, 0) / deliveredOrders.length
-        : 25; // Default
+        : 25;
 
-      // Rating change (compare with previous period)
       const periodLength = endDate - startDate;
       const prevStartDate = new Date(startDate.getTime() - periodLength);
 
@@ -466,7 +488,6 @@ class SellerAnalyticsController {
         createdAt: { $gte: startDate, $lte: endDate }
       }).lean();
 
-      // Peak hours analysis
       const hourCounts = Array(24).fill(0);
       orders.forEach(order => {
         const hour = new Date(order.createdAt).getHours();
@@ -478,7 +499,6 @@ class SellerAnalyticsController {
       const peakEndHour = (peakHour + 2) % 24;
       const peakHours = `${peakHour}:00 - ${peakEndHour}:00`;
 
-      // Top category from dishes
       const dishes = await Dish.find({
         seller: sellerObjectId,
         isActive: true
@@ -489,11 +509,12 @@ class SellerAnalyticsController {
         categoryCounts[dish.category] = (categoryCounts[dish.category] || 0) + 1;
       });
 
-      const topCategory = Object.keys(categoryCounts).reduce((a, b) => 
-        categoryCounts[a] > categoryCounts[b] ? a : b
-      , 'Main Course');
+      const topCategory = Object.keys(categoryCounts).length > 0
+        ? Object.keys(categoryCounts).reduce((a, b) => 
+            categoryCounts[a] > categoryCounts[b] ? a : b
+          )
+        : 'Main Course';
 
-      // Growth rate (overall trend)
       const periodLength = endDate - startDate;
       const prevStartDate = new Date(startDate.getTime() - periodLength);
 
@@ -530,11 +551,9 @@ class SellerAnalyticsController {
 
   // ==================== HELPER METHODS ====================
 
-  // Aggregate data by date
   aggregateByDate(orders, field, startDate, endDate) {
     const dateMap = new Map();
     
-    // Initialize all dates in range
     const currentDate = new Date(startDate);
     while (currentDate <= endDate) {
       const dateKey = currentDate.toISOString().split('T')[0];
@@ -542,7 +561,6 @@ class SellerAnalyticsController {
       currentDate.setDate(currentDate.getDate() + 1);
     }
 
-    // Aggregate orders by date
     orders.forEach(order => {
       const dateKey = new Date(order.createdAt).toISOString().split('T')[0];
       if (dateMap.has(dateKey)) {
@@ -550,14 +568,12 @@ class SellerAnalyticsController {
       }
     });
 
-    // Convert to array format
     return Array.from(dateMap.entries()).map(([date, value]) => ({
       date: new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
       revenue: Math.round(value * 100) / 100
     }));
   }
 
-  // Calculate payment distribution
   calculatePaymentDistribution(orders) {
     const paymentCounts = { razorpay: 0, cod: 0 };
     const paymentTotals = { razorpay: 0, cod: 0 };
@@ -578,7 +594,6 @@ class SellerAnalyticsController {
     ];
   }
 
-  // Calculate hourly distribution
   calculateHourlyDistribution(orders) {
     const hourlyCounts = Array(24).fill(0);
     
@@ -593,7 +608,6 @@ class SellerAnalyticsController {
     }));
   }
 
-  // Format status name for display
   formatStatusName(status) {
     const statusMap = {
       'pending_seller': 'Pending',
@@ -610,7 +624,6 @@ class SellerAnalyticsController {
   }
 }
 
-// Export controller instance
 const analyticsController = new SellerAnalyticsController();
 export default analyticsController;
 export const { getAnalytics } = analyticsController;

@@ -4,20 +4,48 @@ import User from '../models/User.js';
 import Seller from '../models/Seller.js';
 import Dish from '../models/Dish.js';
 
-// ==================== REVENUE ANALYTICS ====================
+// Helper function to get date range based on period
+const getDateRange = (period) => {
+  const endDate = new Date();
+  let startDate = new Date();
 
+  switch (period) {
+    case 'today':
+      startDate.setHours(0, 0, 0, 0);
+      break;
+    case 'week':
+      startDate.setDate(startDate.getDate() - 7);
+      break;
+    case 'month':
+      startDate.setDate(startDate.getDate() - 30);
+      break;
+    case 'year':
+      startDate.setFullYear(startDate.getFullYear() - 1);
+      break;
+    default:
+      startDate.setDate(startDate.getDate() - 7);
+  }
+
+  startDate.setHours(0, 0, 0, 0);
+  endDate.setHours(23, 59, 59, 999);
+
+  return { startDate, endDate };
+};
+
+// ==================== REVENUE ANALYTICS ====================
 export const getRevenueAnalytics = async (req, res) => {
   try {
-    const { period = 'month', startDate, endDate } = req.query;
+    const { period = 'week' } = req.query;
+    const { startDate, endDate } = getDateRange(period);
 
-    const dateFilter = getDateFilter(period, startDate, endDate);
+    console.log('📊 Fetching revenue analytics for period:', period);
 
-    // Total revenue
-    const revenueStats = await Order.aggregate([
+    // Revenue summary
+    const summary = await Order.aggregate([
       {
         $match: {
-          paymentStatus: 'completed',
-          createdAt: dateFilter
+          createdAt: { $gte: startDate, $lte: endDate },
+          paymentStatus: 'completed'
         }
       },
       {
@@ -30,12 +58,12 @@ export const getRevenueAnalytics = async (req, res) => {
       }
     ]);
 
-    // Revenue by day
+    // Daily revenue trend
     const dailyRevenue = await Order.aggregate([
       {
         $match: {
-          paymentStatus: 'completed',
-          createdAt: dateFilter
+          createdAt: { $gte: startDate, $lte: endDate },
+          paymentStatus: 'completed'
         }
       },
       {
@@ -50,12 +78,12 @@ export const getRevenueAnalytics = async (req, res) => {
       { $sort: { '_id.date': 1 } }
     ]);
 
-    // Revenue by restaurant
-    const revenueByRestaurant = await Order.aggregate([
+    // Top restaurants by revenue
+    const topRestaurants = await Order.aggregate([
       {
         $match: {
-          paymentStatus: 'completed',
-          createdAt: dateFilter
+          createdAt: { $gte: startDate, $lte: endDate },
+          paymentStatus: 'completed'
         }
       },
       {
@@ -72,275 +100,300 @@ export const getRevenueAnalytics = async (req, res) => {
           from: 'sellers',
           localField: '_id',
           foreignField: '_id',
-          as: 'restaurant'
+          as: 'restaurantData'
         }
       },
-      { $unwind: '$restaurant' },
+      { $unwind: '$restaurantData' },
       {
         $project: {
-          restaurantName: '$restaurant.businessName',
+          restaurantName: '$restaurantData.businessName',
           revenue: 1,
           orders: 1
         }
       }
     ]);
 
-    res.json({
-      success: true,
-      analytics: {
-        summary: revenueStats[0] || {
-          totalRevenue: 0,
-          totalOrders: 0,
-          avgOrderValue: 0
-        },
-        dailyRevenue,
-        topRestaurants: revenueByRestaurant
-      }
-    });
-
-  } catch (error) {
-    console.error('Revenue analytics error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch revenue analytics'
-    });
-  }
-};
-
-// ==================== USER ANALYTICS ====================
-
-export const getUserAnalytics = async (req, res) => {
-  try {
-    const { period = 'month' } = req.query;
-    const dateFilter = getDateFilter(period);
-
-    // User growth
-    const userGrowth = await User.aggregate([
+    // Payment method breakdown
+    const paymentMethodBreakdown = await Order.aggregate([
       {
         $match: {
-          createdAt: dateFilter,
-          role: { $ne: 'admin' }
-        }
-      },
-      {
-        $group: {
-          _id: {
-            date: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }
-          },
-          newUsers: { $sum: 1 }
-        }
-      },
-      { $sort: { '_id.date': 1 } }
-    ]);
-
-    // Active users (users who placed orders)
-    const activeUsers = await Order.aggregate([
-      {
-        $match: {
-          createdAt: dateFilter
-        }
-      },
-      {
-        $group: {
-          _id: '$customerEmail',
-          orderCount: { $sum: 1 },
-          totalSpent: { $sum: '$totalAmount' }
-        }
-      },
-      {
-        $group: {
-          _id: null,
-          activeUserCount: { $sum: 1 },
-          avgOrdersPerUser: { $avg: '$orderCount' },
-          avgSpentPerUser: { $avg: '$totalSpent' }
-        }
-      }
-    ]);
-
-    // User segmentation
-    const userSegmentation = await User.aggregate([
-      {
-        $match: {
-          role: { $ne: 'admin' }
-        }
-      },
-      {
-        $lookup: {
-          from: 'orders',
-          let: { userEmail: '$emailId' },
-          pipeline: [
-            {
-              $match: {
-                $expr: { $eq: ['$customerEmail', '$$userEmail'] },
-                paymentStatus: 'completed'
-              }
-            },
-            {
-              $group: {
-                _id: null,
-                totalSpent: { $sum: '$totalAmount' },
-                orderCount: { $sum: 1 }
-              }
-            }
-          ],
-          as: 'orderStats'
-        }
-      },
-      {
-        $addFields: {
-          totalSpent: { $ifNull: [{ $arrayElemAt: ['$orderStats.totalSpent', 0] }, 0] },
-          orderCount: { $ifNull: [{ $arrayElemAt: ['$orderStats.orderCount', 0] }, 0] }
-        }
-      },
-      {
-        $bucket: {
-          groupBy: '$totalSpent',
-          boundaries: [0, 100, 500, 1000, 5000, 999999],
-          default: 'Other',
-          output: {
-            count: { $sum: 1 },
-            avgOrders: { $avg: '$orderCount' }
-          }
-        }
-      }
-    ]);
-
-    res.json({
-      success: true,
-      analytics: {
-        growth: userGrowth,
-        activeUsers: activeUsers[0] || {
-          activeUserCount: 0,
-          avgOrdersPerUser: 0,
-          avgSpentPerUser: 0
-        },
-        segmentation: userSegmentation
-      }
-    });
-
-  } catch (error) {
-    console.error('User analytics error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch user analytics'
-    });
-  }
-};
-
-// ==================== ORDER ANALYTICS ====================
-
-export const getOrderAnalytics = async (req, res) => {
-  try {
-    const { period = 'month' } = req.query;
-    const dateFilter = getDateFilter(period);
-
-    // Order statistics
-    const orderStats = await Order.aggregate([
-      {
-        $match: {
-          createdAt: dateFilter
-        }
-      },
-      {
-        $group: {
-          _id: '$orderStatus',
-          count: { $sum: 1 },
-          totalAmount: { $sum: '$totalAmount' }
-        }
-      }
-    ]);
-
-    // Peak hours
-    const peakHours = await Order.aggregate([
-      {
-        $match: {
-          createdAt: dateFilter
-        }
-      },
-      {
-        $group: {
-          _id: { $hour: '$createdAt' },
-          orderCount: { $sum: 1 },
-          revenue: { $sum: '$totalAmount' }
-        }
-      },
-      { $sort: { '_id': 1 } }
-    ]);
-
-    // Average delivery time
-    const avgDeliveryTime = await Order.aggregate([
-      {
-        $match: {
-          orderStatus: 'delivered',
-          createdAt: dateFilter
-        }
-      },
-      {
-        $project: {
-          deliveryTime: {
-            $subtract: ['$deliveredAt', '$createdAt']
-          }
-        }
-      },
-      {
-        $group: {
-          _id: null,
-          avgDeliveryTimeMs: { $avg: '$deliveryTime' }
-        }
-      }
-    ]);
-
-    // Payment method distribution
-    const paymentMethods = await Order.aggregate([
-      {
-        $match: {
-          paymentStatus: 'completed',
-          createdAt: dateFilter
+          createdAt: { $gte: startDate, $lte: endDate },
+          paymentStatus: 'completed'
         }
       },
       {
         $group: {
           _id: '$paymentMethod',
           count: { $sum: 1 },
-          totalAmount: { $sum: '$totalAmount' }
+          revenue: { $sum: '$totalAmount' }
         }
       }
     ]);
 
+    console.log('✅ Revenue analytics fetched successfully');
+
     res.json({
       success: true,
       analytics: {
-        orderStats,
-        peakHours,
-        avgDeliveryTime: avgDeliveryTime[0]?.avgDeliveryTimeMs 
-          ? Math.round(avgDeliveryTime[0].avgDeliveryTimeMs / 60000) // Convert to minutes
-          : 0,
-        paymentMethods
+        summary: summary[0] || { totalRevenue: 0, totalOrders: 0, avgOrderValue: 0 },
+        dailyRevenue,
+        topRestaurants,
+        paymentMethodBreakdown
       }
     });
 
   } catch (error) {
-    console.error('Order analytics error:', error);
+    console.error('❌ Revenue analytics error:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch order analytics'
+      error: 'Failed to fetch revenue analytics',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// ==================== USER ANALYTICS ====================
+export const getUserAnalytics = async (req, res) => {
+  try {
+    const { period = 'week' } = req.query;
+    const { startDate, endDate } = getDateRange(period);
+
+    console.log('👥 Fetching user analytics for period:', period);
+
+    // New users in period
+    const newUsers = await User.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: startDate, $lte: endDate },
+          role: { $ne: 'admin' }
+        }
+      },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { '_id': 1 } }
+    ]);
+
+    // Active users (users who placed orders in the period)
+    const activeUsers = await Order.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: startDate, $lte: endDate }
+        }
+      },
+      {
+        $group: {
+          _id: '$customerEmail'
+        }
+      },
+      {
+        $count: 'activeUserCount'
+      }
+    ]);
+
+    // User retention (users who placed multiple orders)
+    const returningUsers = await Order.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: startDate, $lte: endDate }
+        }
+      },
+      {
+        $group: {
+          _id: '$customerEmail',
+          orderCount: { $sum: 1 }
+        }
+      },
+      {
+        $match: { orderCount: { $gt: 1 } }
+      },
+      {
+        $count: 'returningUserCount'
+      }
+    ]);
+
+    // User distribution by order count
+    const userDistribution = await Order.aggregate([
+      {
+        $group: {
+          _id: '$customerEmail',
+          totalOrders: { $sum: 1 },
+          totalSpent: { $sum: '$totalAmount' }
+        }
+      },
+      {
+        $bucket: {
+          groupBy: '$totalOrders',
+          boundaries: [1, 2, 5, 10, 20, 50],
+          default: '50+',
+          output: {
+            count: { $sum: 1 },
+            avgSpent: { $avg: '$totalSpent' }
+          }
+        }
+      }
+    ]);
+
+    console.log('✅ User analytics fetched successfully');
+
+    res.json({
+      success: true,
+      analytics: {
+        newUsers,
+        activeUsers: activeUsers[0] || { activeUserCount: 0 },
+        returningUsers: returningUsers[0] || { returningUserCount: 0 },
+        userDistribution
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ User analytics error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch user analytics',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// ==================== ORDER ANALYTICS ====================
+export const getOrderAnalytics = async (req, res) => {
+  try {
+    const { period = 'week' } = req.query;
+    const { startDate, endDate } = getDateRange(period);
+
+    console.log('📦 Fetching order analytics for period:', period);
+
+    // Order status breakdown
+    const orderStatusBreakdown = await Order.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: startDate, $lte: endDate }
+        }
+      },
+      {
+        $group: {
+          _id: '$orderStatus',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    // Orders by time of day
+    const ordersByHour = await Order.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: startDate, $lte: endDate }
+        }
+      },
+      {
+        $group: {
+          _id: { $hour: '$createdAt' },
+          count: { $sum: 1 },
+          avgAmount: { $avg: '$totalAmount' }
+        }
+      },
+      { $sort: { '_id': 1 } }
+    ]);
+
+    // Average delivery time
+    const deliveryTimeStats = await Order.aggregate([
+      {
+        $match: {
+          orderStatus: 'delivered',
+          createdAt: { $gte: startDate, $lte: endDate },
+          deliveredAt: { $exists: true }
+        }
+      },
+      {
+        $project: {
+          deliveryTimeMinutes: {
+            $divide: [
+              { $subtract: ['$deliveredAt', '$createdAt'] },
+              60000
+            ]
+          }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          avgDeliveryTime: { $avg: '$deliveryTimeMinutes' },
+          minDeliveryTime: { $min: '$deliveryTimeMinutes' },
+          maxDeliveryTime: { $max: '$deliveryTimeMinutes' }
+        }
+      }
+    ]);
+
+    // Cancellation rate
+    const cancellationStats = await Order.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: startDate, $lte: endDate }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalOrders: { $sum: 1 },
+          cancelledOrders: {
+            $sum: { $cond: [{ $eq: ['$orderStatus', 'cancelled'] }, 1, 0] }
+          }
+        }
+      },
+      {
+        $project: {
+          totalOrders: 1,
+          cancelledOrders: 1,
+          cancellationRate: {
+            $multiply: [
+              { $divide: ['$cancelledOrders', '$totalOrders'] },
+              100
+            ]
+          }
+        }
+      }
+    ]);
+
+    console.log('✅ Order analytics fetched successfully');
+
+    res.json({
+      success: true,
+      analytics: {
+        orderStatusBreakdown,
+        ordersByHour,
+        deliveryTimeStats: deliveryTimeStats[0] || { avgDeliveryTime: 0 },
+        cancellationStats: cancellationStats[0] || { totalOrders: 0, cancelledOrders: 0, cancellationRate: 0 }
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Order analytics error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch order analytics',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
 // ==================== RESTAURANT ANALYTICS ====================
-
 export const getRestaurantAnalytics = async (req, res) => {
   try {
-    const { period = 'month' } = req.query;
-    const dateFilter = getDateFilter(period);
+    const { period = 'week' } = req.query;
+    const { startDate, endDate } = getDateRange(period);
+
+    console.log('🏪 Fetching restaurant analytics for period:', period);
 
     // Restaurant performance
     const restaurantPerformance = await Order.aggregate([
       {
         $match: {
-          paymentStatus: 'completed',
-          createdAt: dateFilter
+          createdAt: { $gte: startDate, $lte: endDate },
+          paymentStatus: 'completed'
         }
       },
       {
@@ -351,6 +404,8 @@ export const getRestaurantAnalytics = async (req, res) => {
           avgOrderValue: { $avg: '$totalAmount' }
         }
       },
+      { $sort: { totalRevenue: -1 } },
+      { $limit: 20 },
       {
         $lookup: {
           from: 'sellers',
@@ -365,53 +420,63 @@ export const getRestaurantAnalytics = async (req, res) => {
           restaurantName: '$restaurant.businessName',
           totalOrders: 1,
           totalRevenue: 1,
-          avgOrderValue: 1,
-          isVerified: '$restaurant.isVerified'
+          avgOrderValue: 1
         }
-      },
-      { $sort: { totalRevenue: -1 } },
-      { $limit: 20 }
+      }
     ]);
 
-    // Popular cuisines
-    const popularCuisines = await Dish.aggregate([
+    // New restaurant registrations
+    const newRestaurants = await Seller.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: startDate, $lte: endDate }
+        }
+      },
       {
         $group: {
-          _id: '$cuisine',
-          dishCount: { $sum: 1 }
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+          count: { $sum: 1 }
         }
       },
-      { $sort: { dishCount: -1 } },
-      { $limit: 10 }
+      { $sort: { '_id': 1 } }
     ]);
 
-    // New restaurant signups
-    const newRestaurants = await Seller.countDocuments({
-      createdAt: dateFilter
-    });
+    // Verification status
+    const verificationStatus = await Seller.aggregate([
+      {
+        $group: {
+          _id: '$isVerified',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    console.log('✅ Restaurant analytics fetched successfully');
 
     res.json({
       success: true,
       analytics: {
-        performance: restaurantPerformance,
-        popularCuisines,
-        newRestaurants
+        restaurantPerformance,
+        newRestaurants,
+        verificationStatus
       }
     });
 
   } catch (error) {
-    console.error('Restaurant analytics error:', error);
+    console.error('❌ Restaurant analytics error:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch restaurant analytics'
+      error: 'Failed to fetch restaurant analytics',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
-// ==================== SYSTEM STATISTICS ====================
-
+// ==================== SYSTEM STATS ====================
 export const getSystemStats = async (req, res) => {
   try {
+    console.log('⚙️ Fetching system stats');
+
     const [
       totalUsers,
       totalRestaurants,
@@ -421,14 +486,18 @@ export const getSystemStats = async (req, res) => {
       pendingVerifications
     ] = await Promise.all([
       User.countDocuments({ role: { $ne: 'admin' } }),
-      Seller.countDocuments(),
+      Seller.countDocuments({ isActive: true }),
       Order.countDocuments(),
       Dish.countDocuments({ isActive: true }),
       Order.countDocuments({ 
-        orderStatus: { $in: ['pending', 'confirmed', 'preparing', 'out_for_delivery'] } 
+        orderStatus: { 
+          $in: ['pending', 'seller_accepted', 'preparing', 'out_for_delivery'] 
+        } 
       }),
-      Seller.countDocuments({ isVerified: false })
+      Seller.countDocuments({ isVerified: false, isActive: true })
     ]);
+
+    console.log('✅ System stats fetched successfully');
 
     res.json({
       success: true,
@@ -443,61 +512,11 @@ export const getSystemStats = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('System stats error:', error);
+    console.error('❌ System stats error:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch system statistics'
+      error: 'Failed to fetch system stats',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
-};
-
-// ==================== HELPER FUNCTIONS ====================
-
-function getDateFilter(period, startDate, endDate) {
-  const now = new Date();
-  let filter = {};
-
-  if (startDate && endDate) {
-    filter = {
-      $gte: new Date(startDate),
-      $lte: new Date(endDate)
-    };
-  } else {
-    switch (period) {
-      case 'today':
-        filter = {
-          $gte: new Date(now.setHours(0, 0, 0, 0))
-        };
-        break;
-      case 'week':
-        filter = {
-          $gte: new Date(now.setDate(now.getDate() - 7))
-        };
-        break;
-      case 'month':
-        filter = {
-          $gte: new Date(now.setMonth(now.getMonth() - 1))
-        };
-        break;
-      case 'year':
-        filter = {
-          $gte: new Date(now.setFullYear(now.getFullYear() - 1))
-        };
-        break;
-      default:
-        filter = {
-          $gte: new Date(now.setMonth(now.getMonth() - 1))
-        };
-    }
-  }
-
-  return filter;
-}
-
-export default {
-  getRevenueAnalytics,
-  getUserAnalytics,
-  getOrderAnalytics,
-  getRestaurantAnalytics,
-  getSystemStats
 };

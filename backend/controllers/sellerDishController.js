@@ -431,62 +431,48 @@ export const deleteDish = async (req, res) => {
 // Get dish analytics
 export const getDishAnalytics = async (req, res) => {
   try {
-    const sellerId = new mongoose.Types.ObjectId(req.seller.id);
+    const sellerId = req.seller.id || req.seller._id;
+    const sellerObjectId = new mongoose.Types.ObjectId(sellerId);
+
+    const dishes = await Dish.find({
+      $or: [{ seller: sellerObjectId }, { restaurantId: sellerObjectId }]
+    }).lean();
+
+    const Order = mongoose.model('Order');
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const allOrders = await Order.find({ seller: sellerObjectId }).lean();
     
-    const analytics = await Dish.aggregate([
-      { $match: { seller: sellerId } },
-      {
-        $group: {
-          _id: null,
-          totalDishes: { $sum: 1 },
-          activeDishes: {
-            $sum: { $cond: [{ $eq: ['$availability', true] }, 1, 0] }
-          },
-          totalOrders: { $sum: '$orderCount' },
-          totalViews: { $sum: '$viewCount' },
-          averageRating: { $avg: '$rating.average' }
-        }
-      }
-    ]);
+    const todayOrders = allOrders.filter(o => 
+      new Date(o.createdAt) >= today && o.paymentStatus === 'completed'
+    );
 
-    const categoryStats = await Dish.aggregate([
-      { $match: { seller: sellerId } },
-      {
-        $group: {
-          _id: '$category',
-          count: { $sum: 1 },
-          totalOrders: { $sum: '$orderCount' },
-          avgRating: { $avg: '$rating.average' }
-        }
-      },
-      { $sort: { totalOrders: -1 } }
-    ]);
-
-    const result = {
-      overview: analytics[0] || {
-        totalDishes: 0,
-        activeDishes: 0,
-        totalOrders: 0,
-        totalViews: 0,
-        averageRating: 0
-      },
-      categoryBreakdown: categoryStats
-    };
+    const todayRevenue = todayOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+    
+    const activeOrders = allOrders.filter(o => 
+      ['pending_seller', 'seller_accepted', 'preparing', 'ready', 'out_for_delivery'].includes(o.orderStatus)
+    ).length;
 
     res.json({
       success: true,
-      analytics: result
+      stats: {
+        overview: {
+          totalDishes: dishes.length,
+          activeDishes: dishes.filter(d => d.availability && d.isActive).length,
+          totalOrders: dishes.reduce((sum, d) => sum + (d.orderCount || 0), 0),
+          totalViews: dishes.reduce((sum, d) => sum + (d.viewCount || 0), 0),
+          averageRating: 0,
+          todayRevenue: Math.round(todayRevenue * 100) / 100,
+          activeOrders
+        }
+      }
     });
-
   } catch (error) {
-    console.error('Get dish analytics error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch dish analytics'
-    });
+    console.error('Analytics error:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch analytics' });
   }
 };
-
 // In backend/controllers/sellerDishController.js
 // Replace the updateDishOffer function with this:
 

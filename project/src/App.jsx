@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 
 // Customer Auth flow components
 import SplashScreen from "./customer/SplashScreen";
@@ -20,10 +20,9 @@ import DishDetailsPage from "./customer/DishDetailsPage";
 import DiscoveryPage from "./customer/DiscoveryPage";
 import WishlistPage from "./customer/WishlistPage";
 import OrderHistoryApp from './customer/OrderHistoryApp';
-import CartPage from "./customer/CartPage"; // ✅ FIXED: Ensure this matches exact file name
+import CartPage from "./customer/CartPage";
 import AuthSuccess from './customer/AuthSuccess';
-import RestaurantMenuPage from './customer/RestaurantMenuPage'; // 🆕 NEW: Import RestaurantMenuPage
-
+import RestaurantMenuPage from './customer/RestaurantMenuPage';
 
 // Customer Order flow page components
 import AddressPage from "./customer/AddressPage";
@@ -48,14 +47,15 @@ import SellerResetPassword from "./components/seller/auth/SellerResetPassword";
 import SellerDashboard from "./components/seller/SellerDashboard";
 import AdminLogin from "./components/admin/AdminLogin";
 
-// Add these imports at the top of App.js
+// Support pages
 import HelpCenter from "./pages/HelpCenter";
 import ContactUs from "./pages/ContactUs";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import TermsOfService from "./pages/TermsOfService";
 import RefundPolicy from "./pages/RefundPolicy";
-// Error Boundary Component
 import AdminDashboard from "./components/admin/AdminDashboard";
+
+// Error Boundary Component
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -119,19 +119,27 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-// Protected Main View Component
-const ProtectedMainView = ({ currentView, renderMainView, setCurrentView }) => {
+// ✅ Protected Route Component - Enforces complete auth flow
+const ProtectedRoute = ({ children }) => {
   const { isAuthenticated, loading } = useAuth();
-
+  const location = useLocation();
+  const navigate = useNavigate();
+  
   useEffect(() => {
-    const protectedViews = ['main', 'settings', 'discovery', 'dish-details', 'cart', 'wishlist', 'order-history', 'restaurant-menu'];
-    
-    if (!loading && !isAuthenticated && protectedViews.includes(currentView)) {
-      console.log('Not authenticated, redirecting to login');
-      setCurrentView('login');
+    if (!loading && !isAuthenticated) {
+      const hasSeenOnboarding = localStorage.getItem('hasSeenOnboarding');
+      
+      // If user hasn't seen onboarding, start from splash screen
+      if (hasSeenOnboarding !== 'true') {
+        console.log('❌ User tried to access protected route without seeing onboarding');
+        navigate('/splash-screen', { replace: true });
+      } else {
+        console.log('❌ User tried to access protected route without authentication');
+        navigate('/login', { replace: true, state: { from: location } });
+      }
     }
-  }, [isAuthenticated, loading, currentView, setCurrentView]);
-
+  }, [loading, isAuthenticated, navigate, location]);
+  
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white">
@@ -142,9 +150,15 @@ const ProtectedMainView = ({ currentView, renderMainView, setCurrentView }) => {
       </div>
     );
   }
-
-  return renderMainView();
+  
+  if (!isAuthenticated) {
+    return null; // Will redirect via useEffect
+  }
+  
+  return children;
 };
+
+// Protected Admin Route
 const ProtectedAdminRoute = ({ children }) => {
   const token = localStorage.getItem('adminToken');
   const userRole = localStorage.getItem('userRole');
@@ -155,7 +169,8 @@ const ProtectedAdminRoute = ({ children }) => {
   
   return children;
 };
-// Protected Seller Route Component
+
+// Protected Seller Route
 const ProtectedSellerRoute = ({ children }) => {
   const token = localStorage.getItem('sellerToken');
   if (!token) {
@@ -164,268 +179,318 @@ const ProtectedSellerRoute = ({ children }) => {
   return children;
 };
 
-function App() {
-  const [currentView, setCurrentView] = useState("splash");
-  const [selectedDishId, setSelectedDishId] = useState(null);
-  const [selectedRestaurantId, setSelectedRestaurantId] = useState(null); // 🆕 NEW: For restaurant menu
-
-  // Show splash for 3 seconds
+// ✅ Splash Screen Wrapper with navigation
+const SplashScreenWrapper = () => {
+  const navigate = useNavigate();
+  
   useEffect(() => {
-    console.log("App initialized, showing splash screen");
-    const timer = setTimeout(() => {
-      console.log("Splash timeout, moving to onboarding");
-      setCurrentView("onboarding");
-    }, 3000);
-    return () => clearTimeout(timer);
-  }, []);
-
-  // Debug: Log current view changes
-  useEffect(() => {
-    console.log(`Current view changed to: ${currentView}`);
-  }, [currentView]);
-
-  // Handlers for state-machine navigation
-  const handleOnboardingComplete = () => {
-    console.log("handleOnboardingComplete called, setting view to login");
-    setCurrentView("login");
-  };
-
-  const handleLoginComplete = () => {
-    console.log("handleLoginComplete called, setting view to main");
-    setCurrentView("main");
-  };
-
-  const handleForgotPassword = () => {
-    console.log("handleForgotPassword called");
-    setCurrentView("forgot-password");
-  };
-
-  const handleCreateAccount = () => {
-    console.log("handleCreateAccount called");
-    setCurrentView("signup");
-  };
-
-  const handleBackToLogin = () => {
-    console.log("handleBackToLogin called");
-    setCurrentView("login");
-  };
-
-  const handleSignupComplete = () => {
-    console.log("handleSignupComplete called, setting view to login");
-    setCurrentView("login");
-  };
-
-  const handleOpenSettings = () => {
-    console.log("handleOpenSettings called");
-    setCurrentView("settings");
-  };
-
-  const handleCloseSettings = () => {
-    console.log("handleCloseSettings called");
-    setCurrentView("main");
-  };
-
-  const handleOpenDiscovery = () => {
-    console.log("handleOpenDiscovery called");
-    setCurrentView("discovery");
-  };
-
-  const handleCloseDiscovery = () => {
-    console.log("handleCloseDiscovery called");
-    setCurrentView("main");
-  };
-
-  const handleOpenCart = () => {
-    console.log("handleOpenCart called - navigating to cart page");
-    setCurrentView("cart");
-  };
-
-  const handleCloseCart = () => {
-    console.log("Closing cart - returning to main");
-    setCurrentView("main");
-  };
-
-  const handleOpenWishlist = () => {
-    console.log("handleOpenWishlist called");
-    setCurrentView("wishlist");
-  };
-
-  const handleCloseWishlist = () => {
-    console.log("handleCloseWishlist called");
-    setCurrentView("main");
-  };
-
-  const handleOpenOrderHistory = () => {
-    console.log("handleOpenOrderHistory called");
-    setCurrentView("order-history");
-  };
-
-  const handleCloseOrderHistory = () => {
-    console.log("handleCloseOrderHistory called");
-    setCurrentView("main");
-  };
-
-  const handleShowDishDetails = (dishId) => {
-    console.log("handleShowDishDetails called with dishId:", dishId);
-    setSelectedDishId(dishId);
-    setCurrentView("dish-details");
-  };
-
-  const handleCloseDishDetails = () => {
-    console.log("handleCloseDishDetails called");
-    setSelectedDishId(null);
-    setCurrentView("discovery");
-  };
-
-  // 🆕 NEW: Restaurant menu handlers
-  const handleShowRestaurantMenu = (restaurantId) => {
-    console.log("handleShowRestaurantMenu called with restaurantId:", restaurantId);
-    setSelectedRestaurantId(restaurantId);
-    setCurrentView("restaurant-menu");
-  };
-
-  const handleCloseRestaurantMenu = () => {
-    console.log("handleCloseRestaurantMenu called");
-    setSelectedRestaurantId(null);
-    setCurrentView("discovery");
-  };
-
-  const handleLogout = async () => {
-    console.log("handleLogout called");
-    setCurrentView("login");
-  };
-
-  // Main state-machine view renderer
-  const renderMainView = () => {
-    console.log(`Rendering view: ${currentView}`);
+    console.log("✅ Splash screen loaded at /splash-screen");
     
-    try {
-      switch (currentView) {
-        case "splash":
-          return <SplashScreen />;
-          
-        case "onboarding":
-          return <OnboardingFlow onComplete={handleOnboardingComplete} />;
-          
-        case "login":
-          return (
-            <LoginScreen
-              onLoginComplete={handleLoginComplete}
-              onForgotPassword={handleForgotPassword}
-              onCreateAccount={handleCreateAccount}
-            />
-          );
-          
-        case "forgot-password":
-          return <ForgotPasswordScreen onBackToLogin={handleBackToLogin} />;
-          
-        case "signup":
-          return (
-            <SignupScreen 
-              onBackToLogin={handleBackToLogin} 
-              onSignupComplete={handleSignupComplete}
-            />
-          );
-
-        case "wishlist":
-          return (
-            <WishlistPage 
-              onBack={handleCloseWishlist}
-              onNavigateBack={handleCloseWishlist}
-              onAddToCart={(item) => {
-                console.log('Item added to cart from wishlist:', item);
-              }}
-              onShareWishlist={() => {
-                console.log('Share wishlist functionality');
-              }}
-            />
-          );
-
-        case "order-history":
-          return (
-            <OrderHistoryApp 
-              authToken={localStorage.getItem('token')}
-              onBack={handleCloseOrderHistory}
-              onNavigateBack={handleCloseOrderHistory}
-            />
-          );
-
-        case "main":
-          console.log("✅ Rendering main home page using Home component with props");
-          return (
-            <>
-              <Header 
-                onOpenSettings={handleOpenSettings} 
-                onOpenDiscovery={handleOpenDiscovery} 
-                onOpenCart={handleOpenCart}
-                onOpenWishlist={handleOpenWishlist}
-                onOpenOrderHistory={handleOpenOrderHistory}
-                onLogout={handleLogout} 
-              />
-              <Home 
-                onOpenDiscovery={handleOpenDiscovery}
-                onNavigateToLogin={handleBackToLogin}
-                onNavigateToOrderHistory={handleOpenOrderHistory}
-                onNavigateToCart={handleOpenCart}
-              />
-            </>
-          );
-          
-        case "settings":
-          return <Settings onClose={handleCloseSettings} />;
-          
-        case "discovery":
-          return (
-            <DiscoveryPage 
-              onBack={handleCloseDiscovery} 
-              onShowDishDetails={handleShowDishDetails}
-              onShowRestaurantMenu={handleShowRestaurantMenu} // 🆕 NEW: Pass handler
-            />
-          );
-
-        case "dish-details":
-          return (
-            <DishDetailsPage 
-              dishId={selectedDishId}
-              onBack={handleCloseDishDetails}
-            />
-          );
-
-        // 🆕 NEW: Restaurant menu view
-        case "restaurant-menu":
-          return (
-            <RestaurantMenuPage 
-              restaurantId={selectedRestaurantId}
-              onBack={handleCloseRestaurantMenu}
-            />
-          );
-
-        case "cart":
-          return (
-            <CartPage 
-              isOpen={false}  
-              onClose={handleCloseCart}
-            />
-          );
-          
-        default:
-          console.log(`Unknown view: ${currentView}, falling back to splash`);
-          return <SplashScreen />;
+    const hasSeenOnboarding = localStorage.getItem('hasSeenOnboarding');
+    
+    const timer = setTimeout(() => {
+      if (hasSeenOnboarding === 'true') {
+        console.log("User has seen onboarding, redirecting to /login");
+        navigate('/login', { replace: true });
+      } else {
+        console.log("First time user, redirecting to /onboarding");
+        navigate('/onboarding', { replace: true });
       }
-    } catch (error) {
-      console.error('Error rendering main view:', error);
-      return (
-        <div style={{ padding: '20px', textAlign: 'center' }}>
-          <h2>Error loading page</h2>
-          <p>Please refresh and try again.</p>
-          <button onClick={() => window.location.reload()}>Refresh</button>
-        </div>
-      );
-    }
+    }, 3000);
+    
+    return () => clearTimeout(timer);
+  }, [navigate]);
+  
+  return <SplashScreen />;
+};
+
+// ✅ Onboarding Wrapper with navigation
+const OnboardingWrapper = () => {
+  const navigate = useNavigate();
+  
+  const handleOnboardingComplete = () => {
+    console.log("✅ Onboarding completed, setting flag and navigating to login");
+    localStorage.setItem('hasSeenOnboarding', 'true');
+    navigate('/login', { replace: true });
   };
+  
+  return <OnboardingFlow onComplete={handleOnboardingComplete} />;
+};
 
-  const MainViewComponent = () => renderMainView();
+// ✅ Login Wrapper - Marks that user has passed authentication flow
+const LoginWrapper = () => {
+  const navigate = useNavigate();
+  
+  const handleLoginComplete = () => {
+    console.log("✅ Login successful, navigating to home");
+    // Mark that user has completed auth flow
+    localStorage.setItem('hasCompletedAuthFlow', 'true');
+    navigate('/home', { replace: true });
+  };
+  
+  const handleForgotPassword = () => {
+    console.log("Navigating to forgot password");
+    navigate('/forgot-password');
+  };
+  
+  const handleCreateAccount = () => {
+    console.log("Navigating to signup");
+    navigate('/signup');
+  };
+  
+  return (
+    <LoginScreen
+      onLoginComplete={handleLoginComplete}
+      onForgotPassword={handleForgotPassword}
+      onCreateAccount={handleCreateAccount}
+    />
+  );
+};
 
+// ✅ Signup Wrapper - Also marks auth flow completion
+const SignupWrapper = () => {
+  const navigate = useNavigate();
+  
+  const handleBackToLogin = () => {
+    navigate('/login');
+  };
+  
+  const handleSignupComplete = () => {
+    console.log("Signup complete, navigating to login");
+    // After signup, user still needs to login
+    navigate('/login');
+  };
+  
+  return (
+    <SignupScreen 
+      onBackToLogin={handleBackToLogin}
+      onSignupComplete={handleSignupComplete}
+    />
+  );
+};
+
+// ✅ Forgot Password Wrapper
+const ForgotPasswordWrapper = () => {
+  const navigate = useNavigate();
+  
+  const handleBackToLogin = () => {
+    navigate('/login');
+  };
+  
+  return <ForgotPasswordScreen onBackToLogin={handleBackToLogin} />;
+};
+
+// ✅ Home Wrapper with clickable navigation + logout clears auth flow
+const HomeWrapper = () => {
+  const navigate = useNavigate();
+  
+  const handleOpenSettings = () => {
+    console.log("Opening settings");
+    navigate('/settings');
+  };
+  
+  const handleOpenDiscovery = () => {
+    console.log("Opening discovery");
+    navigate('/discovery');
+  };
+  
+  const handleOpenCart = () => {
+    console.log("Opening cart");
+    navigate('/cart');
+  };
+  
+  const handleOpenWishlist = () => {
+    console.log("Opening wishlist");
+    navigate('/wishlist');
+  };
+  
+  const handleOpenOrderHistory = () => {
+    console.log("Opening order history");
+    navigate('/order-history');
+  };
+  
+  const handleLogout = () => {
+    console.log("Logging out - clearing auth flow flags");
+    // Clear auth flags on logout
+    localStorage.removeItem('hasCompletedAuthFlow');
+    localStorage.removeItem('token');
+    navigate('/login');
+  };
+  
+  return (
+    <>
+      <Header 
+        onOpenSettings={handleOpenSettings}
+        onOpenDiscovery={handleOpenDiscovery}
+        onOpenCart={handleOpenCart}
+        onOpenWishlist={handleOpenWishlist}
+        onOpenOrderHistory={handleOpenOrderHistory}
+        onLogout={handleLogout}
+      />
+      <Home 
+        onOpenDiscovery={handleOpenDiscovery}
+        onNavigateToLogin={() => navigate('/login')}
+        onNavigateToOrderHistory={handleOpenOrderHistory}
+        onNavigateToCart={handleOpenCart}
+      />
+    </>
+  );
+};
+
+// ✅ Settings Wrapper with back navigation
+const SettingsWrapper = () => {
+  const navigate = useNavigate();
+  
+  const handleClose = () => {
+    console.log("Closing settings, going back to home");
+    navigate('/home');
+  };
+  
+  return <Settings onClose={handleClose} />;
+};
+
+// ✅ Discovery Wrapper with navigation
+const DiscoveryWrapper = () => {
+  const navigate = useNavigate();
+  
+  const handleBack = () => {
+    console.log("Going back to home from discovery");
+    navigate('/home');
+  };
+  
+  const handleShowDishDetails = (dishId) => {
+    console.log("Navigating to dish details:", dishId);
+    navigate(`/dish/${dishId}`);
+  };
+  
+  const handleShowRestaurantMenu = (restaurantId) => {
+    console.log("Navigating to restaurant menu:", restaurantId);
+    navigate(`/restaurant/${restaurantId}`);
+  };
+  
+  return (
+    <DiscoveryPage 
+      onBack={handleBack}
+      onShowDishDetails={handleShowDishDetails}
+      onShowRestaurantMenu={handleShowRestaurantMenu}
+    />
+  );
+};
+
+// ✅ Dish Details Wrapper
+const DishDetailsWrapper = () => {
+  const navigate = useNavigate();
+  
+  const handleBack = () => {
+    console.log("Going back to discovery from dish details");
+    navigate('/discovery');
+  };
+  
+  return <DishDetailsPage onBack={handleBack} />;
+};
+
+// ✅ Restaurant Menu Wrapper
+const RestaurantMenuWrapper = () => {
+  const navigate = useNavigate();
+  
+  const handleBack = () => {
+    console.log("Going back to discovery from restaurant menu");
+    navigate('/discovery');
+  };
+  
+  return <RestaurantMenuPage onBack={handleBack} />;
+};
+
+// ✅ Cart Wrapper
+const CartWrapper = () => {
+  const navigate = useNavigate();
+  
+  const handleClose = () => {
+    console.log("Closing cart, going back to home");
+    navigate('/home');
+  };
+  
+  return <CartPage isOpen={false} onClose={handleClose} />;
+};
+
+// ✅ Wishlist Wrapper
+const WishlistWrapper = () => {
+  const navigate = useNavigate();
+  
+  const handleBack = () => {
+    console.log("Going back to home from wishlist");
+    navigate('/home');
+  };
+  
+  return (
+    <WishlistPage 
+      onBack={handleBack}
+      onNavigateBack={handleBack}
+      onAddToCart={(item) => {
+        console.log('Item added to cart from wishlist:', item);
+      }}
+      onShareWishlist={() => {
+        console.log('Share wishlist functionality');
+      }}
+    />
+  );
+};
+
+// ✅ Order History Wrapper
+const OrderHistoryWrapper = () => {
+  const navigate = useNavigate();
+  
+  const handleBack = () => {
+    console.log("Going back to home from order history");
+    navigate('/home');
+  };
+  
+  return (
+    <OrderHistoryApp 
+      authToken={localStorage.getItem('token')}
+      onBack={handleBack}
+      onNavigateBack={handleBack}
+    />
+  );
+};
+
+// ✅ Root Redirect Component
+const RootRedirect = () => {
+  const navigate = useNavigate();
+  const { isAuthenticated, loading } = useAuth();
+  
+  useEffect(() => {
+    if (!loading) {
+      const hasSeenOnboarding = localStorage.getItem('hasSeenOnboarding');
+      
+      if (isAuthenticated) {
+        console.log("User authenticated, redirecting to /home");
+        navigate('/home', { replace: true });
+      } else if (hasSeenOnboarding === 'true') {
+        console.log("User has seen onboarding, redirecting to /login");
+        navigate('/login', { replace: true });
+      } else {
+        console.log("First time user, redirecting to /splash-screen");
+        navigate('/splash-screen', { replace: true });
+      }
+    }
+  }, [loading, isAuthenticated, navigate]);
+  
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-white">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+  
+  return null;
+};
+
+function App() {
   return (
     <ErrorBoundary>
       <AuthProvider>
@@ -461,96 +526,160 @@ function App() {
                         }
                       >
                         <Routes>
-                          {/* Customer auth success */}
+                          {/* ✅ ROOT ROUTE - Smart redirect */}
+                          <Route path="/" element={<RootRedirect />} />
+                          
+                          {/* ✅ SPLASH SCREEN & ONBOARDING - Frontend only, with clickable navigation */}
+                          <Route path="/splash-screen" element={<SplashScreenWrapper />} />
+                          <Route path="/onboarding" element={<OnboardingWrapper />} />
+                          
+                          {/* ✅ AUTHENTICATION ROUTES - With clickable buttons working */}
+                          <Route path="/login" element={<LoginWrapper />} />
+                          <Route path="/signup" element={<SignupWrapper />} />
+                          <Route path="/forgot-password" element={<ForgotPasswordWrapper />} />
                           <Route path="/auth-success" element={<AuthSuccess />} />
                           
-                          {/* 🆕 NEW: Restaurant menu route */}
-                          <Route path="/restaurant/:restaurantId" element={<RestaurantMenuPage />} />
-                          
-                          {/* Customer reset password routes */}
+                          {/* Password reset with token */}
                           <Route path="/reset-password/:token" element={<ResetPasswordScreen />} />
                           <Route path="/reset-password-settings/:token" element={<ResetPasswordFromSettings />} />
                           
-                          {/* Customer email verification route */}
+                          {/* Email verification */}
                           <Route path="/verify-email-change" element={<VerifyEmailChange />} />
                           
-                          {/* Customer order flow routes */}
-                          <Route path="/address" element={<AddressPage />} />
-                          <Route path="/order-summary" element={<OrderSummaryPage />} />
-                          <Route path="/confirmation" element={<ConfirmationPage />} />
-                          <Route path="/payment" element={<PaymentPage />} />
-                          <Route path="/payment-success" element={<PaymentSuccessPage />} />
-                          <Route path="/order-tracking/:orderId" element={<OrderTrackingTimeline />} />
-
-                          {/* Order history and dish details */}
-                          <Route path="/dish/:dishId" element={<DishDetailsPage />} />
-                          <Route path="/order-history" element={<OrderHistoryApp />} />
-<Route path="/admin/login" element={<AdminLogin />} />
-                            <Route 
-  path="/admin/dashboard" 
-  element={
-    <ProtectedAdminRoute>
-      <AdminDashboard />
-    </ProtectedAdminRoute>
-  } 
-/>
-                          {/* Seller routes */}
+                          {/* ✅ PROTECTED CUSTOMER ROUTES - With clickable navigation */}
                           <Route 
-                            path="/seller/login" 
+                            path="/home" 
                             element={
-                              <SellerLogin 
-                                onLoginComplete={() => {
-                                  console.log('Login successful, redirecting to dashboard');
-                                  window.location.href = '/seller/dashboard';
-                                }}
-                                onForgotPassword={() => {
-                                  console.log('Navigating to forgot password');
-                                  window.location.href = '/seller/forgot-password';
-                                }}
-                                onCreateAccount={() => {
-                                  console.log('Navigating to signup');
-                                  window.location.href = '/seller/signup';
-                                }}
-                              />
+                              <ProtectedRoute>
+                                <HomeWrapper />
+                              </ProtectedRoute>
                             } 
                           />
+                          
                           <Route 
-                            path="/seller/signup" 
+                            path="/settings" 
                             element={
-                              <SellerSignup 
-                                onBackToLogin={() => {
-                                  console.log('Navigating back to login');
-                                  window.location.href = '/seller/login';
-                                }}
-                                onSignupComplete={() => {
-                                  console.log('Signup complete, redirecting to dashboard');
-                                  window.location.href = '/seller/dashboard';
-                                }}
-                              />
+                              <ProtectedRoute>
+                                <SettingsWrapper />
+                              </ProtectedRoute>
                             } 
                           />
+                          
                           <Route 
-                            path="/seller/forgot-password" 
+                            path="/discovery" 
                             element={
-                              <SellerForgotPassword 
-                                onBackToLogin={() => {
-                                  console.log('Navigating back to login');
-                                  window.location.href = '/seller/login';
-                                }}
-                              />
+                              <ProtectedRoute>
+                                <DiscoveryWrapper />
+                              </ProtectedRoute>
                             } 
                           />
+                          
+                          <Route 
+                            path="/dish/:dishId" 
+                            element={
+                              <ProtectedRoute>
+                                <DishDetailsWrapper />
+                              </ProtectedRoute>
+                            } 
+                          />
+                          
+                          <Route 
+                            path="/restaurant/:restaurantId" 
+                            element={
+                              <ProtectedRoute>
+                                <RestaurantMenuWrapper />
+                              </ProtectedRoute>
+                            } 
+                          />
+                          
+                          <Route 
+                            path="/cart" 
+                            element={
+                              <ProtectedRoute>
+                                <CartWrapper />
+                              </ProtectedRoute>
+                            } 
+                          />
+                          
+                          <Route 
+                            path="/wishlist" 
+                            element={
+                              <ProtectedRoute>
+                                <WishlistWrapper />
+                              </ProtectedRoute>
+                            } 
+                          />
+                          
+                          <Route 
+                            path="/order-history" 
+                            element={
+                              <ProtectedRoute>
+                                <OrderHistoryWrapper />
+                              </ProtectedRoute>
+                            } 
+                          />
+                          
+                          {/* Order flow routes */}
+                          <Route 
+                            path="/address" 
+                            element={
+                              <ProtectedRoute>
+                                <AddressPage />
+                              </ProtectedRoute>
+                            } 
+                          />
+                          
+                          <Route 
+                            path="/order-summary" 
+                            element={
+                              <ProtectedRoute>
+                                <OrderSummaryPage />
+                              </ProtectedRoute>
+                            } 
+                          />
+                          
+                          <Route 
+                            path="/payment" 
+                            element={
+                              <ProtectedRoute>
+                                <PaymentPage />
+                              </ProtectedRoute>
+                            } 
+                          />
+                          
+                          <Route 
+                            path="/confirmation" 
+                            element={
+                              <ProtectedRoute>
+                                <ConfirmationPage />
+                              </ProtectedRoute>
+                            } 
+                          />
+                          
+                          <Route 
+                            path="/payment-success" 
+                            element={
+                              <ProtectedRoute>
+                                <PaymentSuccessPage />
+                              </ProtectedRoute>
+                            } 
+                          />
+                          
+                          <Route 
+                            path="/order-tracking/:orderId" 
+                            element={
+                              <ProtectedRoute>
+                                <OrderTrackingTimeline />
+                              </ProtectedRoute>
+                            } 
+                          />
+                          
+                          {/* ✅ SELLER ROUTES */}
+                          <Route path="/seller/login" element={<SellerLogin />} />
+                          <Route path="/seller/signup" element={<SellerSignup />} />
+                          <Route path="/seller/forgot-password" element={<SellerForgotPassword />} />
                           <Route path="/seller/reset-password/:token" element={<SellerResetPassword />} />
-{/* Admin Dashboard Route - Add after seller routes */}
-<Route 
-  path="/admin/dashboard" 
-  element={
-    <ProtectedAdminRoute>
-      <AdminDashboard />
-    </ProtectedAdminRoute>
-  } 
-/>
-                          {/* Protected seller dashboard route */}
+                          
                           <Route 
                             path="/seller/dashboard" 
                             element={
@@ -559,14 +688,28 @@ function App() {
                               </ProtectedSellerRoute>
                             } 
                           />
-{/* 🆕 ADD THESE PUBLIC SUPPORT PAGES HERE */}
-<Route path="/help-center" element={<HelpCenter />} />
-<Route path="/contact-us" element={<ContactUs />} />
-<Route path="/privacy-policy" element={<PrivacyPolicy />} />
-<Route path="/terms-of-service" element={<TermsOfService />} />
-<Route path="/refund-policy" element={<RefundPolicy />} />
-                          {/* Main app route */}
-                          <Route path="*" element={<MainViewComponent />} />
+                          
+                          {/* ✅ ADMIN ROUTES */}
+                          <Route path="/admin/login" element={<AdminLogin />} />
+                          
+                          <Route 
+                            path="/admin/dashboard" 
+                            element={
+                              <ProtectedAdminRoute>
+                                <AdminDashboard />
+                              </ProtectedAdminRoute>
+                            } 
+                          />
+                          
+                          {/* ✅ PUBLIC SUPPORT PAGES */}
+                          <Route path="/help-center" element={<HelpCenter />} />
+                          <Route path="/contact-us" element={<ContactUs />} />
+                          <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+                          <Route path="/terms-of-service" element={<TermsOfService />} />
+                          <Route path="/refund-policy" element={<RefundPolicy />} />
+                          
+                          {/* 404 - Redirect to root */}
+                          <Route path="*" element={<Navigate to="/" replace />} />
                         </Routes>
                       </React.Suspense>
                     </div>

@@ -3,7 +3,7 @@ import {
   Menu, X, Home, User, ChefHat, ShoppingBag, Calendar, CreditCard,
   BarChart3, Star, Tag, Settings, Upload, Plus, Edit3, Trash2, Bell,
   DollarSign, AlertCircle, CheckCircle, Loader2, Camera, Save, Building,
-  MessageCircle, XCircle  // ← Add XCircle here
+  MessageCircle, XCircle
 } from 'lucide-react';
 import NotificationPanel from './NotificationPanel';
 import { useSocket } from '../../contexts/SocketContext';
@@ -11,9 +11,10 @@ import PaymentSettlementPage from './PaymentSettlementPage';
 import AnalyticsInsights from './AnalyticsInsights';
 import SellerSettings from './SellerSettings';
 import SellerSupport from './SellerSupport';
-import OfferManagementModal from './OfferManagementModal'; // ← NEW
+import OfferManagementModal from './OfferManagementModal';
 
 const API_BASE = 'http://localhost:5000/api';
+const getAuthToken = () => localStorage.getItem('sellerToken') || localStorage.getItem('token');
 
 const getImageUrl = (imagePath) => {
   if (!imagePath) return null;
@@ -21,6 +22,189 @@ const getImageUrl = (imagePath) => {
   return `http://localhost:5000/${cleanPath}`;
 };
 
+// ✅ HELPER COMPONENTS
+const StatsCard = ({ title, value, icon: Icon, color, bgColor }) => (
+  <div className={`${bgColor} p-6 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow`}>
+    <div className="flex items-center justify-between">
+      <div>
+        <p className="text-sm font-medium text-gray-600 mb-1">{title}</p>
+        <p className="text-2xl font-bold text-gray-900">{value}</p>
+      </div>
+      <div className={`p-3 rounded-lg ${color}`}>
+        <Icon className="w-6 h-6 text-white" />
+      </div>
+    </div>
+  </div>
+);
+
+const StarRating = ({ rating, size = 'sm' }) => {
+  const starSize = size === 'lg' ? 'w-6 h-6' : size === 'md' ? 'w-5 h-5' : 'w-4 h-4';
+  return (
+    <div className="flex items-center space-x-1">
+      {[1, 2, 3, 4, 5].map((star) => (
+        <Star 
+          key={star} 
+          className={`${starSize} ${star <= rating ? 'text-yellow-400 fill-current' : 'text-gray-300'}`} 
+        />
+      ))}
+    </div>
+  );
+};
+
+// ✅ REJECTION MODAL
+const RejectionModal = ({ order, onClose, onConfirm, loading }) => {
+  const [reason, setReason] = useState('');
+  const [customReason, setCustomReason] = useState('');
+  const [error, setError] = useState('');
+
+  const predefinedReasons = [
+    'Out of stock',
+    'Restaurant too busy',
+    'Delivery area not serviceable',
+    'Technical issues',
+    'Closing soon',
+    'Unable to prepare this dish',
+    'Price incorrect',
+    'Other (specify below)'
+  ];
+
+  const handleSubmit = () => {
+    let finalReason = reason;
+    
+    if (reason === 'Other (specify below)') {
+      if (!customReason || customReason.trim() === '') {
+        setError('Please specify the reason');
+        return;
+      }
+      finalReason = customReason.trim();
+    } else if (!reason) {
+      setError('Please select a reason');
+      return;
+    }
+
+    onConfirm(order._id, finalReason);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl max-w-md w-full shadow-2xl">
+        <div className="bg-red-50 border-b border-red-100 p-6 rounded-t-xl">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+              <AlertCircle className="w-6 h-6 text-red-600" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">Reject Order?</h3>
+              <p className="text-sm text-gray-600">Order #{order.orderId || order._id?.slice(-8)}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-6">
+          <div className="mb-4">
+            <p className="text-sm text-gray-700 mb-2">
+              <span className="font-medium">Customer:</span> {order.customerName}
+            </p>
+            <p className="text-sm text-gray-700 mb-2">
+              <span className="font-medium">Item:</span> {order.item?.name}
+            </p>
+            <p className="text-sm text-gray-700">
+              <span className="font-medium">Amount:</span> ₹{order.totalAmount}
+            </p>
+          </div>
+
+          {error && (
+            <div className="mb-4 p-3 bg-red-50 border-l-4 border-red-500 rounded">
+              <p className="text-sm text-red-700">{error}</p>
+            </div>
+          )}
+
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-3">
+              Please select a reason for rejection:
+            </label>
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {predefinedReasons.map((r) => (
+                <label
+                  key={r}
+                  className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-all ${
+                    reason === r 
+                      ? 'border-red-500 bg-red-50' 
+                      : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="reason"
+                    value={r}
+                    checked={reason === r}
+                    onChange={(e) => {
+                      setReason(e.target.value);
+                      setError('');
+                    }}
+                    className="mt-0.5 text-red-600 focus:ring-red-500"
+                  />
+                  <span className="text-sm text-gray-700 flex-1">{r}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {reason === 'Other (specify below)' && (
+            <div className="mb-4">
+              <textarea
+                value={customReason}
+                onChange={(e) => {
+                  setCustomReason(e.target.value);
+                  setError('');
+                }}
+                placeholder="Please specify the reason..."
+                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                rows={3}
+              />
+            </div>
+          )}
+
+          <div className="bg-yellow-50 border-l-4 border-yellow-400 p-3 rounded mb-4">
+            <p className="text-xs text-yellow-800">
+              ⚠️ <strong>Important:</strong> The customer will be notified immediately with your reason. 
+              {order.paymentStatus === 'completed' && ' Payment will be refunded within 5-7 business days.'}
+            </p>
+          </div>
+        </div>
+
+        <div className="bg-gray-50 px-6 py-4 rounded-b-xl flex gap-3">
+          <button
+            onClick={onClose}
+            disabled={loading}
+            className="flex-1 px-4 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={!reason || loading}
+            className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {loading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Rejecting...
+              </>
+            ) : (
+              <>
+                <XCircle className="w-4 h-4" />
+                Reject Order
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ✅ MAIN COMPONENT
 const SellerDashboard = () => {
   const { socket, connected, notifications, markAsRead, markAllAsRead, clearNotifications, removeNotification } = useSocket();
 
@@ -34,9 +218,11 @@ const SellerDashboard = () => {
   const [success, setSuccess] = useState('');
   const [showNotifications, setShowNotifications] = useState(false);
   const [dashboardStatus, setDashboardStatus] = useState('online');
-// Add these states with your other states
-const [showRejectionModal, setShowRejectionModal] = useState(false);
-const [rejectingOrder, setRejectingOrder] = useState(null);
+  const [showRejectionModal, setShowRejectionModal] = useState(false);
+  const [rejectingOrder, setRejectingOrder] = useState(null);
+  const [showOfferModal, setShowOfferModal] = useState(false);
+  const [offerDish, setOfferDish] = useState(null);
+
   // Data States
   const [sellerData, setSellerData] = useState(null);
   const [stats, setStats] = useState(null);
@@ -48,10 +234,7 @@ const [rejectingOrder, setRejectingOrder] = useState(null);
   const [reviews, setReviews] = useState([]);
   const [reviewsLoading, setReviewsLoading] = useState(false);
   const [reviewStats, setReviewStats] = useState(null);
-  const [reviewFilter, setReviewFilter] = useState('all');
-  const [reviewSort, setReviewSort] = useState('newest');
-const [showOfferModal, setShowOfferModal] = useState(false);
-const [offerDish, setOfferDish] = useState(null);
+
   // Form States
   const [dishForm, setDishForm] = useState({
     name: '', price: '', category: 'Main Course', type: 'veg',
@@ -78,9 +261,6 @@ const [offerDish, setOfferDish] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [profileImages, setProfileImages] = useState({ logo: null, bannerImage: null });
   const [profileImagePreviews, setProfileImagePreviews] = useState({ logo: null, bannerImage: null });
-
- 
-  const getAuthToken = () => localStorage.getItem('sellerToken') || localStorage.getItem('token');
 
   // Socket Authentication & Status Management
   useEffect(() => {
@@ -194,7 +374,7 @@ const [offerDish, setOfferDish] = useState(null);
   // Load data effects
   useEffect(() => {
     if (activeSection === 'reviews') loadReviews();
-  }, [activeSection, reviewFilter, reviewSort]);
+  }, [activeSection]);
 
   useEffect(() => {
     if (activeSection === 'orders') loadOrders();
@@ -213,127 +393,130 @@ const [offerDish, setOfferDish] = useState(null);
       return () => clearTimeout(timer);
     }
   }, [error]);
-// Add this useEffect in SellerDashboard.jsx
-useEffect(() => {
-  loadSellerData();
-  loadStats();
-  loadDishes(); // ← MISSING!
-}, []);
-// Add this useEffect
-useEffect(() => {
-  if (activeSection === 'menu') {
-    loadDishes();
-  }
-}, [activeSection]);
-// In SellerDashboard component, add these useEffects:
 
-// Load initial data on mount
-useEffect(() => {
-  const initializeDashboard = async () => {
-    await loadSellerData();
-    await loadStats();
-    await loadDishes(); // ← Load dishes on mount
-  };
-  
-  initializeDashboard();
-}, []);
+  useEffect(() => {
+    loadAllData();
+  }, []);
 
-// Reload dishes when menu section is active
-useEffect(() => {
-  if (activeSection === 'menu') {
-    console.log('📋 Menu section active - loading dishes');
-    loadDishes();
-  }
-}, [activeSection]);
+  useEffect(() => {
+    if (activeSection === 'menu') {
+      loadDishes();
+    }
+  }, [activeSection]);
 
-// Reload dishes after dish operations
-useEffect(() => {
-  if (success && success.includes('Dish')) {
-    console.log('✅ Dish operation successful - reloading');
-    loadDishes();
-  }
-}, [success]);
-// In SellerDashboard.jsx - Replace the handleSaveOffer function with this:
-// ✅ FIXED: Update offer handler with correct endpoint
-// ✅ COMPLETE FIXED HANDLER with full debugging
-const handleSaveOffer = async (dishId, offerData) => {
-  console.log('\n🎯 ========== FRONTEND: SAVE OFFER START ==========');
-  console.log('Dish ID:', dishId);
-  console.log('Offer Data:', JSON.stringify(offerData, null, 2));
-  
-  try {
+  const loadAllData = async () => {
     setLoading(true);
-    setError('');
-    
-    const token = getAuthToken();
-    
-    if (!token) {
-      console.error('❌ No auth token found');
-      setError('Authentication required. Please login again.');
-      return;
+    try {
+      await Promise.all([
+        loadSellerData(),
+        loadStats(),
+        loadDishes(),
+        loadReviews()
+      ]);
+    } catch (err) {
+      console.error('Failed to load dashboard data:', err);
+      setError('Failed to load dashboard data');
+    } finally {
+      setLoading(false);
     }
-    
-    console.log('✅ Auth token present');
-    console.log('📡 Making request to:', `${API_BASE}/seller/menu/dish/${dishId}/offer`);
+  };
 
-    // ✅ CRITICAL: Send exact structure backend expects
-    const requestBody = {
-      hasOffer: offerData.hasOffer || false,
-      discountPercentage: offerData.hasOffer ? (offerData.discountPercentage || 0) : 0,
-      validUntil: offerData.hasOffer && offerData.validUntil ? offerData.validUntil : null
-    };
-    
-    console.log('📦 Request body:', JSON.stringify(requestBody, null, 2));
+  const loadReviews = async () => {
+    try {
+      const token = getAuthToken();
+      const response = await fetch(`${API_BASE}/reviews/seller/reviews?limit=3&sort=newest`, {
+        headers: { 
+          'Authorization': `Bearer ${token}`, 
+          'Content-Type': 'application/json' 
+        }
+      });
 
-    const response = await fetch(`${API_BASE}/seller/menu/dish/${dishId}/offer`, {
-      method: 'PATCH',
-      headers: { 
-        'Authorization': `Bearer ${token}`, 
-        'Content-Type': 'application/json' 
-      },
-      body: JSON.stringify(requestBody)
-    });
-
-    console.log('📊 Response status:', response.status, response.statusText);
-    
-    const data = await response.json();
-    console.log('📊 Response data:', JSON.stringify(data, null, 2));
-    
-    if (response.ok && data.success) {
-      const successMsg = offerData.hasOffer 
-        ? `✅ ${offerData.discountPercentage}% offer activated successfully!` 
-        : '✅ Offer removed successfully';
+      const data = await response.json();
+      console.log('⭐ Reviews loaded:', data);
       
-      console.log('✅ Success:', successMsg);
-      setSuccess(successMsg);
-      setShowOfferModal(false);
-      setOfferDish(null);
-      
-      // Reload dishes to show updated offer
-      console.log('🔄 Reloading dishes...');
-      await loadDishes();
-      console.log('✅ Dishes reloaded');
-    } else {
-      const errorMsg = data.error || data.message || 'Failed to update offer';
-      console.error('❌ Server error:', errorMsg);
-      console.error('❌ Full error details:', data.details || 'No details');
-      setError(errorMsg);
+      if (response.ok) {
+        setReviews(data.reviews || []);
+      }
+    } catch (err) {
+      console.error('Load reviews error:', err);
     }
-  } catch (err) {
-    console.error('❌ Network/Parse error:', err);
-    console.error('❌ Error stack:', err.stack);
-    setError('Failed to update offer: ' + err.message);
-  } finally {
-    setLoading(false);
-    console.log('🎯 ========== FRONTEND: SAVE OFFER END ==========\n');
-  }
-};
+  };
 
-// API Calls
-const loadSellerData = async () => {
-  try {
-    const token = getAuthToken();
-    if (!token) {
+  const handleSaveOffer = async (dishId, offerData) => {
+    console.log('\n🎯 ========== FRONTEND: SAVE OFFER START ==========');
+    console.log('Dish ID:', dishId);
+    console.log('Offer Data:', JSON.stringify(offerData, null, 2));
+    
+    try {
+      setLoading(true);
+      setError('');
+      
+      const token = getAuthToken();
+      
+      if (!token) {
+        console.error('❌ No auth token found');
+        setError('Authentication required. Please login again.');
+        return;
+      }
+      
+      console.log('✅ Auth token present');
+      console.log('📡 Making request to:', `${API_BASE}/seller/menu/dish/${dishId}/offer`);
+
+      const requestBody = {
+        hasOffer: offerData.hasOffer || false,
+        discountPercentage: offerData.hasOffer ? (offerData.discountPercentage || 0) : 0,
+        validUntil: offerData.hasOffer && offerData.validUntil ? offerData.validUntil : null
+      };
+      
+      console.log('📦 Request body:', JSON.stringify(requestBody, null, 2));
+
+      const response = await fetch(`${API_BASE}/seller/menu/dish/${dishId}/offer`, {
+        method: 'PATCH',
+        headers: { 
+          'Authorization': `Bearer ${token}`, 
+          'Content-Type': 'application/json' 
+        },
+        body: JSON.stringify(requestBody)
+      });
+
+      console.log('📊 Response status:', response.status, response.statusText);
+      
+      const data = await response.json();
+      console.log('📊 Response data:', JSON.stringify(data, null, 2));
+      
+      if (response.ok && data.success) {
+        const successMsg = offerData.hasOffer 
+          ? `✅ ${offerData.discountPercentage}% offer activated successfully!` 
+          : '✅ Offer removed successfully';
+        
+        console.log('✅ Success:', successMsg);
+        setSuccess(successMsg);
+        setShowOfferModal(false);
+        setOfferDish(null);
+        
+        console.log('🔄 Reloading dishes...');
+        await loadDishes();
+        console.log('✅ Dishes reloaded');
+      } else {
+        const errorMsg = data.error || data.message || 'Failed to update offer';
+        console.error('❌ Server error:', errorMsg);
+        console.error('❌ Full error details:', data.details || 'No details');
+        setError(errorMsg);
+      }
+    } catch (err) {
+      console.error('❌ Network/Parse error:', err);
+      console.error('❌ Error stack:', err.stack);
+      setError('Failed to update offer: ' + err.message);
+    } finally {
+      setLoading(false);
+      console.log('🎯 ========== FRONTEND: SAVE OFFER END ==========\n');
+    }
+  };
+
+  const loadSellerData = async () => {
+    try {
+      const token = getAuthToken();
+      if (!token) {
         setError('Please login to continue');
         return;
       }
@@ -396,234 +579,74 @@ const loadSellerData = async () => {
       setOrdersLoading(false);
     }
   };
-// Add this before the SellerDashboard component
-const RejectionModal = ({ order, onClose, onConfirm, loading }) => {
-  const [reason, setReason] = useState('');
-  const [customReason, setCustomReason] = useState('');
-  const [error, setError] = useState('');
 
-  const predefinedReasons = [
-    'Out of stock',
-    'Restaurant too busy',
-    'Delivery area not serviceable',
-    'Technical issues',
-    'Closing soon',
-    'Unable to prepare this dish',
-    'Price incorrect',
-    'Other (specify below)'
-  ];
+  const handleAcceptOrder = async (orderId) => {
+    try {
+      setLoading(true);
+      const token = getAuthToken();
 
-  const handleSubmit = () => {
-    let finalReason = reason;
-    
-    if (reason === 'Other (specify below)') {
-      if (!customReason || customReason.trim() === '') {
-        setError('Please specify the reason');
-        return;
+      console.log('🔄 Accepting order:', orderId);
+
+      const response = await fetch(`${API_BASE}/seller/orders/${orderId}/accept`, {
+        method: 'POST',
+        headers: { 
+          'Authorization': `Bearer ${token}`, 
+          'Content-Type': 'application/json' 
+        }
+      });
+
+      const data = await response.json();
+      
+      if (response.ok && data.success) {
+        console.log('✅ Order accepted successfully');
+        setSuccess('✅ Order accepted! Customer notified.');
+        loadOrders();
+      } else {
+        console.error('❌ Failed to accept order:', data.error);
+        setError(data.error || 'Failed to accept order');
       }
-      finalReason = customReason.trim();
-    } else if (!reason) {
-      setError('Please select a reason');
-      return;
+    } catch (err) {
+      console.error('❌ Accept order error:', err);
+      setError('Failed to accept order: ' + err.message);
+    } finally {
+      setLoading(false);
     }
-
-    onConfirm(order._id, finalReason);
   };
 
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl max-w-md w-full shadow-2xl">
-        {/* Header */}
-        <div className="bg-red-50 border-b border-red-100 p-6 rounded-t-xl">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
-              <AlertCircle className="w-6 h-6 text-red-600" />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">Reject Order?</h3>
-              <p className="text-sm text-gray-600">Order #{order.orderId || order._id?.slice(-8)}</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Body */}
-        <div className="p-6">
-          <div className="mb-4">
-            <p className="text-sm text-gray-700 mb-2">
-              <span className="font-medium">Customer:</span> {order.customerName}
-            </p>
-            <p className="text-sm text-gray-700 mb-2">
-              <span className="font-medium">Item:</span> {order.item?.name}
-            </p>
-            <p className="text-sm text-gray-700">
-              <span className="font-medium">Amount:</span> ₹{order.totalAmount}
-            </p>
-          </div>
-
-          {error && (
-            <div className="mb-4 p-3 bg-red-50 border-l-4 border-red-500 rounded">
-              <p className="text-sm text-red-700">{error}</p>
-            </div>
-          )}
-
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-3">
-              Please select a reason for rejection:
-            </label>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {predefinedReasons.map((r) => (
-                <label
-                  key={r}
-                  className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-all ${
-                    reason === r 
-                      ? 'border-red-500 bg-red-50' 
-                      : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="reason"
-                    value={r}
-                    checked={reason === r}
-                    onChange={(e) => {
-                      setReason(e.target.value);
-                      setError('');
-                    }}
-                    className="mt-0.5 text-red-600 focus:ring-red-500"
-                  />
-                  <span className="text-sm text-gray-700 flex-1">{r}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          {/* Custom Reason Input */}
-          {reason === 'Other (specify below)' && (
-            <div className="mb-4">
-              <textarea
-                value={customReason}
-                onChange={(e) => {
-                  setCustomReason(e.target.value);
-                  setError('');
-                }}
-                placeholder="Please specify the reason..."
-                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                rows={3}
-              />
-            </div>
-          )}
-
-          {/* Warning Message */}
-          <div className="bg-yellow-50 border-l-4 border-yellow-400 p-3 rounded mb-4">
-            <p className="text-xs text-yellow-800">
-              ⚠️ <strong>Important:</strong> The customer will be notified immediately with your reason. 
-              {order.paymentStatus === 'completed' && ' Payment will be refunded within 5-7 business days.'}
-            </p>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="bg-gray-50 px-6 py-4 rounded-b-xl flex gap-3">
-          <button
-            onClick={onClose}
-            disabled={loading}
-            className="flex-1 px-4 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={!reason || loading}
-            className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-          >
-            {loading ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Rejecting...
-              </>
-            ) : (
-              <>
-                <XCircle className="w-4 h-4" />
-                Reject Order
-              </>
-            )}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-// In SellerDashboard.jsx - handleAcceptOrder
-const handleAcceptOrder = async (orderId) => {
-  try {
-    setLoading(true);
-    const token = getAuthToken();
-
-    console.log('🔄 Accepting order:', orderId);
-
-    const response = await fetch(`${API_BASE}/seller/orders/${orderId}/accept`, {
-      method: 'POST',
-      headers: { 
-        'Authorization': `Bearer ${token}`, 
-        'Content-Type': 'application/json' 
-      }
-    });
-
-    const data = await response.json();
-    
-    if (response.ok && data.success) {
-      console.log('✅ Order accepted successfully');
-      setSuccess('✅ Order accepted! Customer notified.');
-      
-      // Backend handles socket emission
-      // Just reload orders to update UI
-      loadOrders();
-    } else {
-      console.error('❌ Failed to accept order:', data.error);
-      setError(data.error || 'Failed to accept order');
-    }
-  } catch (err) {
-    console.error('❌ Accept order error:', err);
-    setError('Failed to accept order: ' + err.message);
-  } finally {
-    setLoading(false);
-  }
-};
-
   const handleRejectOrder = async (orderId, reason) => {
-  try {
-    setLoading(true);
-    const token = getAuthToken();
+    try {
+      setLoading(true);
+      const token = getAuthToken();
 
-    console.log('❌ Rejecting order:', orderId, 'Reason:', reason);
+      console.log('❌ Rejecting order:', orderId, 'Reason:', reason);
 
-    const response = await fetch(`${API_BASE}/seller/orders/${orderId}/reject`, {
-      method: 'POST',
-      headers: { 
-        'Authorization': `Bearer ${token}`, 
-        'Content-Type': 'application/json' 
-      },
-      body: JSON.stringify({ reason })
-    });
+      const response = await fetch(`${API_BASE}/seller/orders/${orderId}/reject`, {
+        method: 'POST',
+        headers: { 
+          'Authorization': `Bearer ${token}`, 
+          'Content-Type': 'application/json' 
+        },
+        body: JSON.stringify({ reason })
+      });
 
-    const data = await response.json();
-    
-    if (response.ok && data.success) {
-      console.log('✅ Order rejected successfully');
-      setSuccess('Order rejected. Customer has been notified.');
-      setShowRejectionModal(false);
-      setRejectingOrder(null);
-      loadOrders();
-    } else {
-      setError(data.error || 'Failed to reject order');
+      const data = await response.json();
+      
+      if (response.ok && data.success) {
+        console.log('✅ Order rejected successfully');
+        setSuccess('Order rejected. Customer has been notified.');
+        setShowRejectionModal(false);
+        setRejectingOrder(null);
+        loadOrders();
+      } else {
+        setError(data.error || 'Failed to reject order');
+      }
+    } catch (err) {
+      console.error('❌ Reject order error:', err);
+      setError('Failed to reject order: ' + err.message);
+    } finally {
+      setLoading(false);
     }
-  } catch (err) {
-    console.error('❌ Reject order error:', err);
-    setError('Failed to reject order: ' + err.message);
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   const updateOrderStatus = async (orderId, newStatus) => {
     try {
@@ -653,74 +676,64 @@ const handleAcceptOrder = async (orderId) => {
   const loadStats = async () => {
     try {
       const token = getAuthToken();
+      console.log('📊 Loading stats...');
+      
       const response = await fetch(`${API_BASE}/seller/menu/stats`, {
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+        headers: { 
+          'Authorization': `Bearer ${token}`, 
+          'Content-Type': 'application/json' 
+        }
       });
 
       const data = await response.json();
+      console.log('📊 Stats response:', data);
+      
       if (response.ok) {
-        setStats(data.stats?.overview || {});
+        setStats(data.stats?.overview || {
+          totalDishes: 0,
+          activeDishes: 0,
+          totalOrders: 0,
+          totalViews: 0,
+          averageRating: 0,
+          todayRevenue: 0,
+          activeOrders: 0
+        });
+        console.log('✅ Stats loaded successfully');
+      } else {
+        console.error('❌ Stats loading failed:', data.error);
       }
     } catch (err) {
-      console.error('Load stats error:', err);
+      console.error('❌ Load stats error:', err);
+      setStats({
+        totalDishes: 0,
+        activeDishes: 0,
+        totalOrders: 0,
+        totalViews: 0,
+        averageRating: 0,
+        todayRevenue: 0,
+        activeOrders: 0
+      });
     }
   };
 
- const loadDishes = async () => {
-  try {
-    console.log('🍽️ Loading dishes for seller...');
-    const token = getAuthToken();
-    
-    if (!token) {
-      console.error('❌ No auth token found');
-      setError('Please login to view dishes');
-      return;
-    }
-
-    const response = await fetch(`${API_BASE}/seller/menu/dishes`, {
-      headers: { 
-        'Authorization': `Bearer ${token}`, 
-        'Content-Type': 'application/json' 
-      }
-    });
-
-    const data = await response.json();
-    console.log('📊 Dishes response:', data);
-
-    if (!response.ok) {
-      throw new Error(data.error || 'Failed to load dishes');
-    }
-
-    setDishes(data.dishes || []);
-    console.log(`✅ Loaded ${data.dishes?.length || 0} dishes`);
-
-  } catch (err) {
-    console.error('❌ Load dishes error:', err);
-    setError('Failed to load dishes: ' + err.message);
-  }
-};
-
-  const loadReviews = async () => {
+  const loadDishes = async () => {
     try {
-      setReviewsLoading(true);
       const token = getAuthToken();
-
-      const response = await fetch(`${API_BASE}/reviews/seller/reviews?rating=${reviewFilter}&sort=${reviewSort}`, {
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+      const response = await fetch(`${API_BASE}/seller/menu/dishes?limit=10`, {
+        headers: { 
+          'Authorization': `Bearer ${token}`, 
+          'Content-Type': 'application/json' 
+        }
       });
 
       const data = await response.json();
+      console.log('🍽️ Dishes loaded:', data);
+      
       if (response.ok) {
-        setReviews(data.reviews || []);
-        setReviewStats(data.stats || {});
-      } else {
-        setError(data.error || 'Failed to load reviews');
+        setDishes(data.dishes || []);
       }
     } catch (err) {
-      console.error('Load reviews error:', err);
-      setError('Failed to load reviews');
-    } finally {
-      setReviewsLoading(false);
+      console.error('Load dishes error:', err);
     }
   };
 
@@ -769,87 +782,76 @@ const handleAcceptOrder = async (orderId) => {
     }
   };
 
-// Replace the handleDishSubmit function in SellerDashboard.jsx with this:
-// Replace the handleDishSubmit function in SellerDashboard.jsx with this:
+  const handleDishSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
 
-// Replace the handleDishSubmit function in SellerDashboard.jsx with this:
+    try {
+      const token = getAuthToken();
+      const url = editingDish 
+        ? `${API_BASE}/seller/menu/dish/${editingDish._id}` 
+        : `${API_BASE}/seller/menu/dish`;
+      const method = editingDish ? 'PATCH' : 'POST';
 
-const handleDishSubmit = async (e) => {
-  e.preventDefault();
-  setLoading(true);
-  setError('');
+      console.log('📤 Submitting dish:', { 
+        method, 
+        editingDish: !!editingDish, 
+        dishForm,
+        hasImage: !!selectedFile 
+      });
 
-  try {
-    const token = getAuthToken();
-    const url = editingDish 
-      ? `${API_BASE}/seller/menu/dish/${editingDish._id}` 
-      : `${API_BASE}/seller/menu/dish`;
-    const method = editingDish ? 'PATCH' : 'POST';
+      const formData = new FormData();
+      
+      formData.append('name', dishForm.name);
+      formData.append('price', dishForm.price);
+      formData.append('category', dishForm.category);
+      formData.append('type', dishForm.type);
+      formData.append('description', dishForm.description);
+      formData.append('availability', dishForm.availability);
+      formData.append('preparationTime', dishForm.preparationTime || 30);
+      
+      if (editingDish && editingDish.seller) {
+        formData.append('restaurantId', editingDish.seller);
+        console.log('✅ Including restaurantId:', editingDish.seller);
+      }
+      
+      if (selectedFile) {
+        formData.append('dishImages', selectedFile);
+        console.log('✅ Including new image');
+      }
 
-    console.log('📤 Submitting dish:', { 
-      method, 
-      editingDish: !!editingDish, 
-      dishForm,
-      hasImage: !!selectedFile 
-    });
+      const response = await fetch(url, {
+        method,
+        headers: { 
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
 
-    // ✅ ALWAYS USE FORMDATA (backend expects this format)
-    const formData = new FormData();
-    
-    // Append all dish fields
-    formData.append('name', dishForm.name);
-    formData.append('price', dishForm.price);
-    formData.append('category', dishForm.category);
-    formData.append('type', dishForm.type);
-    formData.append('description', dishForm.description);
-    formData.append('availability', dishForm.availability);
-    formData.append('preparationTime', dishForm.preparationTime || 30);
-    
-    // ✅ Add restaurantId when editing (Mongoose schema requires this field name)
-    if (editingDish && editingDish.seller) {
-      formData.append('restaurantId', editingDish.seller);
-      console.log('✅ Including restaurantId:', editingDish.seller);
+      const data = await response.json();
+      
+      if (response.ok) {
+        setSuccess(editingDish ? '✅ Dish updated successfully!' : '✅ Dish added successfully!');
+        resetDishForm();
+        await loadDishes();
+        setShowModal(false);
+      } else {
+        const errorMsg = data.details && data.details.length > 0
+          ? `${data.error}: ${data.details.map(d => d.message || d).join(', ')}`
+          : data.error || 'Failed to save dish';
+        setError(errorMsg);
+        console.error('❌ Dish save error:', data);
+        console.error('❌ Validation details:', data.details);
+      }
+
+    } catch (err) {
+      console.error('❌ Dish submission error:', err);
+      setError('Failed to save dish: ' + err.message);
+    } finally {
+      setLoading(false);
     }
-    
-    // Add image if selected
-    if (selectedFile) {
-      formData.append('dishImages', selectedFile);
-      console.log('✅ Including new image');
-    }
-
-    const response = await fetch(url, {
-      method,
-      headers: { 
-        'Authorization': `Bearer ${token}`
-        // Don't set Content-Type - browser will set it with boundary for FormData
-      },
-      body: formData
-    });
-
-    const data = await response.json();
-    
-    if (response.ok) {
-      setSuccess(editingDish ? '✅ Dish updated successfully!' : '✅ Dish added successfully!');
-      resetDishForm();
-      await loadDishes();
-      setShowModal(false);
-    } else {
-      // Show detailed validation errors
-      const errorMsg = data.details && data.details.length > 0
-        ? `${data.error}: ${data.details.map(d => d.message || d).join(', ')}`
-        : data.error || 'Failed to save dish';
-      setError(errorMsg);
-      console.error('❌ Dish save error:', data);
-      console.error('❌ Validation details:', data.details);
-    }
-
-  } catch (err) {
-    console.error('❌ Dish submission error:', err);
-    setError('Failed to save dish: ' + err.message);
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   const handleDeleteDish = async (dishId) => {
     if (!window.confirm('Are you sure you want to delete this dish?')) return;
@@ -913,291 +915,250 @@ const handleDishSubmit = async (e) => {
     if (error) setError('');
   };
 
-  // Components
-  const StarRating = ({ rating, size = 'sm' }) => {
-    const starSize = size === 'lg' ? 'w-6 h-6' : size === 'md' ? 'w-5 h-5' : 'w-4 h-4';
-    return (
-      <div className="flex items-center space-x-1">
-        {[1, 2, 3, 4, 5].map((star) => (
-          <Star key={star} className={`${starSize} ${star <= rating ? 'text-yellow-400 fill-current' : 'text-gray-300'}`} />
-        ))}
-      </div>
-    );
-  };
+  // ✅ RENDER FUNCTIONS
+  const renderOrders = () => {
+    const getOrdersByStatus = (status) => {
+      return orders.filter(order => {
+        const orderStatus = order.orderStatus || order.status;
+        if (status === 'pending_seller') return orderStatus === 'pending_seller';
+        if (status === 'new') return ['confirmed', 'pending', 'seller_accepted'].includes(orderStatus);
+        if (status === 'preparing') return orderStatus === 'preparing';
+        if (status === 'ready') return orderStatus === 'ready';
+        if (status === 'out_for_delivery') return orderStatus === 'out_for_delivery';
+        if (status === 'delivered') return ['delivered', 'completed'].includes(orderStatus);
+        return false;
+      });
+    };
 
-  const StatsCard = ({ title, value, icon: Icon, color, bgColor }) => (
-    <div className={`${bgColor} p-6 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow`}>
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-medium text-gray-600 mb-1">{title}</p>
-          <p className="text-2xl font-bold text-gray-900">{value}</p>
-        </div>
-        <div className={`p-3 rounded-lg ${color}`}>
-          <Icon className="w-6 h-6 text-white" />
-        </div>
-      </div>
-    </div>
-  );
-
-  // Render Functions
-  // In SellerDashboard.jsx - Replace the renderOrders function
-
-
-  const  renderOrders = () => {
-  const getOrdersByStatus = (status) => {
-    return orders.filter(order => {
-      const orderStatus = order.orderStatus || order.status;
-      if (status === 'pending_seller') return orderStatus === 'pending_seller';
-      if (status === 'new') return ['confirmed', 'pending', 'seller_accepted'].includes(orderStatus);
-      if (status === 'preparing') return orderStatus === 'preparing';
-      if (status === 'ready') return orderStatus === 'ready';
-      if (status === 'out_for_delivery') return orderStatus === 'out_for_delivery';
-      if (status === 'delivered') return ['delivered', 'completed'].includes(orderStatus);
-      return false;
-    });
-  };
-
-  const OrderCard = ({ order, status }) => (
-    <div className="bg-white rounded-lg border border-gray-200 p-4 mb-4 hover:shadow-md transition-shadow">
-      <div className="space-y-3">
-        {/* Dish image + Customer info */}
-        <div className="flex items-start gap-3">
-          {order.item?.image && (
-            <img 
-              src={getImageUrl(order.item.image)} 
-              alt={order.item?.name}
-              className="w-16 h-16 rounded-lg object-cover"
-              onError={(e) => { e.target.style.display = 'none'; }}
-            />
-          )}
-          <div className="flex-1">
-            <p className="text-sm text-gray-500">Order ID: #{order.orderId || order._id?.slice(-8)}</p>
-            <p className="font-semibold text-gray-900 mt-1">Customer: {order.customerName}</p>
-          </div>
-        </div>
-        
-        {/* Order Details */}
-        <div>
-          <p className="text-sm text-gray-600">
-            <span className="font-medium">Item:</span> {order.item?.name} (x{order.item?.quantity || 1})
-          </p>
-          {order.item?.description && (
-            <p className="text-xs text-gray-500 mt-1 line-clamp-1">{order.item.description}</p>
-          )}
-          <p className="text-sm text-gray-600 mt-1">
-            <span className="font-medium">Delivery:</span> {order.estimatedDelivery || '25-30 minutes'}
-          </p>
-          <p className="text-sm font-semibold text-gray-900 mt-1">
-            <span className="font-medium">Total:</span> ₹{order.totalAmount}
-          </p>
-          <p className="text-xs text-gray-500 mt-1">
-            Payment: {order.paymentMethod === 'razorpay' ? '✅ Paid Online' : '💵 COD'}
-            {order.paymentStatus === 'completed' ? ' (Completed)' : ' (Pending)'}
-          </p>
-          <p className="text-xs text-gray-500 mt-1">
-            Phone: {order.customerPhone}
-          </p>
-        </div>
-        
-        {/* Action Buttons Based on Status */}
-        <div className="flex space-x-2 pt-2 border-t border-gray-100">
-      
-            {status === 'pending_seller' && (
-  <>
-    <button
-      onClick={() => handleAcceptOrder(order._id)}
-      disabled={loading}
-      className="flex-1 bg-green-500 hover:bg-green-600 text-white font-medium py-2 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-    >
-      {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-      Accept
-    </button>
-    <button
-      onClick={() => {
-        setRejectingOrder(order);
-        setShowRejectionModal(true);
-      }}
-      disabled={loading}
-      className="flex-1 bg-red-500 hover:bg-red-600 text-white font-medium py-2 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-    >
-      {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
-      Reject
-    </button>
-  </>
-)}
-          {status === 'new' && (
-            <button
-              onClick={() => updateOrderStatus(order._id, 'preparing')}
-              disabled={loading}
-              className="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 rounded-lg transition-colors disabled:opacity-50"
-            >
-              {loading ? 'Updating...' : 'Start Preparing'}
-            </button>
-          )}
-
-          {status === 'preparing' && (
-            <button
-              onClick={() => updateOrderStatus(order._id, 'ready')}
-              disabled={loading}
-              className="flex-1 bg-green-500 hover:bg-green-600 text-white font-medium py-2 rounded-lg transition-colors disabled:opacity-50"
-            >
-              {loading ? 'Updating...' : 'Mark as Ready'}
-            </button>
-          )}
-
-          {status === 'ready' && (
-            <button
-              onClick={() => updateOrderStatus(order._id, 'out_for_delivery')}
-              disabled={loading}
-              className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-medium py-2 rounded-lg transition-colors disabled:opacity-50"
-            >
-              {loading ? 'Updating...' : 'Out for Delivery'}
-            </button>
-          )}
-
-          {status === 'out_for_delivery' && (
-            <button
-              onClick={() => updateOrderStatus(order._id, 'delivered')}
-              disabled={loading}
-              className="flex-1 bg-green-500 hover:bg-green-600 text-white font-medium py-2 rounded-lg transition-colors disabled:opacity-50"
-            >
-              {loading ? 'Updating...' : 'Mark as Delivered'}
-            </button>
-          )}
-
-          {status === 'delivered' && (
-            <div className="flex-1 flex items-center justify-center gap-2 text-green-600">
-              <CheckCircle className="w-4 h-4" />
-              <span className="text-sm font-medium">Completed</span>
+    const OrderCard = ({ order, status }) => (
+      <div className="bg-white rounded-lg border border-gray-200 p-4 mb-4 hover:shadow-md transition-shadow">
+        <div className="space-y-3">
+          <div className="flex items-start gap-3">
+            {order.item?.image && (
+              <img 
+                src={getImageUrl(order.item.image)} 
+                alt={order.item?.name}
+                className="w-16 h-16 rounded-lg object-cover"
+                onError={(e) => { e.target.style.display = 'none'; }}
+              />
+            )}
+            <div className="flex-1">
+              <p className="text-sm text-gray-500">Order ID: #{order.orderId || order._id?.slice(-8)}</p>
+              <p className="font-semibold text-gray-900 mt-1">Customer: {order.customerName}</p>
             </div>
-          )}
-
-
-        </div>
-      </div>
-    </div>
-  );
-
-  const pendingSellerOrders = getOrdersByStatus('pending_seller');
-  const newOrders = getOrdersByStatus('new');
-  const preparingOrders = getOrdersByStatus('preparing');
-  const readyOrders = getOrdersByStatus('ready');
-  const outForDeliveryOrders = getOrdersByStatus('out_for_delivery');
-  const deliveredOrders = getOrdersByStatus('delivered');
-
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-gray-900">Order Management</h2>
-        <div className="flex items-center space-x-2 px-3 py-2 bg-gray-50 rounded-lg">
-          <div className={`w-3 h-3 rounded-full ${dashboardStatus === 'online' ? 'bg-green-500' : dashboardStatus === 'busy' ? 'bg-yellow-500' : 'bg-red-500'}`}></div>
-          <select value={dashboardStatus} onChange={(e) => toggleDashboardStatus(e.target.value)}
-            className="text-sm border-none bg-transparent focus:ring-0 cursor-pointer" disabled={!connected}>
-            <option value="online">Online</option>
-            <option value="busy">Busy</option>
-            <option value="offline">Offline</option>
-          </select>
-        </div>
-      </div>
-
-      {dashboardStatus === 'offline' && (
-        <div className="bg-red-50 border-l-4 border-red-500 p-4">
-          <div className="flex items-center">
-            <AlertCircle className="w-5 h-5 text-red-600 mr-2" />
-            <p className="text-red-800 font-medium">Your restaurant is currently offline. Customers cannot place new orders.</p>
           </div>
-        </div>
-      )}
-
-      {ordersLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="w-6 h-6 animate-spin text-orange-500" />
-          <span className="ml-2 text-gray-500">Loading orders...</span>
-        </div>
-      ) : (
-        <div className="space-y-6">
-          {/* Awaiting Confirmation Section */}
+          
           <div>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">⏳ Awaiting Your Confirmation</h3>
-              {pendingSellerOrders.length > 0 && (
-                <span className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full text-sm font-medium animate-pulse">
-                  {pendingSellerOrders.length} pending
-                </span>
-              )}
-            </div>
-            {pendingSellerOrders.length > 0 ? (
-              pendingSellerOrders.map(order => <OrderCard key={order._id} order={order} status="pending_seller" />)
-            ) : (
-              <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">
-                ✓ No orders awaiting confirmation
+            <p className="text-sm text-gray-600">
+              <span className="font-medium">Item:</span> {order.item?.name} (x{order.item?.quantity || 1})
+            </p>
+            {order.item?.description && (
+              <p className="text-xs text-gray-500 mt-1 line-clamp-1">{order.item.description}</p>
+            )}
+            <p className="text-sm text-gray-600 mt-1">
+              <span className="font-medium">Delivery:</span> {order.estimatedDelivery || '25-30 minutes'}
+            </p>
+            <p className="text-sm font-semibold text-gray-900 mt-1">
+              <span className="font-medium">Total:</span> ₹{order.totalAmount}
+            </p>
+            <p className="text-xs text-gray-500 mt-1">
+              Payment: {order.paymentMethod === 'razorpay' ? '✅ Paid Online' : '💵 COD'}
+              {order.paymentStatus === 'completed' ? ' (Completed)' : ' (Pending)'}
+            </p>
+            <p className="text-xs text-gray-500 mt-1">
+              Phone: {order.customerPhone}
+            </p>
+          </div>
+          
+          <div className="flex space-x-2 pt-2 border-t border-gray-100">
+            {status === 'pending_seller' && (
+              <>
+                <button
+                  onClick={() => handleAcceptOrder(order._id)}
+                  disabled={loading}
+                  className="flex-1 bg-green-500 hover:bg-green-600 text-white font-medium py-2 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                  Accept
+                </button>
+                <button
+                  onClick={() => {
+                    setRejectingOrder(order);
+                    setShowRejectionModal(true);
+                  }}
+                  disabled={loading}
+                  className="flex-1 bg-red-500 hover:bg-red-600 text-white font-medium py-2 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
+                  Reject
+                </button>
+              </>
+            )}
+
+            {status === 'new' && (
+              <button
+                onClick={() => updateOrderStatus(order._id, 'preparing')}
+                disabled={loading}
+                className="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {loading ? 'Updating...' : 'Start Preparing'}
+              </button>
+            )}
+
+            {status === 'preparing' && (
+              <button
+                onClick={() => updateOrderStatus(order._id, 'ready')}
+                disabled={loading}
+                className="flex-1 bg-green-500 hover:bg-green-600 text-white font-medium py-2 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {loading ? 'Updating...' : 'Mark as Ready'}
+              </button>
+            )}
+
+            {status === 'ready' && (
+              <button
+                onClick={() => updateOrderStatus(order._id, 'out_for_delivery')}
+                disabled={loading}
+                className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-medium py-2 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {loading ? 'Updating...' : 'Out for Delivery'}
+              </button>
+            )}
+
+            {status === 'out_for_delivery' && (
+              <button
+                onClick={() => updateOrderStatus(order._id, 'delivered')}
+                disabled={loading}
+                className="flex-1 bg-green-500 hover:bg-green-600 text-white font-medium py-2 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {loading ? 'Updating...' : 'Mark as Delivered'}
+              </button>
+            )}
+
+            {status === 'delivered' && (
+              <div className="flex-1 flex items-center justify-center gap-2 text-green-600">
+                <CheckCircle className="w-4 h-4" />
+                <span className="text-sm font-medium">Completed</span>
               </div>
             )}
           </div>
+        </div>
+      </div>
+    );
 
-          {/* Confirmed Orders */}
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">✅ Confirmed Orders</h3>
-            {newOrders.length > 0 ? (
-              newOrders.map(order => <OrderCard key={order._id} order={order} status="new" />)
-            ) : (
-              <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">No confirmed orders</div>
-            )}
-          </div>
+    const pendingSellerOrders = getOrdersByStatus('pending_seller');
+    const newOrders = getOrdersByStatus('new');
+    const preparingOrders = getOrdersByStatus('preparing');
+    const readyOrders = getOrdersByStatus('ready');
+    const outForDeliveryOrders = getOrdersByStatus('out_for_delivery');
+    const deliveredOrders = getOrdersByStatus('delivered');
 
-          {/* Preparing */}
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">👨‍🍳 Preparing</h3>
-            {preparingOrders.length > 0 ? (
-              preparingOrders.map(order => <OrderCard key={order._id} order={order} status="preparing" />)
-            ) : (
-              <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">No orders being prepared</div>
-            )}
-          </div>
-
-          {/* Ready for Pickup */}
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">📦 Ready for Pickup</h3>
-            {readyOrders.length > 0 ? (
-              readyOrders.map(order => <OrderCard key={order._id} order={order} status="ready" />)
-            ) : (
-              <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">No orders ready</div>
-            )}
-          </div>
-
-          {/* Out for Delivery */}
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">🚗 Out for Delivery</h3>
-            {outForDeliveryOrders.length > 0 ? (
-              outForDeliveryOrders.map(order => <OrderCard key={order._id} order={order} status="out_for_delivery" />)
-            ) : (
-              <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">No orders out for delivery</div>
-            )}
-          </div>
-
-          {/* Delivered */}
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">🎉 Delivered</h3>
-            {deliveredOrders.length > 0 ? (
-              deliveredOrders.map(order => <OrderCard key={order._id} order={order} status="delivered" />)
-            ) : (
-              <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">No delivered orders</div>
-            )}
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-2xl font-bold text-gray-900">Order Management</h2>
+          <div className="flex items-center space-x-2 px-3 py-2 bg-gray-50 rounded-lg">
+            <div className={`w-3 h-3 rounded-full ${dashboardStatus === 'online' ? 'bg-green-500' : dashboardStatus === 'busy' ? 'bg-yellow-500' : 'bg-red-500'}`}></div>
+            <select value={dashboardStatus} onChange={(e) => toggleDashboardStatus(e.target.value)}
+              className="text-sm border-none bg-transparent focus:ring-0 cursor-pointer" disabled={!connected}>
+              <option value="online">Online</option>
+              <option value="busy">Busy</option>
+              <option value="offline">Offline</option>
+            </select>
           </div>
         </div>
-      )}
 
-      {!ordersLoading && orders.length === 0 && (
-        <div className="text-center py-12">
-          <ShoppingBag className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-500 mb-2">No orders yet</h3>
-          <p className="text-gray-400">Orders from customers will appear here</p>
-        </div>
-      )}
-    </div>
-  );
-};
+        {dashboardStatus === 'offline' && (
+          <div className="bg-red-50 border-l-4 border-red-500 p-4">
+            <div className="flex items-center">
+              <AlertCircle className="w-5 h-5 text-red-600 mr-2" />
+              <p className="text-red-800 font-medium">Your restaurant is currently offline. Customers cannot place new orders.</p>
+            </div>
+          </div>
+        )}
 
+        {ordersLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-6 h-6 animate-spin text-orange-500" />
+            <span className="ml-2 text-gray-500">Loading orders...</span>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">⏳ Awaiting Your Confirmation</h3>
+                {pendingSellerOrders.length > 0 && (
+                  <span className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full text-sm font-medium animate-pulse">
+                    {pendingSellerOrders.length} pending
+                  </span>
+                )}
+              </div>
+              {pendingSellerOrders.length > 0 ? (
+                pendingSellerOrders.map(order => <OrderCard key={order._id} order={order} status="pending_seller" />)
+              ) : (
+                <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">
+                  ✓ No orders awaiting confirmation
+                </div>
+              )}
+            </div>
+
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">✅ Confirmed Orders</h3>
+              {newOrders.length > 0 ? (
+                newOrders.map(order => <OrderCard key={order._id} order={order} status="new" />)
+              ) : (
+                <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">No confirmed orders</div>
+              )}
+            </div>
+
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">👨‍🍳 Preparing</h3>
+              {preparingOrders.length > 0 ? (
+                preparingOrders.map(order => <OrderCard key={order._id} order={order} status="preparing" />)
+              ) : (
+                <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">No orders being prepared</div>
+              )}
+            </div>
+
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">📦 Ready for Pickup</h3>
+              {readyOrders.length > 0 ? (
+                readyOrders.map(order => <OrderCard key={order._id} order={order} status="ready" />)
+              ) : (
+                <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">No orders ready</div>
+              )}
+            </div>
+
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">🚗 Out for Delivery</h3>
+              {outForDeliveryOrders.length > 0 ? (
+                outForDeliveryOrders.map(order => <OrderCard key={order._id} order={order} status="out_for_delivery" />)
+              ) : (
+                <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">No orders out for delivery</div>
+              )}
+            </div>
+
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">🎉 Delivered</h3>
+              {deliveredOrders.length > 0 ? (
+                deliveredOrders.map(order => <OrderCard key={order._id} order={order} status="delivered" />)
+              ) : (
+                <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">No delivered orders</div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {!ordersLoading && orders.length === 0 && (
+          <div className="text-center py-12">
+            <ShoppingBag className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-500 mb-2">No orders yet</h3>
+            <p className="text-gray-400">Orders from customers will appear here</p>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const renderProfile = () => (
     <div className="space-y-8">
@@ -1397,13 +1358,13 @@ const handleDishSubmit = async (e) => {
                   <Edit3 className="w-4 h-4" /><span>Edit</span>
                 </button>
                 <button onClick={() => {
-  setOfferDish(dish);
-  setShowOfferModal(true);
-}}
-  className="flex-1 flex items-center justify-center space-x-1 px-3 py-2 text-sm bg-orange-100 text-orange-700 rounded-md hover:bg-orange-200">
-  <Tag className="w-4 h-4" />
-  <span>{dish.offer?.hasOffer ? 'Edit Offer' : 'Add Offer'}</span>
-</button>
+                  setOfferDish(dish);
+                  setShowOfferModal(true);
+                }}
+                  className="flex-1 flex items-center justify-center space-x-1 px-3 py-2 text-sm bg-orange-100 text-orange-700 rounded-md hover:bg-orange-200">
+                  <Tag className="w-4 h-4" />
+                  <span>{dish.offer?.hasOffer ? 'Edit Offer' : 'Add Offer'}</span>
+                </button>
                 <button onClick={() => handleDeleteDish(dish._id)}
                   className="flex items-center justify-center px-3 py-2 text-sm bg-red-100 text-red-700 rounded-md hover:bg-red-200">
                   <Trash2 className="w-4 h-4" />
@@ -1428,79 +1389,81 @@ const handleDishSubmit = async (e) => {
     </div>
   );
 
-  const renderOverview = () => (
-    <div className="space-y-8">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatsCard title="Today's Revenue" value={`₹${stats?.todayRevenue || 0}`} icon={DollarSign} color="bg-green-500" bgColor="bg-white" />
-        <StatsCard title="Active Orders" value={stats?.activeOrders || 0} icon={ShoppingBag} color="bg-blue-500" bgColor="bg-white" />
-        <StatsCard title="Total Dishes" value={stats?.totalDishes || dishes.length || 0} icon={ChefHat} color="bg-purple-500" bgColor="bg-white" />
-        <StatsCard title="Rating" value={reviewStats?.averageRating?.toFixed(1) || '0.0'} icon={Star} color="bg-yellow-500" bgColor="bg-white" />
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
-          <div className="p-6 border-b border-gray-100">
-            <h3 className="text-lg font-semibold text-gray-900">Recent Reviews</h3>
+  const renderOverview = () => {
+    if (!stats || !sellerData) {
+      return (
+        <div className="flex items-center justify-center py-20">
+          <div className="text-center">
+            <Loader2 className="w-12 h-12 animate-spin text-orange-500 mx-auto mb-4" />
+            <p className="text-gray-600">Loading overview...</p>
           </div>
-          <div className="p-6">
-            {reviews.slice(0, 3).map((review) => (
-              <div key={review._id} className="flex items-start space-x-3 mb-4 last:mb-0">
-                <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">
-                  <User className="w-4 h-4 text-gray-600" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center space-x-1 mb-1">
-                    <StarRating rating={review.rating} size="sm" />
-                    <span className="text-sm text-gray-500">{review.dishName}</span>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <StatsCard title="Today's Revenue" value={`₹${stats?.todayRevenue || 0}`} icon={DollarSign} color="bg-green-500" bgColor="bg-white" />
+          <StatsCard title="Active Orders" value={stats?.activeOrders || 0} icon={ShoppingBag} color="bg-blue-500" bgColor="bg-white" />
+          <StatsCard title="Total Dishes" value={stats?.totalDishes || dishes.length || 0} icon={ChefHat} color="bg-purple-500" bgColor="bg-white" />
+          <StatsCard title="Rating" value={reviewStats?.averageRating?.toFixed(1) || '0.0'} icon={Star} color="bg-yellow-500" bgColor="bg-white" />
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
+            <div className="p-6 border-b border-gray-100">
+              <h3 className="text-lg font-semibold text-gray-900">Recent Reviews</h3>
+            </div>
+            <div className="p-6">
+              {reviews.slice(0, 3).map((review) => (
+                <div key={review._id} className="flex items-start space-x-3 mb-4 last:mb-0">
+                  <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">
+                    <User className="w-4 h-4 text-gray-600" />
                   </div>
-                  <p className="text-sm text-gray-600 truncate">{review.title}</p>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center space-x-1 mb-1">
+                      <StarRating rating={review.rating} size="sm" />
+                      <span className="text-sm text-gray-500">{review.dishName}</span>
+                    </div>
+                    <p className="text-sm text-gray-600 truncate">{review.title}</p>
+                  </div>
                 </div>
-              </div>
-            ))}
-            {reviews.length === 0 && (
-              <div className="text-center py-8">
-                <MessageCircle className="w-12 h-12 text-gray-300 mx-auto mb-2" />
-                <p className="text-gray-500 text-sm">No reviews yet</p>
-              </div>
-            )}
-            {showOfferModal && offerDish && (
-  <OfferManagementModal
-    dish={offerDish}
-    onClose={() => {
-      setShowOfferModal(false);
-      setOfferDish(null);
-    }}
-    onSave={handleSaveOffer}
-    loading={loading}
-  />
-)}
+              ))}
+              {reviews.length === 0 && (
+                <div className="text-center py-8">
+                  <MessageCircle className="w-12 h-12 text-gray-300 mx-auto mb-2" />
+                  <p className="text-gray-500 text-sm">No reviews yet</p>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
 
-        <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
-          <div className="p-6 border-b border-gray-100">
-            <h3 className="text-lg font-semibold text-gray-900">Quick Actions</h3>
-          </div>
-          <div className="p-6 space-y-4">
-            <button onClick={() => setActiveSection('menu')}
-              className="w-full flex items-center space-x-4 p-4 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-all group">
-              <div className="p-2 bg-blue-100 rounded-lg group-hover:bg-blue-200 transition-colors">
-                <Plus className="w-5 h-5 text-blue-600" />
-              </div>
-              <span className="font-medium text-gray-700 group-hover:text-blue-700">Manage Menu</span>
-            </button>
-            <button onClick={() => setActiveSection('reviews')}
-              className="w-full flex items-center space-x-4 p-4 rounded-lg border border-gray-200 hover:bg-yellow-50 hover:border-yellow-200 transition-all group">
-              <div className="p-2 bg-yellow-100 rounded-lg group-hover:bg-yellow-200 transition-colors">
-                <Star className="w-5 h-5 text-yellow-600" />
-              </div>
-              <span className="font-medium text-gray-700 group-hover:text-yellow-700">Manage Reviews</span>
-            </button>
+          <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
+            <div className="p-6 border-b border-gray-100">
+              <h3 className="text-lg font-semibold text-gray-900">Quick Actions</h3>
+            </div>
+            <div className="p-6 space-y-4">
+              <button onClick={() => setActiveSection('menu')}
+                className="w-full flex items-center space-x-4 p-4 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition-all group">
+                <div className="p-2 bg-blue-100 rounded-lg group-hover:bg-blue-200 transition-colors">
+                  <Plus className="w-5 h-5 text-blue-600" />
+                </div>
+                <span className="font-medium text-gray-700 group-hover:text-blue-700">Manage Menu</span>
+              </button>
+              <button onClick={() => setActiveSection('reviews')}
+                className="w-full flex items-center space-x-4 p-4 rounded-lg border border-gray-200 hover:bg-yellow-50 hover:border-yellow-200 transition-all group">
+                <div className="p-2 bg-yellow-100 rounded-lg group-hover:bg-yellow-200 transition-colors">
+                  <Star className="w-5 h-5 text-yellow-600" />
+                </div>
+                <span className="font-medium text-gray-700 group-hover:text-yellow-700">Manage Reviews</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderReviews = () => (
     <div className="space-y-8">
@@ -1579,6 +1542,11 @@ const handleDishSubmit = async (e) => {
                 <div className="mb-4">
                   <h4 className="font-semibold text-gray-900 mb-2">{review.title}</h4>
                   <p className="text-gray-600 leading-relaxed">{review.comment}</p>
+                  {review.dishName && (
+                    <p className="text-sm text-gray-500 mt-2">
+                      <span className="font-medium">Dish:</span> {review.dishName}
+                    </p>
+                  )}
                 </div>
               </div>
             ))}
@@ -1588,45 +1556,36 @@ const handleDishSubmit = async (e) => {
     </div>
   );
 
-  const renderPlaceholder = (title, IconComponent) => (
-    <div className="text-center py-20">
-      <IconComponent className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-      <p className="text-gray-500">{title} section will be implemented</p>
-    </div>
-  );
+  // ✅ Sidebar Items
+  const sidebarItems = [
+    { id: 'overview', label: 'Overview', icon: Home },
+    { id: 'profile', label: 'Restaurant Profile', icon: Building },
+    { id: 'menu', label: 'Menu Management', icon: ChefHat },
+    { id: 'offers', label: 'Offer Management', icon: Tag },
+    { id: 'orders', label: 'Orders', icon: ShoppingBag },
+    { id: 'reviews', label: 'Reviews', icon: Star },
+    { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+    { id: 'payments', label: 'Payments', icon: CreditCard },
+    { id: 'settings', label: 'Settings', icon: Settings },
+    { id: 'support', label: 'Support', icon: MessageCircle }
+  ];
 
-
-// Add to sidebarItems array (around line 630)
-const sidebarItems = [
-  { id: 'overview', label: 'Overview', icon: Home },
-  { id: 'profile', label: 'Restaurant Profile', icon: Building },
-  { id: 'menu', label: 'Menu Management', icon: ChefHat },
-  { id: 'offers', label: 'Offer Management', icon: Tag }, // ← NEW
-  { id: 'orders', label: 'Orders', icon: ShoppingBag },
-  { id: 'reviews', label: 'Reviews', icon: Star },
-  { id: 'analytics', label: 'Analytics', icon: BarChart3 },
-  { id: 'payments', label: 'Payments', icon: CreditCard },
-  { id: 'settings', label: 'Settings', icon: Settings },
-  { id: 'support', label: 'Support', icon: MessageCircle }
-];
-
-// Update renderContent function (around line 650)
-const renderContent = () => {
-  switch (activeSection) {
-    case 'overview': return renderOverview();
-    case 'profile': return renderProfile();
-    case 'menu': return renderMenu();
-    case 'offers': return <OfferManagementModal onBack={() => setActiveSection('overview')} />; // ← FIXED: Modal not Model
-    case 'orders': return renderOrders();
-    case 'reviews': return renderReviews();
-    case 'analytics': return <AnalyticsInsights />;
-    case 'payments': return <PaymentSettlementPage />;
-    case 'settings': return <SellerSettings onBack={() => setActiveSection('overview')} />;
-    case 'support': return <SellerSupport onBack={() => setActiveSection('overview')} />;
-    default: return renderOverview();
-  }
-};
-
+  // ✅ FIXED: Render Content - Stay on same URL
+  const renderContent = () => {
+    switch (activeSection) {
+      case 'overview': return renderOverview();
+      case 'profile': return renderProfile();
+      case 'menu': return renderMenu();
+      case 'offers': return <OfferManagementModal onBack={() => setActiveSection('overview')} />;
+      case 'orders': return renderOrders();
+      case 'reviews': return renderReviews();
+      case 'analytics': return <AnalyticsInsights />;
+      case 'payments': return <PaymentSettlementPage />;
+      case 'settings': return <SellerSettings onBack={() => setActiveSection('overview')} />;
+      case 'support': return <SellerSupport onBack={() => setActiveSection('overview')} />;
+      default: return renderOverview();
+    }
+  };
 
   const getSellerEmail = () => sellerData?.email || 'Loading...';
   const getSellerDisplayName = () => sellerData?.businessDetails?.ownerName || sellerData?.businessName || sellerData?.email || 'Restaurant Owner';
@@ -1807,25 +1766,33 @@ const renderContent = () => {
                   <span>{loading ? 'Saving...' : (modalType === 'edit' ? 'Update Dish' : 'Add Dish')}</span>
                 </button>
               </div>
-            </
-            
-            
-            form>
+            </form>
           </div>
         </div>
       )}
-      {/* Add this before the final closing </div> */}
-{showRejectionModal && rejectingOrder && (
-  <RejectionModal
-    order={rejectingOrder}
-    onClose={() => {
-      setShowRejectionModal(false);
-      setRejectingOrder(null);
-    }}
-    onConfirm={handleRejectOrder}
-    loading={loading}
-  />
-)}
+
+      {showRejectionModal && rejectingOrder && (
+        <RejectionModal
+          order={rejectingOrder}
+          onClose={() => {
+            setShowRejectionModal(false);
+            setRejectingOrder(null);
+          }}
+          onConfirm={handleRejectOrder}
+          loading={loading}
+        />
+      )}
+
+      {showOfferModal && offerDish && (
+        <OfferManagementModal
+          dish={offerDish}
+          onClose={() => {
+            setShowOfferModal(false);
+            setOfferDish(null);
+          }}
+          onSave={handleSaveOffer}
+        />
+      )}
     </div>
   );
 };

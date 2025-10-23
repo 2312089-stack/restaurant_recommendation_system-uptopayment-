@@ -143,5 +143,142 @@ router.get('/today', authenticateSellerToken, async (req, res) => {
     });
   }
 });
+// In settlementRoutes.js - Add this for debugging
+router.get('/debug-orders', authenticateSellerToken, async (req, res) => {
+  try {
+    const sellerId = req.seller.id || req.seller._id;
+    
+    const Order = (await import('../models/Order.js')).default;
+    
+    const allOrders = await Order.find({ seller: sellerId });
+    const deliveredOrders = await Order.find({ 
+      seller: sellerId, 
+      orderStatus: { $in: ['delivered', 'completed'] } 
+    });
+    const razorpayCompleted = await Order.find({ 
+      seller: sellerId, 
+      paymentMethod: 'razorpay',
+      paymentStatus: 'completed'
+    });
+    
+    res.json({
+      sellerId,
+      stats: {
+        totalOrders: allOrders.length,
+        deliveredOrders: deliveredOrders.length,
+        razorpayCompleted: razorpayCompleted.length
+      },
+      sampleOrders: allOrders.slice(0, 3).map(o => ({
+        orderId: o.orderId,
+        paymentMethod: o.paymentMethod,
+        paymentStatus: o.paymentStatus,
+        orderStatus: o.orderStatus,
+        totalAmount: o.totalAmount
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+// Add this at the top of settlementRoutes.js, right after the /dashboard route
+
+router.get('/debug', authenticateSellerToken, async (req, res) => {
+  try {
+    const sellerId = req.seller.id || req.seller._id || req.seller.sellerId;
+    
+    console.log('\n🔍 ========== DEBUG SETTLEMENT ==========');
+    console.log('Seller ID:', sellerId);
+    
+    const Order = (await import('../models/Order.js')).default;
+    
+    // Check total orders for this seller
+    const totalOrders = await Order.countDocuments({
+      $or: [
+        { seller: sellerId },
+        { restaurantId: sellerId }
+      ]
+    });
+    
+    console.log('Total seller orders:', totalOrders);
+    
+    // Check delivered orders
+    const deliveredOrders = await Order.find({
+      $or: [
+        { seller: sellerId },
+        { restaurantId: sellerId }
+      ],
+      orderStatus: { $in: ['delivered', 'completed'] }
+    }).limit(5);
+    
+    console.log('Delivered orders:', deliveredOrders.length);
+    
+    // Check sample order structure
+    if (deliveredOrders.length > 0) {
+      const sample = deliveredOrders[0];
+      console.log('\nSample order:', {
+        orderId: sample.orderId,
+        seller: sample.seller,
+        restaurantId: sample.restaurantId,
+        paymentMethod: sample.paymentMethod,
+        paymentStatus: sample.paymentStatus,
+        orderStatus: sample.orderStatus,
+        totalAmount: sample.totalAmount
+      });
+    }
+    
+    // Test the exact query used in dashboard
+    const dashboardQuery = {
+      $and: [
+        {
+          $or: [
+            { seller: sellerId },
+            { restaurantId: sellerId }
+          ]
+        },
+        {
+          $or: [
+            { paymentMethod: 'razorpay', paymentStatus: 'completed' },
+            { paymentMethod: 'cod', orderStatus: { $in: ['delivered', 'completed'] } }
+          ]
+        }
+      ]
+    };
+    
+    console.log('\nTesting dashboard query...');
+    const dashboardOrders = await Order.find(dashboardQuery);
+    console.log('Dashboard query result:', dashboardOrders.length, 'orders');
+    
+    if (dashboardOrders.length > 0) {
+      const razorpay = dashboardOrders.filter(o => o.paymentMethod === 'razorpay');
+      const cod = dashboardOrders.filter(o => o.paymentMethod === 'cod');
+      console.log('Razorpay:', razorpay.length);
+      console.log('COD:', cod.length);
+    }
+    
+    console.log('========================================\n');
+    
+    res.json({
+      success: true,
+      sellerId,
+      totalOrders,
+      deliveredOrders: deliveredOrders.length,
+      dashboardQueryResult: dashboardOrders.length,
+      sampleOrder: deliveredOrders.length > 0 ? {
+        orderId: deliveredOrders[0].orderId,
+        paymentMethod: deliveredOrders[0].paymentMethod,
+        paymentStatus: deliveredOrders[0].paymentStatus,
+        orderStatus: deliveredOrders[0].orderStatus,
+        totalAmount: deliveredOrders[0].totalAmount
+      } : null
+    });
+    
+  } catch (error) {
+    console.error('Debug error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
 
 export default router;

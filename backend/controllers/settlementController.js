@@ -1,9 +1,9 @@
-// controllers/settlementController.js - FIXED: Include ALL completed payments
+// controllers/settlementController.js - COMPLETE FIXED VERSION
 import Order from '../models/Order.js';
 
 class SettlementController {
   
-  // Get settlement dashboard data with ALL completed payments
+  // Get settlement dashboard data with ALL completed payments (Razorpay + COD)
   getSettlementDashboard = async (req, res) => {
     try {
       const sellerId = req.seller.id || req.seller._id || req.seller.sellerId;
@@ -15,7 +15,8 @@ class SettlementController {
         });
       }
       
-      console.log('📊 Fetching real-time settlement data for seller:', sellerId);
+      console.log('\n📊 ========== SETTLEMENT DASHBOARD ==========');
+      console.log('Seller ID:', sellerId);
 
       // Get date ranges
       const now = new Date();
@@ -23,32 +24,72 @@ class SettlementController {
       const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-      // ✅ FIXED QUERY: Include ALL orders with completed payment
-      // Don't filter by orderStatus - only check paymentStatus
+      // ✅ CORRECT QUERY: Use $and to combine multiple $or conditions
       const query = {
-        $or: [
-          { seller: sellerId },
-          { restaurantId: sellerId }
-        ],
-        paymentStatus: 'completed', // ✅ Only requirement: payment completed
-        // ✅ REMOVED: orderStatus filter - we count all paid orders
+        $and: [
+          // Seller match
+          {
+            $or: [
+              { seller: sellerId },
+              { restaurantId: sellerId }
+            ]
+          },
+          // Payment completion match
+          {
+            $or: [
+              // Online payments that are completed
+              { 
+                paymentMethod: 'razorpay',
+                paymentStatus: 'completed'
+              },
+              // COD orders that are delivered (payment collected on delivery)
+              { 
+                paymentMethod: 'cod',
+                orderStatus: { $in: ['delivered', 'completed'] }
+              }
+            ]
+          }
+        ]
       };
 
-      // Fetch all orders with completed payment
+      console.log('\n🔍 Settlement Query:', JSON.stringify(query, null, 2));
+
+      // Fetch all completed orders (including delivered COD)
       const completedOrders = await Order.find(query).sort({ createdAt: -1 });
 
-      console.log(`✅ Found ${completedOrders.length} orders with completed payment`);
+      console.log('\n📊 Query Results:');
+      console.log(`   ✅ Total Orders Found: ${completedOrders.length}`);
+
+      if (completedOrders.length === 0) {
+        console.log('   ⚠️ No completed orders found for this seller');
+        
+        // Debug: Check if seller has any orders at all
+        const anyOrders = await Order.countDocuments({
+          $or: [
+            { seller: sellerId },
+            { restaurantId: sellerId }
+          ]
+        });
+        console.log(`   📦 Total seller orders (any status): ${anyOrders}`);
+      }
 
       // Calculate totals by payment method
       const razorpayOrders = completedOrders.filter(o => o.paymentMethod === 'razorpay');
       const codOrders = completedOrders.filter(o => o.paymentMethod === 'cod');
 
+      console.log(`   💳 Razorpay Orders: ${razorpayOrders.length}`);
+      console.log(`   💵 COD Orders: ${codOrders.length}`);
+
       const razorpayTotal = razorpayOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
       const codTotal = codOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
 
+      console.log(`   💳 Razorpay Total: ₹${razorpayTotal.toFixed(2)}`);
+      console.log(`   💵 COD Total: ₹${codTotal.toFixed(2)}`);
+      console.log('========================================\n');
+
       // Current week settlement (last 7 days)
-      const weekOrders = completedOrders.filter(o => new Date(o.createdAt) >= weekStart);
-      const weekRevenue = weekOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+     const weekOrders = completedOrders; // Show all completed orders
+const weekRevenue = completedOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
       
       // Tax calculations
       const platformFeeRate = 0.05; // 5%
@@ -102,7 +143,11 @@ class SettlementController {
       });
 
     } catch (error) {
-      console.error('❌ Settlement dashboard error:', error);
+      console.error('\n❌ ========== SETTLEMENT ERROR ==========');
+      console.error('Error:', error.message);
+      console.error('Stack:', error.stack);
+      console.error('========================================\n');
+      
       res.status(500).json({
         success: false,
         error: 'Failed to fetch settlement data',
@@ -111,7 +156,7 @@ class SettlementController {
     }
   };
 
-  // Calculate daily settlements with order details
+  // Calculate daily settlements with order details (INCLUDING COD)
   calculateDailySettlements(orders, startDate) {
     const dailyData = {};
     const platformFeeRate = 0.05;
@@ -147,7 +192,7 @@ class SettlementController {
         
         if (order.paymentMethod === 'razorpay') {
           dailyData[dateKey].razorpayCount += 1;
-        } else {
+        } else if (order.paymentMethod === 'cod') {
           dailyData[dateKey].codCount += 1;
         }
         
@@ -230,7 +275,7 @@ class SettlementController {
     );
   }
 
-  // Download daily settlement report
+  // Download daily settlement report (INCLUDING COD)
   downloadDailyReport = async (req, res) => {
     try {
       const sellerId = req.seller.id || req.seller._id || req.seller.sellerId;
@@ -257,16 +302,28 @@ class SettlementController {
       const endDate = new Date(date);
       endDate.setHours(23, 59, 59, 999);
 
+      // ✅ FIXED: Include both Razorpay and COD with proper structure
       const query = {
-        $or: [
-          { seller: sellerId },
-          { restaurantId: sellerId }
-        ],
-        paymentStatus: 'completed',
-        createdAt: {
-          $gte: startDate,
-          $lte: endDate
-        }
+        $and: [
+          {
+            $or: [
+              { seller: sellerId },
+              { restaurantId: sellerId }
+            ]
+          },
+          {
+            createdAt: {
+              $gte: startDate,
+              $lte: endDate
+            }
+          },
+          {
+            $or: [
+              { paymentMethod: 'razorpay', paymentStatus: 'completed' },
+              { paymentMethod: 'cod', orderStatus: { $in: ['delivered', 'completed'] } }
+            ]
+          }
+        ]
       };
 
       const orders = await Order.find(query).sort({ createdAt: 1 });
@@ -309,7 +366,7 @@ class SettlementController {
     }
   };
 
-  // Download settlement report (date range)
+  // Download settlement report (date range) - INCLUDING COD
   downloadSettlementReport = async (req, res) => {
     try {
       const sellerId = req.seller.id || req.seller._id || req.seller.sellerId;
@@ -323,19 +380,31 @@ class SettlementController {
 
       const { startDate, endDate } = req.query;
 
+      // ✅ FIXED: Proper query structure
       const query = {
-        $or: [
-          { seller: sellerId },
-          { restaurantId: sellerId }
-        ],
-        paymentStatus: 'completed'
+        $and: [
+          {
+            $or: [
+              { seller: sellerId },
+              { restaurantId: sellerId }
+            ]
+          },
+          {
+            $or: [
+              { paymentMethod: 'razorpay', paymentStatus: 'completed' },
+              { paymentMethod: 'cod', orderStatus: { $in: ['delivered', 'completed'] } }
+            ]
+          }
+        ]
       };
 
       if (startDate && endDate) {
-        query.createdAt = {
-          $gte: new Date(startDate),
-          $lte: new Date(endDate)
-        };
+        query.$and.push({
+          createdAt: {
+            $gte: new Date(startDate),
+            $lte: new Date(endDate)
+          }
+        });
       }
 
       const orders = await Order.find(query).sort({ createdAt: -1 });
@@ -376,12 +445,15 @@ class SettlementController {
     orders.forEach(order => {
       const time = new Date(order.createdAt).toLocaleTimeString();
       const itemName = order.item?.name || order.dish?.name || 'N/A';
-      csv += `${time},${order.orderId},${order.customerName || 'N/A'},${itemName},${order.totalAmount},${order.paymentMethod},${order.orderStatus}\n`;
+      const paymentMethod = order.paymentMethod === 'razorpay' ? 'Online' : 'COD';
+      csv += `${time},${order.orderId},${order.customerName || 'N/A'},${itemName},${order.totalAmount},${paymentMethod},${order.orderStatus}\n`;
     });
 
     csv += '\n\nDaily Summary\n';
     csv += `Date,${totals.date}\n`;
     csv += `Total Orders,${orders.length}\n`;
+    csv += `Razorpay Orders,${orders.filter(o => o.paymentMethod === 'razorpay').length}\n`;
+    csv += `COD Orders,${orders.filter(o => o.paymentMethod === 'cod').length}\n`;
     csv += `Total Revenue,₹${totals.totalRevenue.toFixed(2)}\n`;
     csv += `Platform Fees (5%),₹${totals.platformFees.toFixed(2)}\n`;
     csv += `TCS (1%),₹${totals.tcs.toFixed(2)}\n`;
@@ -393,13 +465,18 @@ class SettlementController {
 
   // Generate CSV for report
   generateCSV(orders, totals) {
-    let csv = 'Order ID,Date,Customer,Amount,Payment Method,Status\n';
+    let csv = 'Settlement Report\n\n';
+    csv += 'Order ID,Date,Customer,Amount (₹),Payment Method,Status\n';
     
     orders.forEach(order => {
-      csv += `${order.orderId},${new Date(order.createdAt).toLocaleString()},${order.customerName},₹${order.totalAmount},${order.paymentMethod},${order.orderStatus}\n`;
+      const paymentMethod = order.paymentMethod === 'razorpay' ? 'Online' : 'COD';
+      csv += `${order.orderId},${new Date(order.createdAt).toLocaleString()},${order.customerName},₹${order.totalAmount},${paymentMethod},${order.orderStatus}\n`;
     });
 
     csv += '\n\nSummary\n';
+    csv += `Total Orders,${orders.length}\n`;
+    csv += `Razorpay Orders,${orders.filter(o => o.paymentMethod === 'razorpay').length}\n`;
+    csv += `COD Orders,${orders.filter(o => o.paymentMethod === 'cod').length}\n`;
     csv += `Total Revenue,₹${totals.totalRevenue.toFixed(2)}\n`;
     csv += `Platform Fees (5%),₹${totals.platformFees.toFixed(2)}\n`;
     csv += `TCS (1%),₹${totals.tcs.toFixed(2)}\n`;
