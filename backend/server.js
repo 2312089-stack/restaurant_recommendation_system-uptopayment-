@@ -139,16 +139,11 @@ process.on('SIGTERM', () => {
 app.use(cors({
   origin: [
     // Local development
-    'http://localhost:5173',
-    'http://localhost:3000', 
-    'http://localhost:5174',
+    "https://tastesphere.onrender.com",
+  "http://localhost:5173" // (for local testing)
     
     // Production - UPDATE THIS with your actual Vercel URL
-    'https://restaurant-recommendation-system-up.vercel.app',
-    'https://your-actual-vercel-url.vercel.app', // Replace with your real URL
-    
-    // Allow any Vercel preview deployments (optional)
-    /\.vercel\.app$/
+        
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
