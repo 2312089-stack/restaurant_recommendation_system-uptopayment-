@@ -336,7 +336,13 @@ if (process.env.NODE_ENV === 'production') {
     
     // Serve index.html for all non-API routes (SPA support)
     // This MUST come after all API routes
-    app.get('*', (req, res) => {
+    // Use middleware instead of app.get('*')
+    app.use((req, res, next) => {
+      // Skip API routes
+      if (req.path.startsWith('/api/')) {
+        return next();
+      }
+      
       const indexPath = path.join(frontendDistPath, 'index.html');
       if (fs.existsSync(indexPath)) {
         res.sendFile(indexPath);
