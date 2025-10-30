@@ -672,49 +672,206 @@ const SellerDashboard = () => {
       setLoading(false);
     }
   };
+// ✅ FIXED loadStats function for your server.js setup
 
-  const loadStats = async () => {
+const loadStats = async () => {
+  try {
+    const token = getAuthToken();
+    console.log('📊 Loading dashboard stats...');
+    
+    // First, try to get menu stats for dish count
+    let dishStats = null;
     try {
-      const token = getAuthToken();
-      console.log('📊 Loading stats...');
-      
-      const response = await fetch(`${API_BASE}/seller/menu/stats`, {
+      const menuResponse = await fetch(`${API_BASE}/seller/menu/stats`, {
         headers: { 
           'Authorization': `Bearer ${token}`, 
           'Content-Type': 'application/json' 
         }
       });
-
-      const data = await response.json();
-      console.log('📊 Stats response:', data);
       
-      if (response.ok) {
-        setStats(data.stats?.overview || {
-          totalDishes: 0,
-          activeDishes: 0,
-          totalOrders: 0,
-          totalViews: 0,
-          averageRating: 0,
-          todayRevenue: 0,
-          activeOrders: 0
-        });
-        console.log('✅ Stats loaded successfully');
-      } else {
-        console.error('❌ Stats loading failed:', data.error);
+      if (menuResponse.ok) {
+        const menuData = await menuResponse.json();
+        dishStats = menuData.stats?.overview;
+        console.log('📊 Menu stats:', dishStats);
       }
     } catch (err) {
-      console.error('❌ Load stats error:', err);
-      setStats({
-        totalDishes: 0,
-        activeDishes: 0,
-        totalOrders: 0,
-        totalViews: 0,
-        averageRating: 0,
-        todayRevenue: 0,
-        activeOrders: 0
-      });
+      console.log('⚠️ Menu stats unavailable:', err.message);
     }
-  };
+    
+    // Now get analytics data for orders and revenue
+    console.log('📡 Fetching from:', `${API_BASE}/seller/analytics?range=all`);
+    
+    const response = await fetch(`${API_BASE}/seller/analytics?range=all`, {
+      headers: { 
+        'Authorization': `Bearer ${token}`, 
+        'Content-Type': 'application/json' 
+      }
+    });
+
+    console.log('📊 Analytics response status:', response.status);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ Analytics error response:', errorText);
+      throw new Error(`Analytics request failed: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log('📊 Analytics data received:', data);
+    
+    if (data.success && data.analytics) {
+      const overview = data.analytics.overview;
+      
+      // Combine analytics data with dish stats
+      const combinedStats = {
+        // Revenue and orders from analytics
+        todayRevenue: overview.totalRevenue || 0,
+        totalRevenue: overview.totalRevenue || 0,
+        activeOrders: overview.totalOrders || 0,
+        totalOrders: overview.totalOrders || 0,
+        averageOrderValue: overview.averageOrderValue || 0,
+        averageRating: overview.averageRating || 0,
+        
+        // Dish counts from menu stats OR fallback to dishes array
+        totalDishes: dishStats?.totalDishes || dishes.length || 0,
+        activeDishes: dishStats?.activeDishes || dishes.filter(d => d.availability).length || 0
+      };
+      
+      setStats(combinedStats);
+      
+      console.log('✅ Stats loaded successfully:', {
+        revenue: combinedStats.totalRevenue,
+        orders: combinedStats.totalOrders,
+        dishes: combinedStats.totalDishes,
+        rating: combinedStats.averageRating
+      });
+    } else {
+      console.error('❌ Analytics returned unsuccessful:', data);
+      setDefaultStats();
+    }
+  } catch (err) {
+    console.error('❌ Load stats error:', err);
+    console.error('Error stack:', err.stack);
+    setDefaultStats();
+  }
+};
+
+// Helper function to set default stats
+const setDefaultStats = () => {
+  setStats({
+    todayRevenue: 0,
+    totalRevenue: 0,
+    activeOrders: 0,
+    totalOrders: 0,
+    totalDishes: dishes.length || 0,
+    activeDishes: dishes.filter(d => d.availability).length || 0,
+    averageRating: 0,
+    averageOrderValue: 0
+  });
+};
+
+// ✅ ALSO ADD THIS: Enhanced debug function specific to your setup
+const debugAnalyticsFull = async () => {
+  try {
+    const token = getAuthToken();
+    console.log('\n🔍 ========== FULL ANALYTICS DEBUG ==========');
+    console.log('Token:', token ? '✅ Present' : '❌ Missing');
+    console.log('API Base:', API_BASE);
+    
+    // Test 1: Seller Profile
+    console.log('\n📝 Test 1: Seller Profile');
+    try {
+      const profileRes = await fetch(`${API_BASE}/seller/profile`, {
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+      });
+      console.log('Profile Status:', profileRes.status);
+      const profileData = await profileRes.json();
+      console.log('Seller ID:', profileData.seller?._id);
+      console.log('Business:', profileData.seller?.businessName);
+    } catch (err) {
+      console.error('❌ Profile test failed:', err.message);
+    }
+    
+    // Test 2: Orders
+    console.log('\n📦 Test 2: Orders');
+    try {
+      const ordersRes = await fetch(`${API_BASE}/seller/orders?status=all`, {
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+      });
+      console.log('Orders Status:', ordersRes.status);
+      const ordersData = await ordersRes.json();
+      console.log('Total Orders:', ordersData.orders?.length || 0);
+      
+      if (ordersData.orders?.length > 0) {
+        const completedOrders = ordersData.orders.filter(o => o.paymentStatus === 'completed');
+        const totalRevenue = completedOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+        console.log('Completed Orders:', completedOrders.length);
+        console.log('Total Revenue:', totalRevenue);
+        
+        console.log('\nSample Order:', {
+          id: ordersData.orders[0]._id,
+          amount: ordersData.orders[0].totalAmount,
+          paymentStatus: ordersData.orders[0].paymentStatus,
+          orderStatus: ordersData.orders[0].orderStatus,
+          seller: ordersData.orders[0].seller
+        });
+      }
+    } catch (err) {
+      console.error('❌ Orders test failed:', err.message);
+    }
+    
+    // Test 3: Menu Stats
+    console.log('\n🍽️  Test 3: Menu Stats');
+    try {
+      const menuRes = await fetch(`${API_BASE}/seller/menu/stats`, {
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+      });
+      console.log('Menu Stats Status:', menuRes.status);
+      const menuData = await menuRes.json();
+      console.log('Menu Stats:', menuData);
+    } catch (err) {
+      console.error('❌ Menu stats test failed:', err.message);
+    }
+    
+    // Test 4: Analytics Endpoint
+    console.log('\n📊 Test 4: Analytics Endpoint');
+    try {
+      const analyticsRes = await fetch(`${API_BASE}/seller/analytics?range=all`, {
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+      });
+      console.log('Analytics Status:', analyticsRes.status, analyticsRes.statusText);
+      
+      const analyticsText = await analyticsRes.text();
+      console.log('Raw Response (first 500 chars):', analyticsText.substring(0, 500));
+      
+      try {
+        const analyticsData = JSON.parse(analyticsText);
+        console.log('\n✅ Parsed Analytics Data:');
+        console.log(JSON.stringify(analyticsData, null, 2));
+        
+        if (analyticsData.success) {
+          console.log('\n📊 Overview Metrics:');
+          console.log('  Revenue:', analyticsData.analytics?.overview?.totalRevenue);
+          console.log('  Orders:', analyticsData.analytics?.overview?.totalOrders);
+          console.log('  Avg Order Value:', analyticsData.analytics?.overview?.averageOrderValue);
+          console.log('  Rating:', analyticsData.analytics?.overview?.averageRating);
+        }
+      } catch (parseErr) {
+        console.error('❌ JSON Parse Error:', parseErr.message);
+      }
+    } catch (err) {
+      console.error('❌ Analytics test failed:', err.message);
+    }
+    
+    console.log('\n🔍 ========== DEBUG COMPLETE ==========\n');
+    
+  } catch (err) {
+    console.error('❌ Debug error:', err);
+  }
+};
+
+
+ 
 
   const loadDishes = async () => {
     try {

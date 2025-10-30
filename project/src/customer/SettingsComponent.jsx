@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, User, Mail, Lock, MapPin, Camera, Bell, FileText, Plus, Edit3, Trash2, Eye, EyeOff, Upload, Save } from 'lucide-react';
+import { ArrowLeft, User, Mail, Lock, MapPin, Bell, FileText, Plus, Edit3, Trash2, Eye, EyeOff, Save, Loader, AlertCircle, CheckCircle } from 'lucide-react';
 
-// API Configuration
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+// This component expects to receive auth data as props from your App.js
+// You should wrap it like: <Settings authToken={authToken} user={user} onClose={handleClose} />
+
+const API_BASE_URL = 'http://localhost:5000/api';
 
 // API Helper Functions
-const apiRequest = async (endpoint, options = {}) => {
-  const token = localStorage.getItem('token');
-  
+const apiRequest = async (endpoint, options = {}, token) => {
   const config = {
     headers: {
       'Content-Type': 'application/json',
@@ -29,20 +29,6 @@ const apiRequest = async (endpoint, options = {}) => {
   } catch (error) {
     console.error('API Request Error:', error);
     throw error;
-  }
-};
-
-// Get current user info from token
-const getCurrentUser = () => {
-  try {
-    const token = localStorage.getItem('token');
-    if (!token) return null;
-    
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    return payload;
-  } catch (error) {
-    console.error('Error parsing token:', error);
-    return null;
   }
 };
 
@@ -80,7 +66,6 @@ const AddressForm = ({ address, onSave, onCancel, isEdit }) => {
 
   const validateForm = () => {
     const newErrors = {};
-
     if (!formData.fullName.trim()) newErrors.fullName = 'Full name is required';
     if (!formData.phoneNumber.trim()) newErrors.phoneNumber = 'Phone number is required';
     if (!formData.pincode.trim()) newErrors.pincode = 'Pincode is required';
@@ -89,7 +74,6 @@ const AddressForm = ({ address, onSave, onCancel, isEdit }) => {
     if (!formData.city.trim()) newErrors.city = 'City is required';
     if (!formData.houseNo.trim()) newErrors.houseNo = 'House/Building number is required';
     if (!formData.roadArea.trim()) newErrors.roadArea = 'Road/Area is required';
-
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -97,12 +81,12 @@ const AddressForm = ({ address, onSave, onCancel, isEdit }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!validateForm()) return;
-
     setIsLoading(true);
     try {
       await onSave(formData);
     } catch (error) {
       console.error('Form submit error:', error);
+      setErrors({ general: error.message });
     } finally {
       setIsLoading(false);
     }
@@ -111,167 +95,150 @@ const AddressForm = ({ address, onSave, onCancel, isEdit }) => {
   return (
     <div className="space-y-6">
       <div className="flex items-center space-x-4">
-        <button
-          onClick={onCancel}
-          className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-        >
-          <ArrowLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+        <button onClick={onCancel} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+          <ArrowLeft className="w-5 h-5 text-gray-600" />
         </button>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+        <h1 className="text-2xl font-bold text-gray-900">
           {isEdit ? 'Edit Address' : 'Add New Address'}
         </h1>
       </div>
 
-      <form onSubmit={handleSubmit} className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+      {errors.general && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+          {errors.general}
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Full Name *
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Full Name *</label>
             <input
               type="text"
               name="fullName"
               value={formData.fullName}
               onChange={handleChange}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white ${
-                errors.fullName ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 ${
+                errors.fullName ? 'border-red-500' : 'border-gray-300'
               }`}
             />
             {errors.fullName && <p className="text-red-500 text-sm mt-1">{errors.fullName}</p>}
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Phone Number *
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Phone Number *</label>
             <input
               type="tel"
               name="phoneNumber"
               value={formData.phoneNumber}
               onChange={handleChange}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white ${
-                errors.phoneNumber ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 ${
+                errors.phoneNumber ? 'border-red-500' : 'border-gray-300'
               }`}
             />
             {errors.phoneNumber && <p className="text-red-500 text-sm mt-1">{errors.phoneNumber}</p>}
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Alternate Phone
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Alternate Phone</label>
             <input
               type="tel"
               name="alternatePhone"
               value={formData.alternatePhone}
               onChange={handleChange}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Pincode *
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Pincode *</label>
             <input
               type="text"
               name="pincode"
               value={formData.pincode}
               onChange={handleChange}
               maxLength="6"
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white ${
-                errors.pincode ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 ${
+                errors.pincode ? 'border-red-500' : 'border-gray-300'
               }`}
             />
             {errors.pincode && <p className="text-red-500 text-sm mt-1">{errors.pincode}</p>}
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              State *
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">State *</label>
             <input
               type="text"
               name="state"
               value={formData.state}
               onChange={handleChange}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white ${
-                errors.state ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 ${
+                errors.state ? 'border-red-500' : 'border-gray-300'
               }`}
             />
             {errors.state && <p className="text-red-500 text-sm mt-1">{errors.state}</p>}
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              City *
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">City *</label>
             <input
               type="text"
               name="city"
               value={formData.city}
               onChange={handleChange}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white ${
-                errors.city ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 ${
+                errors.city ? 'border-red-500' : 'border-gray-300'
               }`}
             />
             {errors.city && <p className="text-red-500 text-sm mt-1">{errors.city}</p>}
           </div>
 
           <div className="md:col-span-2">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              House/Building Number *
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">House/Building Number *</label>
             <input
               type="text"
               name="houseNo"
               value={formData.houseNo}
               onChange={handleChange}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white ${
-                errors.houseNo ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 ${
+                errors.houseNo ? 'border-red-500' : 'border-gray-300'
               }`}
             />
             {errors.houseNo && <p className="text-red-500 text-sm mt-1">{errors.houseNo}</p>}
           </div>
 
           <div className="md:col-span-2">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Road/Area *
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Road/Area *</label>
             <input
               type="text"
               name="roadArea"
               value={formData.roadArea}
               onChange={handleChange}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white ${
-                errors.roadArea ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 ${
+                errors.roadArea ? 'border-red-500' : 'border-gray-300'
               }`}
             />
             {errors.roadArea && <p className="text-red-500 text-sm mt-1">{errors.roadArea}</p>}
           </div>
 
           <div className="md:col-span-2">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Landmark
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Landmark</label>
             <input
               type="text"
               name="landmark"
               value={formData.landmark}
               onChange={handleChange}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Address Type
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Address Type</label>
             <select
               name="type"
               value={formData.type}
               onChange={handleChange}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
             >
               <option value="home">Home</option>
               <option value="work">Work</option>
@@ -286,11 +253,9 @@ const AddressForm = ({ address, onSave, onCancel, isEdit }) => {
                 name="isDefault"
                 checked={formData.isDefault}
                 onChange={handleChange}
-                className="w-4 h-4 text-orange-600 bg-gray-100 border-gray-300 rounded focus:ring-orange-500 dark:focus:ring-orange-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
+                className="w-4 h-4 text-orange-600 rounded focus:ring-orange-500"
               />
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                Set as default address
-              </span>
+              <span className="text-sm font-medium text-gray-700">Set as default address</span>
             </label>
           </div>
         </div>
@@ -299,16 +264,16 @@ const AddressForm = ({ address, onSave, onCancel, isEdit }) => {
           <button
             type="button"
             onClick={onCancel}
-            className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+            className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={isLoading}
-            className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+            className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors disabled:opacity-50 flex items-center space-x-2"
           >
-            {isLoading && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>}
+            {isLoading && <Loader className="w-4 h-4 animate-spin" />}
             <span>{isLoading ? 'Saving...' : (isEdit ? 'Update Address' : 'Add Address')}</span>
           </button>
         </div>
@@ -318,13 +283,10 @@ const AddressForm = ({ address, onSave, onCancel, isEdit }) => {
 };
 
 // Main Settings Component
-const Settings = ({ onClose }) => {
-  // State management
+const Settings = ({ authToken, user, onClose }) => {
   const [activeSection, setActiveSection] = useState('main');
-  const [isDarkMode] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [apiMessage, setApiMessage] = useState({ type: '', text: '' });
-  const [currentUser, setCurrentUser] = useState(null);
 
   // Address management states
   const [addresses, setAddresses] = useState([]);
@@ -351,28 +313,24 @@ const Settings = ({ onClose }) => {
 
   // Load user profile on component mount
   useEffect(() => {
-    const loadUserProfile = async () => {
-      try {
-        const user = getCurrentUser();
-        if (user) {
-          setCurrentUser(user);
-          setCurrentEmail(user.email || '');
-          await loadAddresses();
-        }
-      } catch (error) {
-        console.error('Error loading user profile:', error);
-      }
-    };
-
-    loadUserProfile();
-  }, []);
+    if (user) {
+      setCurrentEmail(user.emailId || user.email || '');
+      loadAddresses();
+    }
+  }, [user, authToken]);
 
   // Load addresses from API
   const loadAddresses = async () => {
+    if (!authToken) {
+      setApiMessage({ type: 'error', text: 'Not authenticated. Please login again.' });
+      return;
+    }
+
     try {
       setIsLoading(true);
-      const response = await apiRequest('/addresses');
+      const response = await apiRequest('/addresses', {}, authToken);
       setAddresses(response.data || []);
+      setApiMessage({ type: '', text: '' });
     } catch (error) {
       console.error('Error loading addresses:', error);
       setApiMessage({ 
@@ -386,26 +344,29 @@ const Settings = ({ onClose }) => {
 
   // Save address (create or update)
   const handleSaveAddress = async (addressData) => {
+    if (!authToken) {
+      setApiMessage({ type: 'error', text: 'Not authenticated. Please login again.' });
+      throw new Error('Not authenticated');
+    }
+
     try {
       setIsLoading(true);
       
       if (editingAddress) {
-        // Update existing address
         await apiRequest(`/addresses/${editingAddress._id}`, {
           method: 'PUT',
           body: JSON.stringify(addressData),
-        });
+        }, authToken);
         setApiMessage({ type: 'success', text: 'Address updated successfully!' });
       } else {
-        // Create new address
         await apiRequest('/addresses', {
           method: 'POST',
           body: JSON.stringify(addressData),
-        });
+        }, authToken);
         setApiMessage({ type: 'success', text: 'Address added successfully!' });
       }
       
-      await loadAddresses(); // Reload addresses
+      await loadAddresses();
       setEditingAddress(null);
       setActiveSection('addresses');
     } catch (error) {
@@ -414,6 +375,7 @@ const Settings = ({ onClose }) => {
         type: 'error', 
         text: error.message || 'Failed to save address. Please try again.' 
       });
+      throw error;
     } finally {
       setIsLoading(false);
     }
@@ -425,17 +387,17 @@ const Settings = ({ onClose }) => {
   };
 
   const handleDeleteAddress = async (addressId) => {
-    if (!window.confirm('Are you sure you want to delete this address?')) {
+    if (!window.confirm('Are you sure you want to delete this address?')) return;
+    if (!authToken) {
+      setApiMessage({ type: 'error', text: 'Not authenticated. Please login again.' });
       return;
     }
     
     try {
       setIsLoading(true);
-      await apiRequest(`/addresses/${addressId}`, {
-        method: 'DELETE',
-      });
+      await apiRequest(`/addresses/${addressId}`, { method: 'DELETE' }, authToken);
       setApiMessage({ type: 'success', text: 'Address deleted successfully!' });
-      await loadAddresses(); // Reload addresses
+      await loadAddresses();
     } catch (error) {
       console.error('Delete address error:', error);
       setApiMessage({ 
@@ -448,13 +410,16 @@ const Settings = ({ onClose }) => {
   };
 
   const handleSetDefaultAddress = async (addressId) => {
+    if (!authToken) {
+      setApiMessage({ type: 'error', text: 'Not authenticated. Please login again.' });
+      return;
+    }
+
     try {
       setIsLoading(true);
-      await apiRequest(`/addresses/${addressId}/set-default`, {
-        method: 'PUT',
-      });
+      await apiRequest(`/addresses/${addressId}/set-default`, { method: 'PUT' }, authToken);
       setApiMessage({ type: 'success', text: 'Default address updated!' });
-      await loadAddresses(); // Reload addresses
+      await loadAddresses();
     } catch (error) {
       console.error('Set default address error:', error);
       setApiMessage({ 
@@ -473,6 +438,11 @@ const Settings = ({ onClose }) => {
 
   // Change email request
   const handleChangeEmailRequest = async () => {
+    if (!authToken) {
+      setApiMessage({ type: 'error', text: 'Not authenticated. Please login again.' });
+      return;
+    }
+
     if (!currentEmail || !newEmailInput || !currentPassword) {
       setApiMessage({ type: 'error', text: 'Please fill in all fields' });
       return;
@@ -497,14 +467,13 @@ const Settings = ({ onClose }) => {
           newEmail: newEmailInput,
           currentPassword: currentPassword,
         }),
-      });
+      }, authToken);
       
       setApiMessage({ 
         type: 'success', 
         text: `Verification email sent to ${newEmailInput}. Please check your inbox and click the verification link to complete the email change.` 
       });
       
-      // Clear form
       setNewEmailInput('');
       setCurrentPassword('');
     } catch (error) {
@@ -520,6 +489,11 @@ const Settings = ({ onClose }) => {
 
   // Change password
   const handleChangePassword = async () => {
+    if (!authToken) {
+      setApiMessage({ type: 'error', text: 'Not authenticated. Please login again.' });
+      return;
+    }
+
     if (!currentPassword || !newPassword || !confirmPassword) {
       setApiMessage({ type: 'error', text: 'Please fill in all password fields' });
       return;
@@ -543,11 +517,9 @@ const Settings = ({ onClose }) => {
           currentPassword: currentPassword,
           newPassword: newPassword,
         }),
-      });
+      }, authToken);
       
       setApiMessage({ type: 'success', text: 'Password changed successfully!' });
-      
-      // Clear form
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
@@ -579,17 +551,14 @@ const Settings = ({ onClose }) => {
       setIsLoading(true);
       await apiRequest('/settings-auth/reset-password-request', {
         method: 'POST',
-        body: JSON.stringify({
-          email: forgotPasswordEmail,
-        }),
-      });
+        body: JSON.stringify({ email: forgotPasswordEmail }),
+      }, authToken);
       
       setApiMessage({ 
         type: 'success', 
         text: 'If an account with that email exists, you will receive a password reset link shortly.' 
       });
       
-      // Clear form
       setForgotPasswordEmail('');
     } catch (error) {
       console.error('Forgot password error:', error);
@@ -605,13 +574,15 @@ const Settings = ({ onClose }) => {
   // Message Alert Component
   const MessageAlert = ({ type, text }) => {
     if (!text) return null;
+    const Icon = type === 'success' ? CheckCircle : AlertCircle;
     return (
-      <div className={`mb-4 p-3 rounded-lg ${
+      <div className={`mb-4 p-3 rounded-lg flex items-start space-x-2 ${
         type === 'success' 
           ? 'bg-green-100 text-green-800 border border-green-200' 
           : 'bg-red-100 text-red-800 border border-red-200'
       }`}>
-        {text}
+        <Icon className="w-5 h-5 flex-shrink-0 mt-0.5" />
+        <span className="text-sm">{text}</span>
       </div>
     );
   };
@@ -628,20 +599,17 @@ const Settings = ({ onClose }) => {
   const renderMainSettings = () => (
     <div className="space-y-6">
       <div className="flex items-center space-x-4">
-        <button
-          onClick={handleBackToMain}
-          className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-        >
-          <ArrowLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+        <button onClick={handleBackToMain} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+          <ArrowLeft className="w-5 h-5 text-gray-600" />
         </button>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Settings</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
       </div>
 
       <MessageAlert type={apiMessage.type} text={apiMessage.text} />
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-        <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+        <div className="p-6 border-b border-gray-200">
+          <h2 className="text-lg font-semibold text-gray-900 flex items-center">
             <User className="w-5 h-5 mr-2 text-orange-500" />
             Account Security
           </h2>
@@ -649,40 +617,40 @@ const Settings = ({ onClose }) => {
         <div className="p-6 space-y-4">
           <button
             onClick={() => setActiveSection('addresses')}
-            className="w-full flex items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors"
+            className="w-full flex items-center justify-between p-3 hover:bg-gray-50 rounded-lg transition-colors"
           >
             <div className="flex items-center">
-              <MapPin className="w-4 h-4 mr-3 text-gray-600 dark:text-gray-400" />
-              <span className="text-gray-900 dark:text-white">Manage Saved Addresses</span>
+              <MapPin className="w-4 h-4 mr-3 text-gray-600" />
+              <span className="text-gray-900">Manage Saved Addresses</span>
             </div>
             <span className="text-gray-400">→</span>
           </button>
           <button
             onClick={() => setActiveSection('credentials')}
-            className="w-full flex items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors"
+            className="w-full flex items-center justify-between p-3 hover:bg-gray-50 rounded-lg transition-colors"
           >
             <div className="flex items-center">
-              <Mail className="w-4 h-4 mr-3 text-gray-600 dark:text-gray-400" />
-              <span className="text-gray-900 dark:text-white">Change Email / Password</span>
+              <Mail className="w-4 h-4 mr-3 text-gray-600" />
+              <span className="text-gray-900">Change Email / Password</span>
             </div>
             <span className="text-gray-400">→</span>
           </button>
           <button
             onClick={() => setActiveSection('forgot-password')}
-            className="w-full flex items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors"
+            className="w-full flex items-center justify-between p-3 hover:bg-gray-50 rounded-lg transition-colors"
           >
             <div className="flex items-center">
-              <Lock className="w-4 h-4 mr-3 text-gray-600 dark:text-gray-400" />
-              <span className="text-gray-900 dark:text-white">Reset Password (Forgot Password)</span>
+              <Lock className="w-4 h-4 mr-3 text-gray-600" />
+              <span className="text-gray-900">Reset Password (Forgot Password)</span>
             </div>
             <span className="text-gray-400">→</span>
           </button>
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-        <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+        <div className="p-6 border-b border-gray-200">
+          <h2 className="text-lg font-semibold text-gray-900 flex items-center">
             <Bell className="w-5 h-5 mr-2 text-orange-500" />
             Notifications
           </h2>
@@ -690,20 +658,20 @@ const Settings = ({ onClose }) => {
         <div className="p-6">
           <button
             onClick={() => setActiveSection('notifications')}
-            className="w-full flex items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors"
+            className="w-full flex items-center justify-between p-3 hover:bg-gray-50 rounded-lg transition-colors"
           >
             <div className="flex items-center">
-              <Bell className="w-4 h-4 mr-3 text-gray-600 dark:text-gray-400" />
-              <span className="text-gray-900 dark:text-white">Notification Preferences</span>
+              <Bell className="w-4 h-4 mr-3 text-gray-600" />
+              <span className="text-gray-900">Notification Preferences</span>
             </div>
             <span className="text-gray-400">→</span>
           </button>
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-        <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+        <div className="p-6 border-b border-gray-200">
+          <h2 className="text-lg font-semibold text-gray-900 flex items-center">
             <FileText className="w-5 h-5 mr-2 text-orange-500" />
             Terms & Conditions
           </h2>
@@ -711,11 +679,11 @@ const Settings = ({ onClose }) => {
         <div className="p-6">
           <button
             onClick={() => setActiveSection('terms')}
-            className="w-full flex items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors"
+            className="w-full flex items-center justify-between p-3 hover:bg-gray-50 rounded-lg transition-colors"
           >
             <div className="flex items-center">
-              <FileText className="w-4 h-4 mr-3 text-gray-600 dark:text-gray-400" />
-              <span className="text-gray-900 dark:text-white">View Terms & Conditions</span>
+              <FileText className="w-4 h-4 mr-3 text-gray-600" />
+              <span className="text-gray-900">View Terms & Conditions</span>
             </div>
             <span className="text-gray-400">→</span>
           </button>
@@ -727,20 +695,17 @@ const Settings = ({ onClose }) => {
   const renderAddresses = () => (
     <div className="space-y-6">
       <div className="flex items-center space-x-4">
-        <button
-          onClick={() => setActiveSection('main')}
-          className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-        >
-          <ArrowLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+        <button onClick={() => setActiveSection('main')} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+          <ArrowLeft className="w-5 h-5 text-gray-600" />
         </button>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Manage Addresses</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Manage Addresses</h1>
       </div>
 
       <MessageAlert type={apiMessage.type} text={apiMessage.text} />
 
       <button
         onClick={handleAddNewAddress}
-        className="w-full flex items-center justify-center space-x-2 p-4 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg hover:border-orange-500 transition-colors"
+        className="w-full flex items-center justify-center space-x-2 p-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-orange-500 transition-colors"
       >
         <Plus className="w-5 h-5 text-orange-500" />
         <span className="text-orange-500 font-medium">Add New Address</span>
@@ -748,32 +713,32 @@ const Settings = ({ onClose }) => {
 
       {isLoading && addresses.length === 0 ? (
         <div className="flex justify-center py-8">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
+          <Loader className="w-8 h-8 animate-spin text-orange-500" />
         </div>
       ) : (
         <div className="space-y-4">
           {addresses.map(address => (
-            <div key={address._id} className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+            <div key={address._id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <div className="flex items-center space-x-2 mb-2">
-                    <span className="px-2 py-1 bg-orange-100 dark:bg-orange-900 text-orange-800 dark:text-orange-200 text-xs font-medium rounded">
+                    <span className="px-2 py-1 bg-orange-100 text-orange-800 text-xs font-medium rounded">
                       {address.type.charAt(0).toUpperCase() + address.type.slice(1)}
                     </span>
                     {address.isDefault && (
-                      <span className="px-2 py-1 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 text-xs font-medium rounded">
+                      <span className="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded">
                         Default
                       </span>
                     )}
                   </div>
                   <div className="space-y-1">
-                    <p className="font-medium text-gray-900 dark:text-white">{address.fullName}</p>
-                    <p className="text-gray-700 dark:text-gray-300">{address.houseNo}, {address.roadArea}</p>
-                    <p className="text-gray-700 dark:text-gray-300">{address.city}, {address.state} - {address.pincode}</p>
+                    <p className="font-medium text-gray-900">{address.fullName}</p>
+                    <p className="text-gray-700">{address.houseNo}, {address.roadArea}</p>
+                    <p className="text-gray-700">{address.city}, {address.state} - {address.pincode}</p>
                     {address.landmark && (
-                      <p className="text-sm text-gray-500 dark:text-gray-400">Landmark: {address.landmark}</p>
+                      <p className="text-sm text-gray-500">Landmark: {address.landmark}</p>
                     )}
-                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                    <p className="text-sm text-gray-600">
                       Phone: {address.phoneNumber}
                       {address.alternatePhone && `, ${address.alternatePhone}`}
                     </p>
@@ -783,7 +748,7 @@ const Settings = ({ onClose }) => {
                   {!address.isDefault && (
                     <button
                       onClick={() => handleSetDefaultAddress(address._id)}
-                      className="px-3 py-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-orange-100 hover:text-orange-600 rounded transition-colors"
+                      className="px-3 py-1 text-xs bg-gray-100 text-gray-600 hover:bg-orange-100 hover:text-orange-600 rounded transition-colors"
                       title="Set as default"
                     >
                       Set Default
@@ -791,14 +756,14 @@ const Settings = ({ onClose }) => {
                   )}
                   <button
                     onClick={() => handleEditAddress(address)}
-                    className="p-2 text-gray-600 dark:text-gray-400 hover:text-orange-500 transition-colors"
+                    className="p-2 text-gray-600 hover:text-orange-500 transition-colors"
                     title="Edit address"
                   >
                     <Edit3 className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => handleDeleteAddress(address._id)}
-                    className="p-2 text-gray-600 dark:text-gray-400 hover:text-red-500 transition-colors"
+                    className="p-2 text-gray-600 hover:text-red-500 transition-colors"
                     title="Delete address"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -811,8 +776,8 @@ const Settings = ({ onClose }) => {
           {addresses.length === 0 && !isLoading && (
             <div className="text-center py-8">
               <MapPin className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-500 dark:text-gray-400">No addresses found</p>
-              <p className="text-sm text-gray-400 dark:text-gray-500">Add your first address to get started</p>
+              <p className="text-gray-500">No addresses found</p>
+              <p className="text-sm text-gray-400">Add your first address to get started</p>
             </div>
           )}
         </div>
@@ -823,82 +788,59 @@ const Settings = ({ onClose }) => {
   const renderCredentials = () => (
     <div className="space-y-6">
       <div className="flex items-center space-x-4">
-        <button
-          onClick={() => setActiveSection('main')}
-          className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-        >
-          <ArrowLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+        <button onClick={() => setActiveSection('main')} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+          <ArrowLeft className="w-5 h-5 text-gray-600" />
         </button>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-          Change Email / Password
-        </h1>
+        <h1 className="text-2xl font-bold text-gray-900">Change Email / Password</h1>
       </div>
 
       <MessageAlert type={apiMessage.type} text={apiMessage.text} />
 
-      {/* Update Email Section */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-          Update Email Address
-        </h3>
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Update Email Address</h3>
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Current Email Address
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Current Email Address</label>
             <input
               type="email"
               value={currentEmail}
               disabled
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-400 cursor-not-allowed"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-600 cursor-not-allowed"
             />
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              This is your current registered email address
-            </p>
+            <p className="text-xs text-gray-500 mt-1">This is your current registered email address</p>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              New Email Address *
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">New Email Address *</label>
             <input
               type="email"
               value={newEmailInput}
               onChange={(e) => setNewEmailInput(e.target.value)}
               placeholder="Enter your new email address"
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
             />
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              This will be your new email address for login
-            </p>
+            <p className="text-xs text-gray-500 mt-1">This will be your new email address for login</p>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Current Password *
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Current Password *</label>
             <div className="relative">
               <input
                 type={showCurrentPassword ? "text" : "password"}
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
                 placeholder="Enter your current password"
-                className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
               />
               <button
                 type="button"
                 onClick={() => setShowCurrentPassword(!showCurrentPassword)}
                 className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
               >
-                {showCurrentPassword ? 
-                  <EyeOff className="w-4 h-4" /> : 
-                  <Eye className="w-4 h-4" />
-                }
+                {showCurrentPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Enter your current password to confirm this change
-            </p>
+            <p className="text-xs text-gray-500 mt-1">Enter your current password to confirm this change</p>
           </div>
 
           <button
@@ -906,18 +848,16 @@ const Settings = ({ onClose }) => {
             disabled={isLoading || !newEmailInput || !currentPassword}
             className="px-6 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
           >
-            {isLoading && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>}
-            <span>{isLoading ? 'Sending Verification Email...' : 'Send Verification Email'}</span>
+            {isLoading && <Loader className="w-4 h-4 animate-spin" />}
+            <span>{isLoading ? 'Sending...' : 'Send Verification Email'}</span>
           </button>
 
-          <div className="bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
             <div className="flex items-start">
-              <Mail className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5 mr-3 flex-shrink-0" />
+              <Mail className="w-5 h-5 text-blue-600 mt-0.5 mr-3 flex-shrink-0" />
               <div>
-                <p className="text-sm font-medium text-blue-800 dark:text-blue-200 mb-1">
-                  Email Change Process:
-                </p>
-                <ul className="text-xs text-blue-700 dark:text-blue-300 space-y-1">
+                <p className="text-sm font-medium text-blue-800 mb-1">Email Change Process:</p>
+                <ul className="text-xs text-blue-700 space-y-1">
                   <li>1. Your current email is automatically filled</li>
                   <li>2. Enter your desired new email address</li>
                   <li>3. Enter your current password for verification</li>
@@ -931,70 +871,55 @@ const Settings = ({ onClose }) => {
         </div>
       </div>
 
-      {/* Change Password Section */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-          Change Password
-        </h3>
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Change Password</h3>
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Current Password *
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Current Password *</label>
             <div className="relative">
               <input
                 type={showCurrentPassword ? "text" : "password"}
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
                 placeholder="Enter current password"
-                className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
               />
               <button
                 type="button"
                 onClick={() => setShowCurrentPassword(!showCurrentPassword)}
                 className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
               >
-                {showCurrentPassword ? 
-                  <EyeOff className="w-4 h-4" /> : 
-                  <Eye className="w-4 h-4" />
-                }
+                {showCurrentPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              New Password *
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">New Password *</label>
             <div className="relative">
               <input
                 type={showNewPassword ? "text" : "password"}
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder="Enter new password (min 6 characters)"
-                className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
               />
               <button
                 type="button"
                 onClick={() => setShowNewPassword(!showNewPassword)}
                 className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
               >
-                {showNewPassword ? 
-                  <EyeOff className="w-4 h-4" /> : 
-                  <Eye className="w-4 h-4" />
-                }
+                {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Confirm New Password *
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Confirm New Password *</label>
             <input
               type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="Confirm new password"
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
             />
           </div>
           <button
@@ -1002,7 +927,7 @@ const Settings = ({ onClose }) => {
             disabled={isLoading || !currentPassword || !newPassword || !confirmPassword}
             className="px-6 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
           >
-            {isLoading && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>}
+            {isLoading && <Loader className="w-4 h-4 animate-spin" />}
             <span>{isLoading ? 'Updating...' : 'Update Password'}</span>
           </button>
         </div>
@@ -1013,38 +938,27 @@ const Settings = ({ onClose }) => {
   const renderForgotPassword = () => (
     <div className="space-y-6">
       <div className="flex items-center space-x-4">
-        <button
-          onClick={() => setActiveSection('main')}
-          className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-        >
-          <ArrowLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+        <button onClick={() => setActiveSection('main')} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+          <ArrowLeft className="w-5 h-5 text-gray-600" />
         </button>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-          Reset Password (Forgot Password)
-        </h1>
+        <h1 className="text-2xl font-bold text-gray-900">Reset Password</h1>
       </div>
 
       <MessageAlert type={apiMessage.type} text={apiMessage.text} />
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-          Password Reset Request
-        </h3>
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Password Reset Request</h3>
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Email Address *
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Email Address *</label>
             <input
               type="email"
               value={forgotPasswordEmail}
               onChange={(e) => setForgotPasswordEmail(e.target.value)}
               placeholder="Enter your registered email address"
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
             />
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Enter the email address associated with your account
-            </p>
+            <p className="text-xs text-gray-500 mt-1">Enter the email address associated with your account</p>
           </div>
 
           <button
@@ -1052,18 +966,16 @@ const Settings = ({ onClose }) => {
             disabled={isLoading || !forgotPasswordEmail}
             className="px-6 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
           >
-            {isLoading && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>}
-            <span>{isLoading ? 'Sending Reset Link...' : 'Send Password Reset Link'}</span>
+            {isLoading && <Loader className="w-4 h-4 animate-spin" />}
+            <span>{isLoading ? 'Sending...' : 'Send Password Reset Link'}</span>
           </button>
 
-          <div className="bg-amber-50 dark:bg-amber-900 border border-amber-200 dark:border-amber-700 rounded-lg p-4">
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
             <div className="flex items-start">
-              <Lock className="w-5 h-5 text-amber-600 dark:text-amber-400 mt-0.5 mr-3 flex-shrink-0" />
+              <Lock className="w-5 h-5 text-amber-600 mt-0.5 mr-3 flex-shrink-0" />
               <div>
-                <p className="text-sm font-medium text-amber-800 dark:text-amber-200 mb-1">
-                  Password Reset Process:
-                </p>
-                <ul className="text-xs text-amber-700 dark:text-amber-300 space-y-1">
+                <p className="text-sm font-medium text-amber-800 mb-1">Password Reset Process:</p>
+                <ul className="text-xs text-amber-700 space-y-1">
                   <li>1. Enter your registered email address above</li>
                   <li>2. Click "Send Password Reset Link"</li>
                   <li>3. Check your email inbox for the reset link</li>
@@ -1081,23 +993,20 @@ const Settings = ({ onClose }) => {
   const renderNotifications = () => (
     <div className="space-y-6">
       <div className="flex items-center space-x-4">
-        <button
-          onClick={() => setActiveSection('main')}
-          className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-        >
-          <ArrowLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+        <button onClick={() => setActiveSection('main')} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+          <ArrowLeft className="w-5 h-5 text-gray-600" />
         </button>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Notification Preferences</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Notification Preferences</h1>
       </div>
 
       <MessageAlert type={apiMessage.type} text={apiMessage.text} />
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200">
         <div className="p-6 space-y-6">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Push Notifications</h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Enable or disable all push notifications</p>
+              <h3 className="text-lg font-semibold text-gray-900">Push Notifications</h3>
+              <p className="text-sm text-gray-600 mt-1">Enable or disable all push notifications</p>
             </div>
             <label className="relative inline-flex items-center cursor-pointer">
               <input
@@ -1106,14 +1015,14 @@ const Settings = ({ onClose }) => {
                 onChange={(e) => setNotifications({ ...notifications, pushEnabled: e.target.checked })}
                 className="sr-only peer"
               />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-orange-300 dark:peer-focus:ring-orange-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-orange-600"></div>
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-orange-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-600"></div>
             </label>
           </div>
 
           <div className="flex items-center justify-between">
             <div>
-              <h4 className="font-medium text-gray-900 dark:text-white">Order Updates</h4>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Get notified about order status changes</p>
+              <h4 className="font-medium text-gray-900">Order Updates</h4>
+              <p className="text-sm text-gray-600">Get notified about order status changes</p>
             </div>
             <label className="relative inline-flex items-center cursor-pointer">
               <input
@@ -1123,14 +1032,14 @@ const Settings = ({ onClose }) => {
                 className="sr-only peer"
                 disabled={!notifications.pushEnabled}
               />
-              <div className={`w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-orange-300 dark:peer-focus:ring-orange-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-orange-600 ${!notifications.pushEnabled ? 'opacity-50' : ''}`}></div>
+              <div className={`w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-orange-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-600 ${!notifications.pushEnabled ? 'opacity-50' : ''}`}></div>
             </label>
           </div>
 
           <div className="flex items-center justify-between">
             <div>
-              <h4 className="font-medium text-gray-900 dark:text-white">Special Offers</h4>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Receive notifications about deals and promotions</p>
+              <h4 className="font-medium text-gray-900">Special Offers</h4>
+              <p className="text-sm text-gray-600">Receive notifications about deals and promotions</p>
             </div>
             <label className="relative inline-flex items-center cursor-pointer">
               <input
@@ -1140,7 +1049,7 @@ const Settings = ({ onClose }) => {
                 className="sr-only peer"
                 disabled={!notifications.pushEnabled}
               />
-              <div className={`w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-orange-300 dark:peer-focus:ring-orange-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-orange-600 ${!notifications.pushEnabled ? 'opacity-50' : ''}`}></div>
+              <div className={`w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-orange-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-600 ${!notifications.pushEnabled ? 'opacity-50' : ''}`}></div>
             </label>
           </div>
         </div>
@@ -1161,37 +1070,28 @@ const Settings = ({ onClose }) => {
   const renderTerms = () => (
     <div className="space-y-6">
       <div className="flex items-center space-x-4">
-        <button
-          onClick={() => setActiveSection('main')}
-          className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-        >
-          <ArrowLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+        <button onClick={() => setActiveSection('main')} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+          <ArrowLeft className="w-5 h-5 text-gray-600" />
         </button>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Terms & Conditions</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Terms & Conditions</h1>
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-        <div className="prose dark:prose-invert max-w-none">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">TasteSphere Terms of Service</h3>
-          <div className="space-y-4 text-gray-700 dark:text-gray-300">
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="prose max-w-none">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">TasteSphere Terms of Service</h3>
+          <div className="space-y-4 text-gray-700">
             <p><strong>Last updated:</strong> January 2025</p>
             
-            <h4 className="font-semibold text-gray-900 dark:text-white">1. Acceptance of Terms</h4>
+            <h4 className="font-semibold text-gray-900">1. Acceptance of Terms</h4>
             <p>By accessing and using TasteSphere, you accept and agree to be bound by the terms and provision of this agreement.</p>
             
-            <h4 className="font-semibold text-gray-900 dark:text-white">2. Use License</h4>
+            <h4 className="font-semibold text-gray-900">2. Use License</h4>
             <p>Permission is granted to temporarily download one copy of TasteSphere per device for personal, non-commercial transitory viewing only.</p>
             
-            <h4 className="font-semibold text-gray-900 dark:text-white">3. Disclaimer</h4>
-            <p>The materials on TasteSphere are provided on an 'as is' basis. TasteSphere makes no warranties, expressed or implied, and hereby disclaims and negates all other warranties including without limitation, implied warranties or conditions of merchantability, fitness for a particular purpose, or non-infringement of intellectual property or other violation of rights.</p>
+            <h4 className="font-semibold text-gray-900">3. Disclaimer</h4>
+            <p>The materials on TasteSphere are provided on an 'as is' basis. TasteSphere makes no warranties, expressed or implied.</p>
             
-            <h4 className="font-semibold text-gray-900 dark:text-white">4. Limitations</h4>
-            <p>In no event shall TasteSphere or its suppliers be liable for any damages (including, without limitation, damages for loss of data or profit, or due to business interruption) arising out of the use or inability to use TasteSphere, even if TasteSphere or a TasteSphere authorized representative has been notified orally or in writing of the possibility of such damage.</p>
-            
-            <h4 className="font-semibold text-gray-900 dark:text-white">5. Privacy Policy</h4>
-            <p>Your privacy is important to us. Our Privacy Policy explains how we collect, use, and protect your information when you use our service.</p>
-            
-            <h4 className="font-semibold text-gray-900 dark:text-white">6. Contact Information</h4>
+            <h4 className="font-semibold text-gray-900">4. Contact Information</h4>
             <p>If you have any questions about these Terms & Conditions, please contact us at legal@tastesphere.com</p>
           </div>
         </div>
@@ -1226,11 +1126,9 @@ const Settings = ({ onClose }) => {
   };
 
   return (
-    <div className={isDarkMode ? 'dark' : ''}>
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-200">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          {renderContent()}
-        </div>
+    <div className="min-h-screen bg-gray-50">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {renderContent()}
       </div>
     </div>
   );

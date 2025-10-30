@@ -75,7 +75,7 @@ const supportTicketSchema = new mongoose.Schema({
     }]
   }],
   assignedTo: {
-    type: String, // Support agent ID
+    type: String,
     default: null
   },
   resolvedAt: Date,
@@ -91,18 +91,36 @@ const supportTicketSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Auto-generate ticket ID
+// ✅ FIXED: Pre-save hook to auto-generate ticket ID
 supportTicketSchema.pre('save', async function(next) {
+  // Only generate ticketId if it doesn't exist (for new documents)
   if (!this.ticketId) {
-    const count = await mongoose.model('SupportTicket').countDocuments();
-    this.ticketId = `TKT${Date.now()}${(count + 1).toString().padStart(4, '0')}`;
+    try {
+      // Generate unique ticket ID
+      const timestamp = Date.now();
+      const randomNum = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+      
+      // Format: TKT-TIMESTAMP-RANDOM (e.g., TKT-1730000000000-123)
+      this.ticketId = `TKT${timestamp}${randomNum}`;
+      
+      console.log('✅ Generated ticket ID:', this.ticketId);
+    } catch (error) {
+      console.error('❌ Error generating ticket ID:', error);
+      return next(error);
+    }
   }
   next();
 });
 
-// Indexes
+// Indexes for better performance
 supportTicketSchema.index({ seller: 1, status: 1 });
 supportTicketSchema.index({ ticketId: 1 });
 supportTicketSchema.index({ createdAt: -1 });
+supportTicketSchema.index({ category: 1 });
+supportTicketSchema.index({ priority: 1 });
+
+// Create compound index for efficient queries
+supportTicketSchema.index({ seller: 1, createdAt: -1 });
+supportTicketSchema.index({ status: 1, createdAt: -1 });
 
 export default mongoose.model('SupportTicket', supportTicketSchema);

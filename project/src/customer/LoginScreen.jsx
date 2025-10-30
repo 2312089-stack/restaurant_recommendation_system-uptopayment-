@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext'; // ✅ IMPORT useAuth
 
 const LoginScreen = ({ onLoginComplete, onForgotPassword, onCreateAccount }) => {
   const [username, setUsername] = useState('');
@@ -8,9 +9,11 @@ const LoginScreen = ({ onLoginComplete, onForgotPassword, onCreateAccount }) => 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  const { login } = useAuth(); // ✅ GET login function from AuthContext
+
   const API_BASE_URL = "http://localhost:5000/api";
 
-  // ✅ NEW: Check for Google OAuth errors in URL when component mounts
+  // ✅ Check for Google OAuth errors in URL when component mounts
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const errorParam = urlParams.get('error');
@@ -64,13 +67,18 @@ const LoginScreen = ({ onLoginComplete, onForgotPassword, onCreateAccount }) => 
       const data = await res.json();
 
       if (data.success && data.token) {
-        localStorage.setItem('token', data.token);
-        localStorage.setItem('user', JSON.stringify(data.user));
+        console.log('🔥 LOGIN SUCCESS - Updating AuthContext');
         
+        // ✅ CRITICAL: Update AuthContext state (this sets isAuthenticated = true)
+        login(data.token, data.user);
+        
+        // Clear form
         setUsername('');
         setPassword('');
         setError('');
         
+        console.log('🔥 Calling onLoginComplete to navigate to home');
+        // ✅ Navigate to home
         onLoginComplete();
       } else {
         if (data.hint === 'account_not_found') {

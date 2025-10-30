@@ -56,7 +56,6 @@ export const getFAQs = async (req, res) => {
     });
   }
 };
-
 // Create support ticket
 export const createTicket = async (req, res) => {
   try {
@@ -70,8 +69,16 @@ export const createTicket = async (req, res) => {
       });
     }
 
+    // ✅ GENERATE TICKET ID MANUALLY
+    const timestamp = Date.now();
+    const randomNum = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+    const ticketId = `TKT${timestamp}${randomNum}`;
+
+    console.log('🎫 Creating ticket with ID:', ticketId);
+
     const ticket = new SupportTicket({
       seller: sellerId,
+      ticketId, // ✅ Set ticketId explicitly
       category,
       subject: subject.trim(),
       description: description.trim(),
@@ -84,6 +91,8 @@ export const createTicket = async (req, res) => {
     });
 
     await ticket.save();
+
+    console.log('✅ Ticket created successfully:', ticket.ticketId);
 
     // Send confirmation email
     try {
@@ -118,6 +127,15 @@ export const createTicket = async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Create ticket error:', error);
+    
+    // Handle duplicate ticketId (very rare but possible)
+    if (error.code === 11000) {
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to create unique ticket ID. Please try again.'
+      });
+    }
+    
     res.status(500).json({
       success: false,
       error: 'Failed to create support ticket'

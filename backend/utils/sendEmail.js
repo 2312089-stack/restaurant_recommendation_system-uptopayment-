@@ -1,79 +1,69 @@
-// backend/utils/sendEmail.js - Complete Email Utility
 import nodemailer from 'nodemailer';
 
-const sendEmail = async ({ to, subject, text, html }) => {
+/**
+ * Send email utility function
+ * @param {Object} options - Email options
+ * @param {string} options.to - Recipient email address
+ * @param {string} options.subject - Email subject
+ * @param {string} options.html - Email HTML content
+ * @param {string} options.text - Email plain text content (optional)
+ * @returns {Promise<Object>} - { success: boolean, error?: string }
+ */
+const sendEmail = async ({ to, subject, html, text }) => {
+  // ✅ FIXED: Check correct environment variables
+  if (!process.env.EMAIL_FROM || !process.env.EMAIL_PASSWORD) {
+    console.error('❌ Email service not configured');
+    console.error('   EMAIL_FROM:', process.env.EMAIL_FROM ? 'Set ✅' : 'Missing ❌');
+    console.error('   EMAIL_PASSWORD:', process.env.EMAIL_PASSWORD ? 'Set ✅' : 'Missing ❌');
+    return { 
+      success: false, 
+      error: 'Email service not configured. Please contact administrator.' 
+    };
+  }
+
   try {
-    // Validate environment variables
-    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-      console.error('❌ EMAIL_USER or EMAIL_PASS not configured in .env');
-      throw new Error('Email configuration missing');
-    }
-
-    console.log('📧 Preparing to send email to:', to);
-    console.log('📧 Subject:', subject);
-
-    // Create transporter with Gmail
-    const transporter = nodemailer.createTransporter({
-      service: 'gmail',
+    // ✅ FIXED: Create transporter with correct env vars
+    const transporter = nodemailer.createTransport({
+      service: process.env.EMAIL_SERVICE || 'gmail',
       auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
-      },
-      // Enable debugging in development
-      logger: process.env.NODE_ENV === 'development',
-      debug: process.env.NODE_ENV === 'development'
+        user: process.env.EMAIL_FROM,      // Changed from EMAIL_USER
+        pass: process.env.EMAIL_PASSWORD   // Changed from EMAIL_PASS
+      }
     });
 
     // Verify transporter connection
-    try {
-      await transporter.verify();
-      console.log('✅ Email transporter verified successfully');
-    } catch (verifyError) {
-      console.error('❌ Email transporter verification failed:', verifyError.message);
-      throw verifyError;
-    }
-
-    // Email options
-    const mailOptions = {
-      from: `"TasteSphere" <${process.env.EMAIL_USER}>`,
-      to,
-      subject,
-      text: text || 'Please enable HTML to view this email',
-      html: html || text
-    };
+    await transporter.verify();
+    console.log('✅ Email transporter verified');
 
     // Send email
-    const info = await transporter.sendMail(mailOptions);
-    
-    console.log('✅ Email sent successfully');
-    console.log('📧 Message ID:', info.messageId);
-    console.log('📧 Response:', info.response);
+    const info = await transporter.sendMail({
+      from: `"TasteSphere" <${process.env.EMAIL_FROM}>`,
+      to,
+      subject,
+      text: text || '',
+      html
+    });
 
-    return {
-      success: true,
-      messageId: info.messageId
+    console.log('✅ Email sent successfully:', info.messageId);
+    console.log('   To:', to);
+    console.log('   Subject:', subject);
+
+    return { 
+      success: true, 
+      messageId: info.messageId 
     };
 
   } catch (error) {
     console.error('❌ Email sending failed:', error.message);
+    console.error('   Error code:', error.code);
     
-    // Detailed error logging for debugging
     if (error.code === 'EAUTH') {
-      console.error('❌ Gmail authentication failed. Please check:');
-      console.error('   1. EMAIL_USER is your Gmail address');
-      console.error('   2. EMAIL_PASS is an App Password (NOT your regular password)');
-      console.error('   3. 2-Step Verification is enabled in your Gmail account');
-      console.error('   4. Generate App Password at: https://myaccount.google.com/apppasswords');
-    } else if (error.code === 'ECONNECTION' || error.code === 'ETIMEDOUT') {
-      console.error('❌ Connection failed. Check your internet connection.');
-    } else if (error.code === 'EENVELOPE') {
-      console.error('❌ Invalid email address:', to);
+      console.error('   💡 Fix: Check your Gmail App Password at https://myaccount.google.com/apppasswords');
     }
-    
-    // Return error instead of throwing to prevent order failure
-    return {
-      success: false,
-      error: error.message
+
+    return { 
+      success: false, 
+      error: error.message || 'Failed to send email' 
     };
   }
 };

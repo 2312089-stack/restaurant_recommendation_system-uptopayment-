@@ -4,12 +4,18 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import sendEmail from '../utils/sendEmail.js';
 
-// Get seller settings
 export const getSettings = async (req, res) => {
   try {
-    const sellerId = req.seller.id;
+    const sellerId = req.seller?.id || req.seller?.sellerId;
     
-    const seller = await Seller.findById(sellerId).select('-passwordHash');
+    if (!sellerId) {
+      return res.status(401).json({
+        success: false,
+        error: 'Seller not authenticated'
+      });
+    }
+
+    const seller = await Seller.findById(sellerId);
     
     if (!seller) {
       return res.status(404).json({
@@ -18,10 +24,11 @@ export const getSettings = async (req, res) => {
       });
     }
 
+    // ✅ RETURN BANK DETAILS
     res.json({
       success: true,
       settings: {
-        notifications: seller.settings?.notifications || {
+        notifications: seller.notificationSettings || {
           email: true,
           sms: true,
           push: true,
@@ -29,18 +36,27 @@ export const getSettings = async (req, res) => {
           paymentAlerts: true,
           reviewAlerts: true
         },
-        orderAcceptance: seller.settings?.orderAcceptance || {
+        orderAcceptance: seller.orderAcceptance || {
           auto: false,
           manualTimeout: 15
         },
-        businessHours: seller.businessDetails?.openingHours || {}
+        businessHours: seller.businessDetails?.openingHours || {},
+        // ✅ ADD BANK DETAILS HERE
+        bankDetails: seller.bankDetails || {
+          bankName: '',
+          accountNumber: '',
+          ifscCode: '',
+          accountHolderName: '',
+          branchName: ''
+        }
       }
     });
+
   } catch (error) {
-    console.error('❌ Get settings error:', error);
+    console.error('Get settings error:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch settings'
+      error: 'Failed to get settings'
     });
   }
 };
@@ -160,13 +176,31 @@ export const changePassword = async (req, res) => {
   }
 };
 
-// Update bank details
 export const updateBankDetails = async (req, res) => {
   try {
-    const sellerId = req.seller.id;
+    const sellerId = req.seller?.id || req.seller?.sellerId;
     const { bankName, accountNumber, ifscCode, accountHolderName, branchName } = req.body;
 
+    console.log('📝 Updating bank details for seller:', sellerId);
+    console.log('📝 Bank data:', { bankName, accountNumber, ifscCode, accountHolderName, branchName });
+
+    if (!sellerId) {
+      return res.status(401).json({
+        success: false,
+        error: 'Seller not authenticated'
+      });
+    }
+
+    // Validation
+    if (!bankName || !accountNumber || !ifscCode || !accountHolderName) {
+      return res.status(400).json({
+        success: false,
+        error: 'All required fields must be provided'
+      });
+    }
+
     const seller = await Seller.findById(sellerId);
+    
     if (!seller) {
       return res.status(404).json({
         success: false,
@@ -174,22 +208,27 @@ export const updateBankDetails = async (req, res) => {
       });
     }
 
+    // ✅ UPDATE BANK DETAILS
     seller.bankDetails = {
       bankName,
       accountNumber,
-      ifscCode,
+      ifscCode: ifscCode.toUpperCase(),
       accountHolderName,
-      branchName,
-      verifiedAt: null // Requires admin verification
+      branchName: branchName || '',
+      verifiedAt: null, // Reset verification when updated
+      verificationNotes: 'Updated by seller - pending verification'
     };
 
     await seller.save();
+
+    console.log('✅ Bank details updated successfully for seller:', sellerId);
 
     res.json({
       success: true,
       message: 'Bank details updated successfully. Verification pending.',
       bankDetails: seller.bankDetails
     });
+
   } catch (error) {
     console.error('❌ Update bank details error:', error);
     res.status(500).json({

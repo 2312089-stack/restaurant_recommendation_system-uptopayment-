@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Store, ShoppingBag, DollarSign, Activity, TrendingUp, AlertCircle, Clock, Package, ArrowUp, ArrowDown, RefreshCw } from 'lucide-react';
+import { Users, Store, ShoppingBag, DollarSign, Activity, TrendingUp, AlertCircle, Clock, Package, ArrowUp, ArrowDown, RefreshCw, CreditCard, MessageCircle } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import AdminBankManagement from './AdminBankManagement';
+import AdminSupportView from './AdminSupportView';
 
 const API_BASE_URL = 'http://localhost:5000/api';
 
@@ -379,6 +381,14 @@ const AdminDashboard = () => {
           <NavButton icon={<Users className="w-5 h-5 mr-3" />} label="Users" active={activeTab === 'users'} onClick={() => setActiveTab('users')} />
           <NavButton icon={<Store className="w-5 h-5 mr-3" />} label="Restaurants" active={activeTab === 'restaurants'} onClick={() => setActiveTab('restaurants')} />
           <NavButton icon={<ShoppingBag className="w-5 h-5 mr-3" />} label="Orders" active={activeTab === 'orders'} onClick={() => setActiveTab('orders')} />
+          <NavButton icon={<CreditCard className="w-5 h-5 mr-3" />} label="Bank Details" active={activeTab === 'bank-details'} onClick={() => setActiveTab('bank-details')} />
+          <NavButton 
+  icon={<MessageCircle className="w-5 h-5 mr-3" />} 
+  label="Support Tickets" 
+  active={activeTab === 'support'} 
+  onClick={() => setActiveTab('support')} 
+/>
+
         </nav>
 
         <div className="absolute bottom-0 left-0 right-0 p-6 border-t border-gray-800">
@@ -392,13 +402,14 @@ const AdminDashboard = () => {
         <div className="flex justify-between items-center mb-8">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">
-              {activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}
+              {activeTab.charAt(0).toUpperCase() + activeTab.slice(1).replace('-', ' ')}
             </h1>
             <p className="text-gray-500 mt-1">
               {activeTab === 'dashboard' && 'Overview of platform statistics'}
               {activeTab === 'users' && 'Manage registered users'}
               {activeTab === 'restaurants' && 'Manage restaurant partners'}
               {activeTab === 'orders' && 'Monitor all orders'}
+              {activeTab === 'bank-details' && 'Verify seller bank details'}
             </p>
           </div>
           <div className="flex items-center space-x-4">
@@ -438,6 +449,12 @@ const AdminDashboard = () => {
           <DashboardView revenue={revenue} userAnalytics={userAnalytics} orderAnalytics={orderAnalytics} restaurantAnalytics={restaurantAnalytics} systemStats={systemStats} />
         )}
 
+        {activeTab === 'bank-details' && (
+          <AdminBankManagement />
+        )}
+{activeTab === 'support' && (
+  <AdminSupportView authToken={authToken} />
+)}
         {activeTab === 'users' && (
           <UsersView users={users} loading={loading} onBlockUser={handleBlockUser} onUnblockUser={handleUnblockUser} />
         )}

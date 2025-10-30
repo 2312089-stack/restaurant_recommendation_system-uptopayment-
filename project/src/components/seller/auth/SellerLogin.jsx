@@ -1,8 +1,10 @@
 // components/seller/auth/SellerLogin.jsx - FIXED VERSION
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, ChefHat, Store } from 'lucide-react';
 
-const SellerLogin = ({ 
+const SellerLogin = ({
+ 
   onLoginComplete = () => {
     // Default behavior - redirect or handle login completion
     console.log('✅ Login successful, redirecting...');

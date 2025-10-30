@@ -54,32 +54,16 @@ const ResetPasswordFromSettings = () => {
 
     verifyToken();
   }, [token]);
-
-  const validatePassword = (password) => {
-    const errors = [];
-    
-    if (password.length < 8) {
-      errors.push('Password must be at least 8 characters long');
-    }
-    
-    if (!/(?=.*[a-z])/.test(password)) {
-      errors.push('Password must contain at least one lowercase letter');
-    }
-    
-    if (!/(?=.*[A-Z])/.test(password)) {
-      errors.push('Password must contain at least one uppercase letter');
-    }
-    
-    if (!/(?=.*\d)/.test(password)) {
-      errors.push('Password must contain at least one number');
-    }
-    
-    if (!/(?=.*[@$!%*?&])/.test(password)) {
-      errors.push('Password must contain at least one special character (@$!%*?&)');
-    }
-    
-    return errors;
-  };
+const validatePassword = (password) => {
+  const errors = [];
+  
+  if (password.length < 6) {  // ✅ Changed from 8 to 6
+    errors.push('Password must be at least 6 characters long');
+  }
+  
+  // ✅ Remove complexity requirements or make them optional
+  return errors;
+};
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -316,35 +300,20 @@ const ResetPasswordFromSettings = () => {
           {/* Password requirements */}
           <div className="bg-gray-50 rounded-lg p-4">
             <h4 className="text-sm font-medium text-gray-700 mb-2">Password Requirements:</h4>
-            <ul className="text-xs text-gray-600 space-y-1">
-              <li className="flex items-center">
-                <span className={password.length >= 8 ? 'text-green-600' : 'text-gray-400'}>•</span>
-                <span className="ml-2">At least 8 characters long</span>
-              </li>
-              <li className="flex items-center">
-                <span className={/(?=.*[a-z])/.test(password) ? 'text-green-600' : 'text-gray-400'}>•</span>
-                <span className="ml-2">One lowercase letter</span>
-              </li>
-              <li className="flex items-center">
-                <span className={/(?=.*[A-Z])/.test(password) ? 'text-green-600' : 'text-gray-400'}>•</span>
-                <span className="ml-2">One uppercase letter</span>
-              </li>
-              <li className="flex items-center">
-                <span className={/(?=.*\d)/.test(password) ? 'text-green-600' : 'text-gray-400'}>•</span>
-                <span className="ml-2">One number</span>
-              </li>
-              <li className="flex items-center">
-                <span className={/(?=.*[@$!%*?&])/.test(password) ? 'text-green-600' : 'text-gray-400'}>•</span>
-                <span className="ml-2">One special character (@$!%*?&)</span>
-              </li>
-            </ul>
+              <ul className="text-xs text-gray-600 space-y-1">
+  <li className="flex items-center">
+    <span className={password.length >= 6 ? 'text-green-600' : 'text-gray-400'}>•</span>
+    <span className="ml-2">At least 6 characters long</span>
+  </li>
+  {/* Remove other requirements or mark as optional */}
+</ul>
           </div>
-
-          <button
-            type="submit"
-            disabled={isLoading || password !== confirmPassword || passwordStrength.strength < 3}
-            className="w-full px-4 py-3 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center font-medium"
-          >
+<button
+  type="submit"
+  disabled={isLoading || password !== confirmPassword || password.length < 6}  // ✅ Simple check
+  className="w-full px-4 py-3 bg-orange-500 text-white rounded-lg..."
+>
+          
             {isLoading ? (
               <>
                 <Loader className="w-4 h-4 animate-spin mr-2" />

@@ -62,8 +62,7 @@ const SellerSettings = ({ onBack }) => {
       return () => clearTimeout(timer);
     }
   }, [success, error]);
-
-  const loadSettings = async () => {
+const loadSettings = async () => {
     try {
       setLoading(true);
       const token = getAuthToken();
@@ -79,6 +78,17 @@ const SellerSettings = ({ onBack }) => {
       
       if (response.ok) {
         setSettings(data.settings);
+        
+        // ✅ POPULATE BANK DETAILS FORM
+        if (data.settings.bankDetails) {
+          setBankForm({
+            bankName: data.settings.bankDetails.bankName || '',
+            accountNumber: data.settings.bankDetails.accountNumber || '',
+            ifscCode: data.settings.bankDetails.ifscCode || '',
+            accountHolderName: data.settings.bankDetails.accountHolderName || '',
+            branchName: data.settings.bankDetails.branchName || ''
+          });
+        }
       } else {
         setError(data.error || 'Failed to load settings');
       }
@@ -89,6 +99,7 @@ const SellerSettings = ({ onBack }) => {
       setLoading(false);
     }
   };
+ 
 
   const updateNotificationSettings = async () => {
     try {

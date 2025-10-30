@@ -18,7 +18,8 @@ const SellerSupport = ({ onBack }) => {
   const [faqs, setFaqs] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedFAQ, setExpandedFAQ] = useState(null);
-
+const [selectedTicket, setSelectedTicket] = useState(null);
+const [ticketResponse, setTicketResponse] = useState('');
   // Ticket state
   const [tickets, setTickets] = useState([]);
   const [showCreateTicket, setShowCreateTicket] = useState(false);
@@ -48,6 +49,63 @@ const SellerSupport = ({ onBack }) => {
       return () => clearTimeout(timer);
     }
   }, [success, error]);
+const viewTicketDetails = async (ticket) => {
+  try {
+    const token = getAuthToken();
+    const response = await fetch(`${API_BASE}/seller/support/tickets/${ticket.ticketId}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    const data = await response.json();
+    
+    if (response.ok) {
+      setSelectedTicket(data.ticket);
+    } else {
+      setError(data.error || 'Failed to load ticket details');
+    }
+  } catch (err) {
+    console.error('Load ticket details error:', err);
+    setError('Failed to load ticket details');
+  }
+};
+const sendTicketResponse = async (e) => {
+  e.preventDefault();
+  
+  if (!ticketResponse.trim() || !selectedTicket) return;
+
+  try {
+    setLoading(true);
+    const token = getAuthToken();
+
+    const response = await fetch(`${API_BASE}/seller/support/tickets/${selectedTicket.ticketId}/response`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ message: ticketResponse })
+    });
+
+    const data = await response.json();
+    
+    if (response.ok) {
+      setSuccess('Response sent successfully');
+      setTicketResponse('');
+      viewTicketDetails(selectedTicket);
+      loadTickets();
+    } else {
+      setError(data.error || 'Failed to send response');
+    }
+  } catch (err) {
+    console.error('Send response error:', err);
+    setError('Failed to send response');
+  } finally {
+    setLoading(false);
+  }
+};
 
   const loadFAQs = async () => {
     try {
@@ -334,9 +392,10 @@ const SellerSupport = ({ onBack }) => {
         <div className="space-y-4">
           {tickets.map((ticket) => (
             <div
-              key={ticket._id}
-              className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
-            >
+  key={ticket._id}
+  onClick={() => viewTicketDetails(ticket)}
+  className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer"
+>
               <div className="flex items-start justify-between mb-3">
                 <div className="flex-1">
                   <div className="flex items-center space-x-2 mb-2">

@@ -340,13 +340,14 @@ const HomeWrapper = () => {
 // ✅ Settings Wrapper with back navigation
 const SettingsWrapper = () => {
   const navigate = useNavigate();
+  const { authToken, user } = useAuth();
   
   const handleClose = () => {
     console.log("Closing settings, going back to home");
     navigate('/home');
   };
   
-  return <Settings onClose={handleClose} />;
+  return <Settings authToken={authToken} user={user} onClose={handleClose} />;
 };
 
 // ✅ Discovery Wrapper with navigation
@@ -452,6 +453,68 @@ const OrderHistoryWrapper = () => {
       onNavigateBack={handleBack}
     />
   );
+};
+
+// ✅ SELLER LOGIN WRAPPER
+const SellerLoginWrapper = () => {
+  const navigate = useNavigate();
+  
+  const handleLoginComplete = () => {
+    console.log("✅ Seller login successful, navigating to dashboard");
+    navigate('/seller/dashboard', { replace: true });
+  };
+  
+  const handleForgotPassword = () => {
+    console.log("Navigating to seller forgot password");
+    navigate('/seller/forgot-password');
+  };
+  
+  const handleCreateAccount = () => {
+    console.log("Navigating to seller signup");
+    navigate('/seller/signup');
+  };
+  
+  return (
+    <SellerLogin
+      onLoginComplete={handleLoginComplete}
+      onForgotPassword={handleForgotPassword}
+      onCreateAccount={handleCreateAccount}
+    />
+  );
+};
+
+// ✅ SELLER SIGNUP WRAPPER
+const SellerSignupWrapper = () => {
+  const navigate = useNavigate();
+  
+  const handleBackToLogin = () => {
+    console.log("Going back to seller login");
+    navigate('/seller/login');
+  };
+  
+  const handleSignupComplete = () => {
+    console.log("Seller signup complete, navigating to dashboard");
+    navigate('/seller/dashboard', { replace: true });
+  };
+  
+  return (
+    <SellerSignup
+      onBackToLogin={handleBackToLogin}
+      onSignupComplete={handleSignupComplete}
+    />
+  );
+};
+
+// ✅ SELLER FORGOT PASSWORD WRAPPER
+const SellerForgotPasswordWrapper = () => {
+  const navigate = useNavigate();
+  
+  const handleBackToLogin = () => {
+    console.log("Going back to seller login");
+    navigate('/seller/login');
+  };
+  
+  return <SellerForgotPassword onBackToLogin={handleBackToLogin} />;
 };
 
 // ✅ Root Redirect Component
@@ -674,10 +737,10 @@ function App() {
                             } 
                           />
                           
-                          {/* ✅ SELLER ROUTES */}
-                          <Route path="/seller/login" element={<SellerLogin />} />
-                          <Route path="/seller/signup" element={<SellerSignup />} />
-                          <Route path="/seller/forgot-password" element={<SellerForgotPassword />} />
+                          {/* ✅ SELLER ROUTES - WITH CLICKABLE NAVIGATION WRAPPERS */}
+                          <Route path="/seller/login" element={<SellerLoginWrapper />} />
+                          <Route path="/seller/signup" element={<SellerSignupWrapper />} />
+                          <Route path="/seller/forgot-password" element={<SellerForgotPasswordWrapper />} />
                           <Route path="/seller/reset-password/:token" element={<SellerResetPassword />} />
                           
                           <Route 

@@ -1,13 +1,25 @@
-// routes/auth.js - FIXED VERSION (Remove duplicates)
+// routes/auth.js - COMPLETE FIXED VERSION
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import passport from '../config/passport.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
-import { getProfile } from '../controllers/authController.js';
+import { 
+  getProfile,
+  forgotPassword,
+  resetPassword,
+  verifyResetToken,
+  logout,
+  updateProfile,
+  changePassword
+} from '../controllers/authController.js';
 
 const router = express.Router();
+
+// ============================================================
+// PASSPORT & GOOGLE OAUTH ROUTES
+// ============================================================
 
 // ✅ Passport Status Check (for debugging)
 router.get('/passport-status', (req, res) => {
@@ -23,7 +35,7 @@ router.get('/passport-status', (req, res) => {
   });
 });
 
-// ✅ Google OAuth - Initiate (with state to differentiate signup vs login)
+// ✅ Google OAuth - Initiate
 router.get('/google', (req, res, next) => {
   console.log('\n🚀 Initiating Google OAuth...');
   
@@ -37,9 +49,7 @@ router.get('/google', (req, res, next) => {
     });
   }
   
-  // Check if this is from signup or login
   const isSignup = req.query.signup === 'true';
-  
   console.log('  Context:', isSignup ? 'SIGNUP' : 'LOGIN');
   
   passport.authenticate('google', {
@@ -49,7 +59,7 @@ router.get('/google', (req, res, next) => {
   })(req, res, next);
 });
 
-// ✅ Google OAuth - Callback (SINGLE DEFINITION - FIXED)
+// ✅ Google OAuth - Callback
 router.get('/google/callback',
   (req, res, next) => {
     console.log('\n📞 Google callback received');
@@ -70,14 +80,11 @@ router.get('/google/callback',
   async (req, res) => {
     try {
       console.log('\n✅ Google authentication successful');
-      console.log('User from passport:', req.user ? req.user.emailId : 'NO USER');
-      
       const user = req.user;
 
       if (!user) {
         console.error('❌ No user from Google OAuth');
         
-        // Check if this was a "user not found" case
         if (req.authInfo?.message === 'account_not_found') {
           return res.redirect(
             `${process.env.FRONTEND_URL || 'http://localhost:5173'}/?error=account_not_found&message=Please sign up first`
@@ -89,7 +96,6 @@ router.get('/google/callback',
 
       console.log('✅ Generating JWT for user:', user.emailId);
 
-      // Generate JWT
       const token = jwt.sign(
         {
           id: user._id,
@@ -102,15 +108,9 @@ router.get('/google/callback',
         { expiresIn: '7d' }
       );
 
-      console.log('✅ JWT generated');
-
-      // Update last login
       user.lastLogin = new Date();
       await user.save();
 
-      console.log('✅ Last login updated');
-
-      // Redirect to frontend with token
       const redirectUrl = user.onboardingCompleted
         ? `${process.env.FRONTEND_URL || 'http://localhost:5173'}/auth-success?token=${token}&onboarded=true`
         : `${process.env.FRONTEND_URL || 'http://localhost:5173'}/auth-success?token=${token}&onboarded=false`;
@@ -125,7 +125,11 @@ router.get('/google/callback',
   }
 );
 
-// ✅ Email/Password Login - NO account creation
+// ============================================================
+// EMAIL/PASSWORD AUTHENTICATION
+// ============================================================
+
+// ✅ Login (NO account creation)
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -210,7 +214,7 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// Signin alias (same as login)
+// ✅ Signin alias (same as login)
 router.post('/signin', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -295,7 +299,24 @@ router.post('/signin', async (req, res) => {
   }
 });
 
-// Check if user exists
+// ============================================================
+// PASSWORD RESET ROUTES (NEW - ADDED)
+// ============================================================
+
+// ✅ Forgot Password - Send reset email
+router.post('/forgot-password', forgotPassword);
+
+// ✅ Reset Password - Update password with token
+router.post('/reset-password/:token', resetPassword);
+
+// ✅ Verify Reset Token - Check if token is valid
+router.get('/verify-reset-token/:token', verifyResetToken);
+
+// ============================================================
+// USER MANAGEMENT ROUTES
+// ============================================================
+
+// ✅ Check if user exists
 router.post('/check-user', async (req, res) => {
   try {
     const { email } = req.body;
@@ -339,15 +360,46 @@ router.post('/check-user', async (req, res) => {
   }
 });
 
-// Get profile
+// ============================================================
+// PROTECTED ROUTES (Authentication Required)
+// ============================================================
+
+// ✅ Logout
+router.post('/logout', authenticateToken, logout);
+
+// ✅ Get Profile
 router.get('/profile', authenticateToken, getProfile);
 
-// Health check
+// ✅ Update Profile
+router.put('/profile', authenticateToken, updateProfile);
+
+// ✅ Change Password
+router.post('/change-password', authenticateToken, changePassword);
+
+// ============================================================
+// UTILITY ROUTES
+// ============================================================
+
+// ✅ Health check
 router.get('/test', (req, res) => {
   res.json({
     success: true,
     message: 'Auth routes working',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    availableRoutes: [
+      'POST /login',
+      'POST /signin',
+      'POST /forgot-password',
+      'POST /reset-password/:token',
+      'GET /verify-reset-token/:token',
+      'POST /logout',
+      'GET /profile',
+      'PUT /profile',
+      'POST /change-password',
+      'POST /check-user',
+      'GET /google',
+      'GET /google/callback'
+    ]
   });
 });
 

@@ -1,4 +1,4 @@
-// server.js - FIXED: Load passport AFTER environment variables
+// server.js - FIXED: Remove duplicate import
 // ⚠️ CRITICAL: Load environment variables FIRST
 import dotenv from 'dotenv';
 
@@ -82,6 +82,7 @@ import discoveryRoutes from './routes/discoveryRoutes.js';
 import notificationScheduler from './schedulers/notificationScheduler.js';
 import adminFAQRoutes from './routes/adminFAQRoutes.js';
 import adminAnalyticsRoutes from './routes/adminAnalyticsRoutes.js';
+import adminBankRoutes from './routes/adminBankRoutes.js';
 
 // Import seller routes
 import sellerAuthRoutes from './routes/sellerAuth.js';
@@ -95,10 +96,13 @@ import trendingRoutes from './routes/trendingRoutes.js';
 import viewHistoryRoutes from './routes/viewHistoryRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 import sellerSettingsRoutes from './routes/sellerSettings.js';
-import sellerSupportRoutes from './routes/sellerSupport.js';
+import sellerSupportRoutes from './routes/sellerSupport.js'; // ✅ ONLY IMPORT ONCE
 import offerRoutes from './routes/offerRoutes.js';
 import customerSupportRoutes from './routes/customerSupport.js';
 import adminRoutes from './routes/adminRoutes.js';
+// ❌ REMOVED DUPLICATE: import sellerSupportRoutes from './routes/sellerSupport.js';
+import adminSupportRoutes from './routes/adminSupport.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -111,7 +115,6 @@ const io = initializeSocket(httpServer);
 app.set('io', io);
 
 // Connect to database
-connectDB();
 connectDB().then(() => {
   console.log('✅ Database connected');
   
@@ -126,6 +129,7 @@ process.on('SIGTERM', () => {
   notificationScheduler.stopAllJobs();
   process.exit(0);
 });
+
 // ==================== MIDDLEWARE ====================
 app.use(cors({
   origin: ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:5174'],
@@ -170,46 +174,43 @@ const dishesDir = path.join(uploadsDir, 'dishes');
 });
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-app.use('/api/notifications', notificationRoutes);
 
 // ==================== API ROUTES ====================
+
+// Notifications (must be before other routes)
+app.use('/api/notifications', notificationRoutes);
 
 // Customer Authentication & User Management
 app.use('/api/auth', authRouter);
 app.use('/api/users', userRouter);
 app.use('/api/otp', otpRouter);
 app.use('/api/settings-auth', settingsAuthRoutes);
-app.use('/api/settlement', settlementRoutes);
-app.use('/api/reorder', reorderRoutes);
-app.use('/api/trending', trendingRoutes);
-app.use('/api/view-history', viewHistoryRoutes);
-app.use('/api/discovery', discoveryRoutes);
-// Order history route
-app.use('/api/order-history', orderHistoryRoutes);
-app.use('/api/seller/offers', offerRoutes);
-app.use('/api/support', customerSupportRoutes);
+
 // Customer Features
 app.use('/api/upload', uploadRoutes);
 app.use('/api/addresses', addressRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/wishlist', wishlistRoutes);
 app.use('/api/recommendations', recommendationRoutes);
-app.use('/api/discovery', customerDiscoveryRoutes);
 app.use('/api/dishes', dishRoutes);
 app.use('/api/reviews', reviewRoutes);
-app.use('/api/seller/settings', sellerSettingsRoutes);
-app.use('/api/seller/support', sellerSupportRoutes);
-// Order routes
+
+// Customer Discovery & Search
+app.use('/api/discovery', customerDiscoveryRoutes);
+app.use('/api/trending', trendingRoutes);
+app.use('/api/view-history', viewHistoryRoutes);
+
+// Orders & Payments
 app.use('/api/orders', orderRoutes);
-app.use('/api/admin/faqs', adminFAQRoutes);
-   app.use('/api/admin', adminRoutes);
-
-app.use('/api/admin/analytics', adminAnalyticsRoutes);
-
-// Payment routes
+app.use('/api/order-history', orderHistoryRoutes);
 app.use('/api/payment', paymentRoutes);
+app.use('/api/settlement', settlementRoutes);
+app.use('/api/reorder', reorderRoutes);
 
-// Seller Status routes (both versions for different purposes)
+// Customer Support
+app.use('/api/support', customerSupportRoutes);
+
+// Seller Status
 app.use('/api/seller-status', sellerStatusRoutes);
 app.use('/api/seller-status-v2', sellerStatusRoutesV2);
 
@@ -219,10 +220,20 @@ app.use('/api/seller/otp', sellerOtpRoutes);
 app.use('/api/seller/onboarding', sellerOnboardingRoutes);
 
 // Seller Management
-app.use('/api/seller/menu', sellerMenuRoutes);
 app.use('/api/seller/profile', sellerProfileRoutes);
+app.use('/api/seller/menu', sellerMenuRoutes);
 app.use('/api/seller/orders', sellerOrderRoutes);
 app.use('/api/seller/analytics', analyticsRoutes);
+app.use('/api/seller/settings', sellerSettingsRoutes);
+app.use('/api/seller/offers', offerRoutes);
+app.use('/api/seller/support', sellerSupportRoutes); // ✅ Seller support routes
+
+// Admin Routes
+app.use('/api/admin', adminRoutes);
+app.use('/api/admin/analytics', adminAnalyticsRoutes);
+app.use('/api/admin/bank-details', adminBankRoutes);
+app.use('/api/admin/faqs', adminFAQRoutes);
+app.use('/api/admin/support', adminSupportRoutes); // ✅ Admin support routes
 
 // ==================== ERROR HANDLING ====================
 
@@ -288,6 +299,8 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   console.log('  POST   /api/payment/verify-payment     - Verify payment');
   console.log('  POST   /api/payment/create-cod-order   - Create COD order');
   console.log('  GET    /api/order-history              - Get all orders');
+  console.log('  POST   /api/seller/support/tickets     - Create support ticket');
+  console.log('  GET    /api/admin/support/tickets      - View all tickets (admin)');
   console.log('========================================\n');
 });
 

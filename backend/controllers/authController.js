@@ -1,10 +1,10 @@
-// controllers/authController.js - FIXED EMAIL VERSION
+// controllers/authController.js - COMPLETE FIXED VERSION
 import User from "../models/User.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
-import { getIO } from '../config/socket.js'; // Add this import at top
+import { getIO } from '../config/socket.js';
 
 // REGISTER/SIGNUP FUNCTION
 export const signup = async (req, res) => {
@@ -13,7 +13,6 @@ export const signup = async (req, res) => {
 
     console.log('Registration attempt - Email:', email);
 
-    // Validation
     if (!email || !password) {
       return res.status(400).json({
         success: false,
@@ -30,7 +29,6 @@ export const signup = async (req, res) => {
 
     const cleanEmail = email.trim().toLowerCase();
 
-    // Check if user already exists
     const existingUser = await User.findOne({ emailId: cleanEmail });
     if (existingUser) {
       console.log('User already exists with email:', cleanEmail);
@@ -40,11 +38,9 @@ export const signup = async (req, res) => {
       });
     }
 
-    // Hash password
     const saltRounds = 12;
     const passwordHash = await bcrypt.hash(password, saltRounds);
 
-    // Create new user
     const newUser = new User({
       emailId: cleanEmail,
       passwordHash,
@@ -66,7 +62,6 @@ export const signup = async (req, res) => {
 
     console.log('User created successfully:', newUser.emailId);
 
-    // Generate JWT token
     const token = jwt.sign(
       { id: newUser._id, userId: newUser._id, emailId: newUser.emailId, email: newUser.emailId },
       process.env.JWT_SECRET || "your-secret-key",
@@ -102,7 +97,6 @@ export const signin = async (req, res) => {
 
     console.log('Login attempt - Email:', email);
 
-    // Validation
     if (!email || !password) {
       return res.status(400).json({
         success: false,
@@ -112,7 +106,6 @@ export const signin = async (req, res) => {
 
     const cleanEmail = email.trim().toLowerCase();
 
-    // Find user by email
     const user = await User.findOne({ emailId: cleanEmail });
     if (!user) {
       console.log('User not found with email:', cleanEmail);
@@ -124,7 +117,6 @@ export const signin = async (req, res) => {
 
     console.log('User found:', user.emailId);
 
-    // Check password
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
     console.log('Password validation:', isPasswordValid ? 'Success' : 'Failed');
 
@@ -135,7 +127,6 @@ export const signin = async (req, res) => {
       });
     }
 
-    // Generate JWT token
     const token = jwt.sign(
       { id: user._id, userId: user._id, emailId: user.emailId, email: user.emailId },
       process.env.JWT_SECRET || "tastesphere-super-secret-jwt-key-2024-make-this-very-long-and-random-for-security",
@@ -165,12 +156,16 @@ export const signin = async (req, res) => {
   }
 };
 
-// FIXED FORGOT PASSWORD FUNCTION
+// ✅ COMPLETELY FIXED FORGOT PASSWORD FUNCTION
 export const forgotPassword = async (req, res) => {
+  let transporter = null;
+  
   try {
     const { email } = req.body;
     
-    console.log('Starting forgot password process...');
+    console.log('\n========================================');
+    console.log('📧 FORGOT PASSWORD REQUEST');
+    console.log('========================================');
     console.log('Email received:', email);
     
     if (!email) {
@@ -183,85 +178,80 @@ export const forgotPassword = async (req, res) => {
     const cleanEmail = email.toLowerCase().trim();
     console.log('Clean email:', cleanEmail);
 
-    // Search using emailId field
     const user = await User.findOne({ emailId: cleanEmail });
     
     if (!user) {
-      console.log('User not found in database with emailId:', cleanEmail);
-      
-      // Still return success for security (don't reveal if user exists)
+      console.log('❌ User not found:', cleanEmail);
       return res.json({
         success: true,
         message: "If an account exists with this email, you will receive a reset link shortly."
       });
     }
 
-    console.log('User found for password reset:', user.emailId);
+    console.log('✅ User found:', user.emailId);
 
     // Generate reset token
     const resetToken = crypto.randomBytes(32).toString('hex');
     const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
 
     user.passwordResetToken = hashedToken;
-    user.passwordResetExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+    user.passwordResetExpires = new Date(Date.now() + 15 * 60 * 1000);
     await user.save({ validateBeforeSave: false });
 
-    console.log('Reset token generated and saved to database');
+    console.log('✅ Reset token generated and saved');
 
     const resetURL = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password/${resetToken}`;
-    console.log('Reset URL created:', resetURL);
+    console.log('🔗 Reset URL:', resetURL);
 
-    // FIXED EMAIL CONFIGURATION
-    let transporter;
-    
-    // Check environment variables
-    console.log('Environment check:');
-    console.log('  - EMAIL_FROM:', process.env.EMAIL_FROM ? 'Set' : 'Missing');
-    console.log('  - EMAIL_PASSWORD:', process.env.EMAIL_PASSWORD ? 'Set' : 'Missing');
+    // ✅ EMAIL CONFIGURATION
+    console.log('\n🔧 Email Configuration Check:');
+    console.log('  EMAIL_FROM:', process.env.EMAIL_FROM ? '✓ Set' : '✗ Missing');
+    console.log('  EMAIL_PASSWORD:', process.env.EMAIL_PASSWORD ? '✓ Set' : '✗ Missing');
 
-    // Configure email transporter
-    if (process.env.EMAIL_FROM && process.env.EMAIL_PASSWORD) {
-      // Production Gmail setup
-      console.log('Setting up Gmail transporter...');
-      
-      transporter = nodemailer.createTransporter({
-        service: 'gmail',
-        auth: {
-          user: process.env.EMAIL_FROM,
-          pass: process.env.EMAIL_PASSWORD
-        }
-      });
-      
-      console.log('Gmail transporter created successfully');
-    } else {
-      // Development mode with Ethereal
-      console.log('Missing email configuration. Using Ethereal test service...');
-      console.log('Add these to your .env file for production:');
-      console.log('   EMAIL_FROM=your-gmail@gmail.com');
-      console.log('   EMAIL_PASSWORD=your-16-character-app-password');
-      
-      const testAccount = await nodemailer.createTestAccount();
-      console.log('Test account created:', testAccount.user);
-      
-      transporter = nodemailer.createTransporter({
-        host: 'smtp.ethereal.email',
-        port: 587,
-        secure: false,
-        auth: {
-          user: testAccount.user,
-          pass: testAccount.pass,
-        },
+    if (!process.env.EMAIL_FROM || !process.env.EMAIL_PASSWORD) {
+      console.error('\n❌ Email credentials missing!');
+      return res.status(500).json({
+        success: false,
+        error: "Email service not configured. Please contact support."
       });
     }
 
-    // Verify transporter
-    console.log('Testing email server connection...');
-    await transporter.verify();
-    console.log('Email server connection successful');
+    // ✅ CREATE TRANSPORTER
+    console.log('\n📬 Creating email transporter...');
+    
+    // Use default export (no destructuring)
+    const transporterConfig = {
+      service: 'gmail',
+      host: 'smtp.gmail.com',
+      port: 587,
+      secure: false,
+      auth: {
+        user: process.env.EMAIL_FROM,
+        pass: process.env.EMAIL_PASSWORD
+      },
+      tls: {
+        rejectUnauthorized: false
+      }
+    };
 
-    // Email content
+    console.log('Transporter config:', {
+      service: transporterConfig.service,
+      host: transporterConfig.host,
+      port: transporterConfig.port,
+      user: process.env.EMAIL_FROM
+    });
+
+    transporter = nodemailer.createTransport(transporterConfig);
+    console.log('✅ Transporter created');
+
+    // ✅ VERIFY CONNECTION
+    console.log('\n🔍 Verifying email connection...');
+    await transporter.verify();
+    console.log('✅ Email server connection verified');
+
+    // ✅ EMAIL CONTENT
     const mailOptions = {
-      from: process.env.EMAIL_FROM || 'noreply@tastesphere.com',
+      from: `"TasteSphere" <${process.env.EMAIL_FROM}>`,
       to: user.emailId,
       subject: 'TasteSphere - Password Reset Request',
       html: `
@@ -309,8 +299,7 @@ export const forgotPassword = async (req, res) => {
           </div>
         </div>
       `,
-      text: `
-TasteSphere - Password Reset Request
+      text: `TasteSphere - Password Reset Request
 
 Hello! We received a request to reset your password.
 
@@ -320,31 +309,18 @@ This link will expire in 15 minutes.
 
 If you didn't request this, please ignore this email.
 
-TasteSphere Team
-      `.trim()
+TasteSphere Team`
     };
 
-    console.log('Attempting to send email...');
+    console.log('\n📤 Sending email...');
     console.log('From:', mailOptions.from);
     console.log('To:', mailOptions.to);
 
     const info = await transporter.sendMail(mailOptions);
-    console.log('Email sent successfully!');
-    console.log('Message ID:', info.messageId);
     
-    // For development mode with Ethereal, show preview URL
-    if (!process.env.EMAIL_USER && info.messageId) {
-      const previewURL = nodemailer.getTestMessageUrl(info);
-      console.log('EMAIL PREVIEW URL:', previewURL);
-      console.log('Open this URL to see your test email!');
-      
-      return res.json({
-        success: true,
-        message: "Development mode: Check console for email preview link",
-        previewUrl: previewURL,
-        development: true
-      });
-    }
+    console.log('\n✅ EMAIL SENT SUCCESSFULLY!');
+    console.log('Message ID:', info.messageId);
+    console.log('========================================\n');
     
     res.json({
       success: true,
@@ -352,190 +328,27 @@ TasteSphere Team
     });
 
   } catch (error) {
-    console.error('Forgot password error:', error);
+    console.error('\n❌ FORGOT PASSWORD ERROR:');
+    console.error('Error type:', error.name);
+    console.error('Error message:', error.message);
+    console.error('Full error:', error);
+    console.error('========================================\n');
     
-    // Clean up reset token if email fails
+    // Clean up reset token if it was set
     if (error.user) {
-      error.user.passwordResetToken = undefined;
-      error.user.passwordResetExpires = undefined;
-      await error.user.save({ validateBeforeSave: false });
-    }
-    
-    res.status(500).json({
-      success: false,
-      error: "Failed to send reset email. Please try again later."
-    });
-  }
-};
-// controllers/authController.js - ADD THIS FUNCTION (keep existing functions)
-
-export const updateSellerProfile = async (req, res) => {
-  try {
-    const sellerId = req.user?.sellerId || req.user?.id;
-    
-    if (!sellerId) {
-      return res.status(401).json({
-        success: false,
-        error: "Seller not authenticated"
-      });
-    }
-
-    // Get form data
-    const {
-      businessName, businessType, ownerName, phone, description,
-      cuisine, priceRange, seatingCapacity, servicesOffered,
-      street, city, state, zipCode, latitude, longitude, openingHours
-    } = req.body;
-
-    // Find seller
-    const seller = await Seller.findById(sellerId);
-    if (!seller) {
-      return res.status(404).json({
-        success: false,
-        error: "Seller not found"
-      });
-    }
-
-    // Update basic info
-    if (businessName) seller.businessName = businessName;
-    if (businessType) seller.businessType = businessType;
-    if (phone) seller.phone = phone;
-
-    // Update business details
-    if (!seller.businessDetails) seller.businessDetails = {};
-    
-    if (ownerName) seller.businessDetails.ownerName = ownerName;
-    if (description) seller.businessDetails.description = description;
-    if (priceRange) seller.businessDetails.priceRange = priceRange;
-    if (seatingCapacity) seller.businessDetails.seatingCapacity = seatingCapacity;
-    
-    if (cuisine) {
-      seller.businessDetails.cuisine = Array.isArray(cuisine) ? cuisine : [cuisine];
-    }
-    
-    if (servicesOffered) {
-      seller.businessDetails.servicesOffered = Array.isArray(servicesOffered) 
-        ? servicesOffered 
-        : [servicesOffered];
-    }
-    
-    if (openingHours) {
       try {
-        seller.businessDetails.openingHours = typeof openingHours === 'string' 
-          ? JSON.parse(openingHours) 
-          : openingHours;
-      } catch (e) {
-        console.error('Failed to parse opening hours:', e);
+        error.user.passwordResetToken = undefined;
+        error.user.passwordResetExpires = undefined;
+        await error.user.save({ validateBeforeSave: false });
+      } catch (cleanupError) {
+        console.error('Failed to cleanup token:', cleanupError);
       }
     }
-
-    // Update address
-    if (!seller.address) seller.address = {};
     
-    if (street) seller.address.street = street;
-    if (city) seller.address.city = city;
-    if (state) seller.address.state = state;
-    if (zipCode) seller.address.zipCode = zipCode;
-    
-    if (latitude && longitude) {
-      if (!seller.address.coordinates) seller.address.coordinates = {};
-      seller.address.coordinates.latitude = parseFloat(latitude);
-      seller.address.coordinates.longitude = parseFloat(longitude);
-    }
-
-    // Handle file uploads (logo and banner)
-    if (req.files) {
-      if (!seller.businessDetails.documents) {
-        seller.businessDetails.documents = {};
-      }
-      
-      if (req.files.logo) {
-        seller.businessDetails.documents.logo = req.files.logo[0].path;
-      }
-      
-      if (req.files.bannerImage) {
-        seller.businessDetails.documents.bannerImage = req.files.bannerImage[0].path;
-      }
-    }
-
-    // Check if profile is now complete
-    const wasIncomplete = !seller.onboardingCompleted;
-    const isNowComplete = seller.businessName && 
-                          seller.phone && 
-                          seller.address?.city &&
-                          seller.businessDetails?.description &&
-                          seller.businessDetails?.cuisine?.length > 0;
-
-    if (isNowComplete) {
-      seller.onboardingCompleted = true;
-      seller.isVerified = true; // Auto-verify for now
-    }
-
-    await seller.save();
-
-    console.log('✅ Seller profile updated:', sellerId);
-
-    // ✅ EMIT REAL-TIME UPDATE TO ALL DISCOVERY PAGE USERS
-    try {
-      const io = getIO();
-      
-      // Prepare seller data for broadcast
-      const sellerUpdate = {
-        sellerId: seller._id.toString(),
-        businessName: seller.businessName,
-        businessType: seller.businessType,
-        logo: seller.businessDetails?.documents?.logo,
-        bannerImage: seller.businessDetails?.documents?.bannerImage,
-        address: {
-          city: seller.address?.city,
-          state: seller.address?.state,
-          street: seller.address?.street,
-          zipCode: seller.address?.zipCode
-        },
-        cuisine: seller.businessDetails?.cuisine || [],
-        priceRange: seller.businessDetails?.priceRange,
-        rating: seller.metrics?.averageRating?.toFixed(1) || '0.0',
-        isNewProfile: wasIncomplete && isNowComplete, // Flag for new profiles
-        timestamp: new Date()
-      };
-
-      // Broadcast to all connected users
-      io.emit('seller-profile-updated', sellerUpdate);
-      
-      console.log('📡 Broadcasted seller profile update to all users');
-      
-      // If it's a new profile completion, send special notification
-      if (wasIncomplete && isNowComplete) {
-        io.emit('new-restaurant-available', {
-          restaurant: sellerUpdate,
-          message: `New restaurant "${seller.businessName}" is now available!`
-        });
-        console.log('🎉 Broadcasted new restaurant notification');
-      }
-      
-    } catch (socketError) {
-      console.error('❌ Socket emission failed:', socketError);
-      // Don't fail the request if socket fails
-    }
-
-    res.json({
-      success: true,
-      message: "Profile updated successfully",
-      seller: {
-        id: seller._id,
-        businessName: seller.businessName,
-        businessType: seller.businessType,
-        onboardingCompleted: seller.onboardingCompleted,
-        isVerified: seller.isVerified,
-        email: seller.email
-      }
-    });
-
-  } catch (error) {
-    console.error('❌ Update seller profile error:', error);
     res.status(500).json({
       success: false,
-      error: "Failed to update profile"
+      error: "Failed to send reset email. Please try again later.",
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -555,7 +368,6 @@ export const resetPassword = async (req, res) => {
       });
     }
 
-    // Validate password length
     if (password.length < 6) {
       return res.status(400).json({
         success: false,
@@ -563,7 +375,6 @@ export const resetPassword = async (req, res) => {
       });
     }
 
-    // Check password confirmation if provided
     if (confirmPassword && password !== confirmPassword) {
       return res.status(400).json({
         success: false,
@@ -571,7 +382,6 @@ export const resetPassword = async (req, res) => {
       });
     }
 
-    // Hash the token to compare with stored hashed version
     const hashedToken = crypto
       .createHash('sha256')
       .update(token)
@@ -579,7 +389,6 @@ export const resetPassword = async (req, res) => {
 
     console.log('Looking for user with reset token...');
 
-    // Find user with valid reset token
     const user = await User.findOne({
       passwordResetToken: hashedToken,
       passwordResetExpires: { $gt: Date.now() }
@@ -595,11 +404,9 @@ export const resetPassword = async (req, res) => {
 
     console.log('Valid reset token for user:', user.emailId);
 
-    // Hash the new password
     const saltRounds = 12;
     const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-    // Update user password and clear reset token
     user.passwordHash = hashedPassword;
     user.passwordResetToken = undefined;
     user.passwordResetExpires = undefined;
@@ -637,13 +444,11 @@ export const verifyResetToken = async (req, res) => {
       });
     }
 
-    // Hash the token to compare with stored hashed version
     const hashedToken = crypto
       .createHash('sha256')
       .update(token)
       .digest('hex');
 
-    // Find user with valid reset token
     const user = await User.findOne({
       passwordResetToken: hashedToken,
       passwordResetExpires: { $gt: Date.now() }
@@ -829,7 +634,6 @@ export const changePassword = async (req, res) => {
       });
     }
 
-    // Verify current password
     const isCurrentPasswordValid = await bcrypt.compare(currentPassword, user.passwordHash);
     if (!isCurrentPasswordValid) {
       return res.status(400).json({
@@ -838,11 +642,9 @@ export const changePassword = async (req, res) => {
       });
     }
 
-    // Hash new password
     const saltRounds = 12;
     const hashedNewPassword = await bcrypt.hash(newPassword, saltRounds);
 
-    // Update password
     user.passwordHash = hashedNewPassword;
     user.passwordChangedAt = new Date();
     await user.save();
@@ -859,6 +661,165 @@ export const changePassword = async (req, res) => {
     res.status(500).json({
       success: false,
       error: "Failed to change password"
+    });
+  }
+};
+
+export const updateSellerProfile = async (req, res) => {
+  try {
+    const sellerId = req.user?.sellerId || req.user?.id;
+    
+    if (!sellerId) {
+      return res.status(401).json({
+        success: false,
+        error: "Seller not authenticated"
+      });
+    }
+
+    const {
+      businessName, businessType, ownerName, phone, description,
+      cuisine, priceRange, seatingCapacity, servicesOffered,
+      street, city, state, zipCode, latitude, longitude, openingHours
+    } = req.body;
+
+    const seller = await Seller.findById(sellerId);
+    if (!seller) {
+      return res.status(404).json({
+        success: false,
+        error: "Seller not found"
+      });
+    }
+
+    if (businessName) seller.businessName = businessName;
+    if (businessType) seller.businessType = businessType;
+    if (phone) seller.phone = phone;
+
+    if (!seller.businessDetails) seller.businessDetails = {};
+    
+    if (ownerName) seller.businessDetails.ownerName = ownerName;
+    if (description) seller.businessDetails.description = description;
+    if (priceRange) seller.businessDetails.priceRange = priceRange;
+    if (seatingCapacity) seller.businessDetails.seatingCapacity = seatingCapacity;
+    
+    if (cuisine) {
+      seller.businessDetails.cuisine = Array.isArray(cuisine) ? cuisine : [cuisine];
+    }
+    
+    if (servicesOffered) {
+      seller.businessDetails.servicesOffered = Array.isArray(servicesOffered) 
+        ? servicesOffered 
+        : [servicesOffered];
+    }
+    
+    if (openingHours) {
+      try {
+        seller.businessDetails.openingHours = typeof openingHours === 'string' 
+          ? JSON.parse(openingHours) 
+          : openingHours;
+      } catch (e) {
+        console.error('Failed to parse opening hours:', e);
+      }
+    }
+
+    if (!seller.address) seller.address = {};
+    
+    if (street) seller.address.street = street;
+    if (city) seller.address.city = city;
+    if (state) seller.address.state = state;
+    if (zipCode) seller.address.zipCode = zipCode;
+    
+    if (latitude && longitude) {
+      if (!seller.address.coordinates) seller.address.coordinates = {};
+      seller.address.coordinates.latitude = parseFloat(latitude);
+      seller.address.coordinates.longitude = parseFloat(longitude);
+    }
+
+    if (req.files) {
+      if (!seller.businessDetails.documents) {
+        seller.businessDetails.documents = {};
+      }
+      
+      if (req.files.logo) {
+        seller.businessDetails.documents.logo = req.files.logo[0].path;
+      }
+      
+      if (req.files.bannerImage) {
+        seller.businessDetails.documents.bannerImage = req.files.bannerImage[0].path;
+      }
+    }
+
+    const wasIncomplete = !seller.onboardingCompleted;
+    const isNowComplete = seller.businessName && 
+                          seller.phone && 
+                          seller.address?.city &&
+                          seller.businessDetails?.description &&
+                          seller.businessDetails?.cuisine?.length > 0;
+
+    if (isNowComplete) {
+      seller.onboardingCompleted = true;
+      seller.isVerified = true;
+    }
+
+    await seller.save();
+
+    console.log('✅ Seller profile updated:', sellerId);
+
+    try {
+      const io = getIO();
+      
+      const sellerUpdate = {
+        sellerId: seller._id.toString(),
+        businessName: seller.businessName,
+        businessType: seller.businessType,
+        logo: seller.businessDetails?.documents?.logo,
+        bannerImage: seller.businessDetails?.documents?.bannerImage,
+        address: {
+          city: seller.address?.city,
+          state: seller.address?.state,
+          street: seller.address?.street,
+          zipCode: seller.address?.zipCode
+        },
+        cuisine: seller.businessDetails?.cuisine || [],
+        priceRange: seller.businessDetails?.priceRange,
+        rating: seller.metrics?.averageRating?.toFixed(1) || '0.0',
+        isNewProfile: wasIncomplete && isNowComplete,
+        timestamp: new Date()
+      };
+
+      io.emit('seller-profile-updated', sellerUpdate);
+      
+      console.log('📡 Broadcasted seller profile update to all users');
+      
+      if (wasIncomplete && isNowComplete) {
+        io.emit('new-restaurant-available', {
+          restaurant: sellerUpdate,
+          message: `New restaurant "${seller.businessName}" is now available!`
+        });
+        console.log('🎉 Broadcasted new restaurant notification');
+      }
+      
+    } catch (socketError) {
+      console.error('❌ Socket emission failed:', socketError);
+    }
+
+    res.json({
+      success: true,
+      message: "Profile updated successfully",
+      seller: {
+        id: seller._id,
+        businessName: seller.businessName,
+        businessType: seller.businessType,
+        onboardingCompleted: seller.onboardingCompleted,
+        isVerified: seller.isVerified,
+        email: seller.email
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Update seller profile error:', error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to update profile"
     });
   }
 };

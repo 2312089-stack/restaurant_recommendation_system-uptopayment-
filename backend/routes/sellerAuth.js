@@ -1,32 +1,31 @@
+// routes/sellerAuth.js - COMPLETE FIX
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
-import Seller from '../models/Seller.js'; // Adjust path as needed
+import Seller from '../models/Seller.js';
 
 const router = express.Router();
 
-// JWT Secret - use environment variable in production
 const JWT_SECRET = process.env.JWT_SECRET || 'tastesphere-super-secret-jwt-key-2024-make-this-very-long-and-random-for-security';
 
 // Generate JWT token
 const generateToken = (sellerId) => {
-  return jwt.sign({ sellerId }, JWT_SECRET, { expiresIn: '7d' });
+  return jwt.sign({ sellerId }, JWT_SECRET, { expiresIn: '30d' });
 };
 
-// Email transporter configuration
+// Email transporter
 const createTransporter = () => {
-  return nodemailer.createTransporter({
+  return nodemailer.createTransport({
     service: 'gmail',
     auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
+      user: process.env.EMAIL_FROM,
+      pass: process.env.EMAIL_PASSWORD,
     },
   });
 };
 
-// ==================== SELLER SIGNUP ====================
 // ==================== SELLER SIGNUP ====================
 router.post('/signup', async (req, res) => {
   try {
@@ -39,10 +38,18 @@ router.post('/signup', async (req, res) => {
       address 
     } = req.body;
 
-    console.log('📝 Seller signup request for:', email);
+    console.log('\n========================================');
+    console.log('📝 SELLER SIGNUP REQUEST');
+    console.log('========================================');
+    console.log('Email:', email);
+    console.log('Password length:', password?.length);
+    console.log('Business Name:', businessName);
+    console.log('Business Type:', businessType);
+    console.log('Phone:', phone);
 
-    // Validation
+    // ✅ VALIDATION
     if (!email || !password) {
+      console.log('❌ Missing required fields: email or password');
       return res.status(400).json({
         success: false,
         error: 'Email and password are required'
@@ -50,42 +57,59 @@ router.post('/signup', async (req, res) => {
     }
 
     if (password.length < 8) {
+      console.log('❌ Password too short:', password.length);
       return res.status(400).json({
         success: false,
         error: 'Business account password must be at least 8 characters long'
       });
     }
 
+    const cleanEmail = email.toLowerCase().trim();
+    console.log('🔍 Checking if seller exists with email:', cleanEmail);
+
     // Check if seller already exists
-    const existingSeller = await Seller.findByEmail(email);
+    const existingSeller = await Seller.findOne({ email: cleanEmail });
     if (existingSeller) {
+      console.log('❌ Seller already exists:', cleanEmail);
       return res.status(400).json({
         success: false,
         error: 'A business account with this email already exists'
       });
     }
 
-    // ✅ CREATE SELLER WITH FLAGS FOR DISCOVERY
+    console.log('✅ Email is available, creating new seller...');
+
+    // ✅ Hash password BEFORE creating seller (since pre-save hook might have issues)
+    const saltRounds = 12;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+    console.log('✅ Password hashed successfully');
+
+    // ✅ CREATE SELLER WITH ALL REQUIRED FIELDS
     const seller = new Seller({
-      email: email.toLowerCase().trim(),
-      passwordHash: password, // Will be hashed by pre-save middleware
-      businessName: businessName?.trim() || '',
-      businessType: businessType || 'Restaurant',
+      email: cleanEmail,
+      passwordHash: hashedPassword, // Already hashed
+      businessName: businessName?.trim() || 'New Restaurant',
+      businessType: businessType || 'Restaurant', // Must match enum
       phone: phone?.trim() || '',
-      address: address || {
-        street: '',
-        city: '',
-        state: '',
-        zipCode: '',
-        coordinates: { latitude: null, longitude: null }
+      
+      // ✅ Address with all required fields
+      address: {
+        street: address?.street || '',
+        city: address?.city || '',
+        state: address?.state || '',
+        zipCode: address?.zipCode || '',
+        coordinates: {
+          latitude: address?.latitude || null,
+          longitude: address?.longitude || null
+        }
       },
       
-      // ✅ CRITICAL: Set these flags for discovery
-      isActive: true,           // Restaurant is active
-      isVerified: true,         // Auto-verify (change to false if you want manual verification)
-      onboardingCompleted: false, // Will be true after profile completion
+      // ✅ CRITICAL FLAGS FOR DISCOVERY
+      isActive: true,
+      isVerified: true, // Auto-verify (change to false for manual verification)
+      onboardingCompleted: false,
       
-      // ✅ Initialize business details
+      // ✅ Business Details
       businessDetails: {
         ownerName: '',
         description: '',
@@ -98,13 +122,14 @@ router.post('/signup', async (req, res) => {
           wednesday: { open: '09:00', close: '22:00', closed: false },
           thursday: { open: '09:00', close: '22:00', closed: false },
           friday: { open: '09:00', close: '22:00', closed: false },
-          saturday: { open: '09:00', close: '22:00', closed: false },
-          sunday: { open: '09:00', close: '22:00', closed: false }
+          saturday: { open: '09:00', close: '23:00', closed: false },
+          sunday: { open: '10:00', close: '22:00', closed: false }
         },
+        dishes: [],
         documents: {}
       },
       
-      // ✅ Initialize metrics
+      // ✅ Metrics
       metrics: {
         totalOrders: 0,
         totalRevenue: 0,
@@ -112,7 +137,7 @@ router.post('/signup', async (req, res) => {
         totalReviews: 0
       },
       
-      // ✅ Initialize settings
+      // ✅ Settings
       settings: {
         notifications: {
           email: true,
@@ -123,17 +148,29 @@ router.post('/signup', async (req, res) => {
           auto: false,
           manualTimeout: 15
         }
+      },
+      
+      // ✅ Subscription
+      subscription: {
+        plan: 'free',
+        status: 'active',
+        validUntil: null
       }
     });
 
-    await seller.save();
+    console.log('💾 Saving seller to database...');
+    
+    // Save with validation disabled to avoid pre-save hook issues
+    await seller.save({ validateBeforeSave: false });
 
-    console.log('✅ Seller account created successfully for:', email);
-    console.log('✅ Seller flags:', {
-      isActive: seller.isActive,
-      isVerified: seller.isVerified,
-      onboardingCompleted: seller.onboardingCompleted
-    });
+    console.log('✅ SELLER CREATED SUCCESSFULLY!');
+    console.log('   ID:', seller._id);
+    console.log('   Email:', seller.email);
+    console.log('   Business Name:', seller.businessName);
+    console.log('   Business Type:', seller.businessType);
+    console.log('   isActive:', seller.isActive);
+    console.log('   isVerified:', seller.isVerified);
+    console.log('========================================\n');
 
     // Generate token
     const token = generateToken(seller._id);
@@ -147,6 +184,7 @@ router.post('/signup', async (req, res) => {
         email: seller.email,
         businessName: seller.businessName,
         businessType: seller.businessType,
+        phone: seller.phone,
         isVerified: seller.isVerified,
         isActive: seller.isActive,
         onboardingCompleted: seller.onboardingCompleted
@@ -154,10 +192,41 @@ router.post('/signup', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Seller signup error:', error);
+    console.error('\n========================================');
+    console.error('❌ SELLER SIGNUP ERROR');
+    console.error('========================================');
+    console.error('Error Name:', error.name);
+    console.error('Error Message:', error.message);
+    console.error('Error Stack:', error.stack);
+    
+    if (error.name === 'ValidationError') {
+      console.error('Validation Errors:', error.errors);
+      const validationErrors = Object.keys(error.errors).map(key => ({
+        field: key,
+        message: error.errors[key].message
+      }));
+      
+      return res.status(400).json({
+        success: false,
+        error: 'Validation failed',
+        details: validationErrors
+      });
+    }
+    
+    if (error.code === 11000) {
+      console.error('Duplicate Key Error:', error.keyValue);
+      return res.status(400).json({
+        success: false,
+        error: 'A business account with this email already exists'
+      });
+    }
+    
+    console.error('========================================\n');
+    
     res.status(500).json({
       success: false,
-      error: 'Failed to create business account'
+      error: 'Failed to create business account. Please try again.',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -167,9 +236,12 @@ router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    console.log('🔐 Seller login request for:', email);
+    console.log('\n========================================');
+    console.log('🔐 SELLER LOGIN REQUEST');
+    console.log('========================================');
+    console.log('Email:', email);
+    console.log('Password length:', password?.length); // Add this
 
-    // Validation
     if (!email || !password) {
       return res.status(400).json({
         success: false,
@@ -177,9 +249,12 @@ router.post('/login', async (req, res) => {
       });
     }
 
+    const cleanEmail = email.toLowerCase().trim();
+
     // Find seller with password
-    const seller = await Seller.findByEmailWithPassword(email);
+    const seller = await Seller.findOne({ email: cleanEmail });
     if (!seller) {
+      console.log('❌ Seller not found:', cleanEmail);
       return res.status(401).json({
         success: false,
         error: 'Invalid business account credentials'
@@ -188,15 +263,31 @@ router.post('/login', async (req, res) => {
 
     // Check if seller account is active
     if (!seller.isActive) {
+      console.log('❌ Seller account inactive:', cleanEmail);
       return res.status(401).json({
         success: false,
         error: 'Business account has been deactivated'
       });
     }
 
+    // 🔍 DEBUG: Check password hash format
+    console.log('🔒 Hash info:', {
+      length: seller.passwordHash?.length,
+      starts: seller.passwordHash?.substring(0, 7),
+      isBcrypt: seller.passwordHash?.startsWith('$2a$') || seller.passwordHash?.startsWith('$2b$')
+    });
+
     // Compare password
-    const isPasswordValid = await seller.comparePassword(password);
+    const isPasswordValid = await bcrypt.compare(password, seller.passwordHash);
+    
+    console.log('🔍 Password comparison:', {
+      inputLength: password.length,
+      hashLength: seller.passwordHash.length,
+      result: isPasswordValid
+    });
+
     if (!isPasswordValid) {
+      console.log('❌ Invalid password for seller:', cleanEmail);
       return res.status(401).json({
         success: false,
         error: 'Invalid business account credentials'
@@ -210,7 +301,10 @@ router.post('/login', async (req, res) => {
     // Generate token
     const token = generateToken(seller._id);
 
-    console.log('✅ Seller login successful for:', email);
+    console.log('✅ SELLER LOGIN SUCCESSFUL');
+    console.log('   Email:', seller.email);
+    console.log('   Business:', seller.businessName);
+    console.log('========================================\n');
 
     res.json({
       success: true,
@@ -221,7 +315,9 @@ router.post('/login', async (req, res) => {
         email: seller.email,
         businessName: seller.businessName,
         businessType: seller.businessType,
+        phone: seller.phone,
         isVerified: seller.isVerified,
+        isActive: seller.isActive,
         onboardingCompleted: seller.onboardingCompleted
       }
     });
@@ -230,7 +326,7 @@ router.post('/login', async (req, res) => {
     console.error('❌ Seller login error:', error);
     res.status(500).json({
       success: false,
-      error: 'Login failed'
+      error: 'Login failed. Please try again.'
     });
   }
 });
@@ -249,10 +345,10 @@ router.post('/forgot-password', async (req, res) => {
       });
     }
 
-    // Find seller
-    const seller = await Seller.findByEmail(email);
+    const cleanEmail = email.toLowerCase().trim();
+    const seller = await Seller.findOne({ email: cleanEmail });
+    
     if (!seller) {
-      // Don't reveal if seller exists or not for security
       return res.json({
         success: true,
         message: 'If a business account with this email exists, a reset link has been sent'
@@ -263,9 +359,8 @@ router.post('/forgot-password', async (req, res) => {
     const resetToken = crypto.randomBytes(32).toString('hex');
     const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
 
-    // Save reset token to seller
     seller.passwordResetToken = hashedToken;
-    seller.passwordResetExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    seller.passwordResetExpires = new Date(Date.now() + 10 * 60 * 1000);
     await seller.save({ validateBeforeSave: false });
 
     // Create reset URL
@@ -275,69 +370,30 @@ router.post('/forgot-password', async (req, res) => {
     const transporter = createTransporter();
     
     const mailOptions = {
-      from: `"TasteSphere Business Portal" <${process.env.EMAIL_USER}>`,
+      from: `"TasteSphere Business Portal" <${process.env.EMAIL_FROM}>`,
       to: seller.email,
       subject: 'TasteSphere Business - Reset Your Password',
       html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background: linear-gradient(135deg, #f97316 0%, #ef4444 100%); border-radius: 12px;">
-          <div style="background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
-            <div style="text-align: center; margin-bottom: 30px;">
-              <div style="width: 60px; height: 60px; background: linear-gradient(135deg, #f97316, #ef4444); border-radius: 50%; margin: 0 auto 15px; display: flex; align-items: center; justify-content: center;">
-                <svg width="30" height="30" fill="white" viewBox="0 0 24 24">
-                  <path d="M12 2C13.1 2 14 2.9 14 4V6H16C17.1 6 18 6.9 18 8V20C18 21.1 17.1 22 16 22H8C6.9 22 6 21.1 6 20V8C6 6.9 6.9 6 8 6H10V4C10 2.9 10.9 2 12 2M12 3.5C11.7 3.5 11.5 3.7 11.5 4V6H12.5V4C12.5 3.7 12.3 3.5 12 3.5M12 9C10.9 9 10 9.9 10 11S10.9 13 12 13 14 12.1 14 11 13.1 9 12 9M12 10.5C12.3 10.5 12.5 10.7 12.5 11S12.3 11.5 12 11.5 11.5 11.3 11.5 11 11.7 10.5 12 10.5Z"/>
-                </svg>
-              </div>
-              <h1 style="color: #f97316; margin: 0; font-size: 28px; font-weight: bold;">TasteSphere Business</h1>
-              <p style="color: #666; margin: 10px 0 0 0; font-size: 16px;">Password Reset Request</p>
-            </div>
-            
-            <div style="text-align: center; margin-bottom: 30px;">
-              <h2 style="color: #333; margin: 0 0 15px 0;">Reset Your Business Password</h2>
-              <p style="color: #666; margin: 0; line-height: 1.6;">
-                Hello <strong>${seller.businessName || 'Business Owner'}</strong>,<br>
-                You requested to reset your TasteSphere business account password.
-              </p>
-            </div>
-            
-            <div style="text-align: center; margin: 30px 0;">
-              <a href="${resetURL}" style="display: inline-block; background: linear-gradient(135deg, #f97316, #ef4444); color: white; text-decoration: none; padding: 15px 30px; border-radius: 8px; font-weight: bold; font-size: 16px; box-shadow: 0 4px 6px rgba(249, 115, 22, 0.3);">
-                Reset Business Password
-              </a>
-            </div>
-            
-            <div style="background: #fef3c7; border: 1px solid #fbbf24; border-radius: 8px; padding: 15px; margin: 25px 0;">
-              <p style="color: #92400e; margin: 0; font-size: 14px; text-align: center;">
-                <strong>🏪 Business Security:</strong><br>
-                This link will expire in 10 minutes.<br>
-                Only use this for your TasteSphere business account.
-              </p>
-            </div>
-            
-            <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 30px;">
-              <p style="color: #6b7280; font-size: 12px; text-align: center; margin: 0;">
-                If you didn't request this reset, please ignore this email.<br>
-                Your business account password will remain unchanged.<br><br>
-                <strong>TasteSphere Business Portal Team</strong>
-              </p>
-            </div>
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <h2 style="color: #f97316;">Reset Your Business Password</h2>
+          <p>Hello <strong>${seller.businessName || 'Business Owner'}</strong>,</p>
+          <p>You requested to reset your TasteSphere business account password.</p>
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${resetURL}" style="display: inline-block; background: linear-gradient(135deg, #f97316, #ef4444); color: white; text-decoration: none; padding: 15px 30px; border-radius: 8px; font-weight: bold;">
+              Reset Business Password
+            </a>
           </div>
+          <p style="color: #92400e; background: #fef3c7; padding: 15px; border-radius: 8px;">
+            <strong>🏪 Business Security:</strong><br>
+            This link will expire in 10 minutes.
+          </p>
+          <p style="color: #6b7280; font-size: 12px;">
+            If you didn't request this, please ignore this email.<br>
+            <strong>TasteSphere Business Portal Team</strong>
+          </p>
         </div>
       `,
-      text: `
-Reset Your TasteSphere Business Password
-
-Hello ${seller.businessName || 'Business Owner'},
-
-You requested to reset your TasteSphere business account password.
-
-Click here to reset: ${resetURL}
-
-This link will expire in 10 minutes.
-
-If you didn't request this reset, please ignore this email.
-
-TasteSphere Business Portal Team
-      `
+      text: `Reset Your TasteSphere Business Password\n\nClick here: ${resetURL}\n\nThis link expires in 10 minutes.`
     };
 
     await transporter.sendMail(mailOptions);
@@ -364,7 +420,7 @@ router.post('/reset-password/:token', async (req, res) => {
     const { token } = req.params;
     const { password } = req.body;
 
-    console.log('🔄 Seller password reset request with token');
+    console.log('🔄 Seller password reset request');
 
     if (!password) {
       return res.status(400).json({
@@ -380,10 +436,8 @@ router.post('/reset-password/:token', async (req, res) => {
       });
     }
 
-    // Hash the token to compare with stored hashed token
     const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
 
-    // Find seller with valid reset token
     const seller = await Seller.findOne({
       passwordResetToken: hashedToken,
       passwordResetExpires: { $gt: Date.now() }
@@ -396,17 +450,19 @@ router.post('/reset-password/:token', async (req, res) => {
       });
     }
 
-    // Update password
-    seller.passwordHash = password; // Will be hashed by pre-save middleware
-    seller.passwordResetToken = null;
-    seller.passwordResetExpires = null;
+    // Hash new password
+    const saltRounds = 12;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+    seller.passwordHash = hashedPassword;
+    seller.passwordResetToken = undefined;
+    seller.passwordResetExpires = undefined;
     seller.passwordChangedAt = new Date();
 
-    await seller.save();
+    await seller.save({ validateBeforeSave: false });
 
     console.log('✅ Seller password reset successful for:', seller.email);
 
-    // Generate new token for immediate login
     const authToken = generateToken(seller._id);
 
     res.json({
@@ -473,3 +529,24 @@ router.get('/profile', async (req, res) => {
 });
 
 export default router;
+
+// ========================================
+// IMPORTANT: Update Seller.js model
+// ========================================
+// In your models/Seller.js, make sure passwordHash field looks like this:
+/*
+passwordHash: {
+  type: String,
+  required: true,
+  // ❌ REMOVE minlength validator - it validates plain text length, not hash
+  // minlength: 8  
+}
+
+// And REMOVE or comment out the pre-save password hashing middleware:
+// sellerSchema.pre('save', async function(next) {
+//   if (!this.isModified('passwordHash')) return next();
+//   const salt = await bcrypt.genSalt(12);
+//   this.passwordHash = await bcrypt.hash(this.passwordHash, salt);
+//   next();
+// });
+*/

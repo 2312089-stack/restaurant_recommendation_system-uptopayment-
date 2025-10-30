@@ -7,7 +7,9 @@ import jwt from 'jsonwebtoken';
 import Seller from '../models/Seller.js';
 
 const router = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-for-sellers';
+
+// ✅ FIXED: Use the same JWT_SECRET as sellerAuthController.js
+const JWT_SECRET = process.env.JWT_SECRET || 'tastesphere-super-secret-jwt-key-2024-make-this-very-long-and-random-for-security';
 
 // Create uploads directory if it doesn't exist
 const uploadsDir = './uploads/sellers';
@@ -57,30 +59,36 @@ const authenticateSeller = async (req, res, next) => {
     const token = req.headers.authorization?.split(' ')[1];
 
     if (!token) {
+      console.log('❌ No token provided');
       return res.status(401).json({
         success: false,
         error: 'No token provided'
       });
     }
 
+    console.log('🔍 Verifying seller token...');
     const decoded = jwt.verify(token, JWT_SECRET);
+    console.log('✅ Token decoded:', decoded);
+    
     const seller = await Seller.findById(decoded.sellerId);
 
     if (!seller) {
+      console.log('❌ Seller not found for ID:', decoded.sellerId);
       return res.status(401).json({
         success: false,
-        error: 'Invalid token'
+        error: 'Invalid token - seller not found'
       });
     }
 
     req.sellerId = seller._id;
     req.seller = seller;
+    console.log('✅ Seller authenticated:', seller.email);
     next();
   } catch (error) {
-    console.error('Auth error:', error);
+    console.error('❌ Auth error:', error.message);
     res.status(401).json({
       success: false,
-      error: 'Invalid token'
+      error: 'Invalid token: ' + error.message
     });
   }
 };
@@ -106,7 +114,6 @@ router.post('/complete', authenticateSeller, upload.fields([
       phoneNumber,
       emailAddress,
       openingHours,
-     
       bankAccount,
       ifscCode,
       accountHolder,
@@ -149,7 +156,6 @@ router.post('/complete', authenticateSeller, upload.fields([
       if (openingHours) {
         parsedOpeningHours = typeof openingHours === 'string' ? JSON.parse(openingHours) : openingHours;
       }
-      
     } catch (parseError) {
       console.error('JSON parse error:', parseError);
       return res.status(400).json({
@@ -350,8 +356,6 @@ router.patch('/step/:stepNumber', authenticateSeller, upload.fields([
           updateData['businessDetails.openingHours'] = openingHours;
         }
         break;
-
-      
 
       case 3: // Payments & Finance
         updateData['businessDetails.banking'] = {

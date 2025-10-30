@@ -15,7 +15,6 @@ const sellerSchema = new mongoose.Schema({
   passwordHash: {
     type: String,
     required: true,
-    minlength: 8
   },
   
   // Basic business information
@@ -174,10 +173,54 @@ const sellerSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
-  onboardingCompleted: {
+ onboardingCompleted: {
     type: Boolean,
     default: false
   },
+  
+  // Bank account information for settlements
+  bankDetails: {
+    bankName: {
+      type: String,
+      default: '',
+      trim: true
+    },
+    accountNumber: {
+      type: String,
+      default: '',
+      trim: true
+    },
+    ifscCode: {
+      type: String,
+      default: '',
+      trim: true,
+      uppercase: true
+    },
+    accountHolderName: {
+      type: String,
+      default: '',
+      trim: true
+    },
+    branchName: {
+      type: String,
+      default: '',
+      trim: true
+    },
+    verifiedAt: {
+      type: Date,
+      default: null
+    },
+    verificationNotes: {
+      type: String,
+      default: ''
+    },
+    updatedAt: {
+      type: Date,
+      default: Date.now
+    }
+  },
+  
+ 
   
   // OTP and password reset
   otp: {
@@ -261,20 +304,7 @@ sellerSchema.virtual('businessStatus').get(function() {
   return 'Active';
 });
 
-// Hash password before saving
-sellerSchema.pre('save', async function(next) {
-  // Only hash the password if it has been modified (or is new)
-  if (!this.isModified('passwordHash')) return next();
-  
-  try {
-    // Hash password with cost of 12
-    const salt = await bcrypt.genSalt(12);
-    this.passwordHash = await bcrypt.hash(this.passwordHash, salt);
-    next();
-  } catch (error) {
-    next(error);
-  }
-});
+
 
 // Update passwordChangedAt before saving
 sellerSchema.pre('save', function(next) {
