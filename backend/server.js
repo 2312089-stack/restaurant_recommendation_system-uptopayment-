@@ -1,4 +1,4 @@
-// server.js - FIXED: Handle missing .env in production
+// server.js - FIXED: Proper route ordering for frontend serving
 // ⚠️ CRITICAL: Load environment variables FIRST
 import dotenv from 'dotenv';
 
@@ -136,12 +136,25 @@ process.on('SIGTERM', () => {
   process.exit(0);
 });
 
-// ==================== MIDDLEWARE ====================
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:5174','https://restaurant-recommendation-system-up.vercel.app'],
+  origin: [
+    // Local development
+    'http://localhost:5173',
+    'http://localhost:3000', 
+    'http://localhost:5174',
+    
+    // Production - UPDATE THIS with your actual Vercel URL
+    'https://restaurant-recommendation-system-up.vercel.app',
+    'https://your-actual-vercel-url.vercel.app', // Replace with your real URL
+    
+    // Allow any Vercel preview deployments (optional)
+    /\.vercel\.app$/
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range'],
+  maxAge: 600 // 10 minutes
 }));
 
 app.use(express.json({ limit: '10mb' }));
@@ -241,25 +254,146 @@ app.use('/api/admin/bank-details', adminBankRoutes);
 app.use('/api/admin/faqs', adminFAQRoutes);
 app.use('/api/admin/support', adminSupportRoutes);
 
-// ==================== ERROR HANDLING ====================
+// ==================== HEALTH CHECK ====================
+app.get('/api/health', (req, res) => {
+  const dbStatus = global.mongoose?.connection?.readyState === 1 ? 'connected' : 'disconnected';
+  
+  res.status(200).json({
+    success: true,
+    message: '🍽️ TasteSphere API Server',
+    status: 'operational',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
+    services: {
+      database: dbStatus,
+      razorpay: !!process.env.RAZORPAY_KEY_ID,
+      twilio: !!process.env.TWILIO_ACCOUNT_SID,
+      googleOAuth: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
+      notifications: true,
+      socketIO: true
+    },
+    endpoints: {
+      health: '/api/health',
+      docs: '/api/docs',
+      auth: '/api/auth/*',
+      orders: '/api/orders/*',
+      seller: '/api/seller/*',
+      admin: '/api/admin/*'
+    },
+    version: '1.0.0'
+  });
+});
+
+// API documentation endpoint
+app.get('/api', (req, res) => {
+  res.status(200).json({
+    name: 'TasteSphere API',
+    version: '1.0.0',
+    documentation: 'https://tastesphere.onrender.com/api/docs',
+    endpoints: {
+      authentication: {
+        googleOAuth: 'GET /api/auth/google',
+        login: 'POST /api/auth/login',
+        profile: 'GET /api/auth/profile'
+      },
+      orders: {
+        history: 'GET /api/order-history',
+        create: 'POST /api/orders',
+        track: 'GET /api/orders/:id'
+      },
+      payment: {
+        health: 'GET /api/payment/health',
+        createOrder: 'POST /api/payment/create-order',
+        verify: 'POST /api/payment/verify-payment',
+        cod: 'POST /api/payment/create-cod-order'
+      },
+      seller: {
+        support: 'POST /api/seller/support/tickets',
+        menu: 'GET /api/seller/menu',
+        orders: 'GET /api/seller/orders'
+      },
+      admin: {
+        support: 'GET /api/admin/support/tickets',
+        analytics: 'GET /api/admin/analytics'
+      }
+    }
+  });
+});
 
 // Favicon handler (to avoid clutter in logs)
 app.get('/favicon.ico', (req, res) => res.status(204).end());
 
-// 404 Handler
-app.use((req, res) => {
-  if (req.path !== '/favicon.ico') {
-    console.log(`404 Not Found: ${req.method} ${req.originalUrl}`);
+// ==================== SERVE FRONTEND (PRODUCTION) ====================
+if (process.env.NODE_ENV === 'production') {
+  const frontendDistPath = path.join(__dirname, '../project/dist');
+  
+  // Check if frontend build exists
+  if (fs.existsSync(frontendDistPath)) {
+    console.log('✅ Serving React frontend from:', frontendDistPath);
+    
+    // Serve static files from React build
+    app.use(express.static(frontendDistPath));
+    
+    // Serve index.html for all non-API routes (SPA support)
+    // This MUST come after all API routes
+    app.get('*', (req, res) => {
+      const indexPath = path.join(frontendDistPath, 'index.html');
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        res.status(500).json({
+          success: false,
+          error: 'Frontend index.html not found',
+          path: indexPath
+        });
+      }
+    });
+  } else {
+    console.log('⚠️  Frontend build not found at:', frontendDistPath);
+    console.log('⚠️  Serving API-only mode');
+    
+    // Fallback: Show helpful message
+    app.get('/', (req, res) => {
+      res.status(200).json({
+        success: true,
+        message: '🍽️ TasteSphere API Server',
+        warning: 'Frontend build not found',
+        note: 'Run "cd project && npm run build" to create production build',
+        api: {
+          health: '/api/health',
+          docs: '/api',
+          endpoints: '/api/health'
+        }
+      });
+    });
+    
+    // 404 for non-API routes
+    app.use((req, res) => {
+      res.status(404).json({
+        success: false,
+        error: 'Frontend not deployed. API routes available at /api/*',
+        requestedPath: req.path
+      });
+    });
   }
-  res.status(404).json({ 
-    success: false, 
-    error: `Route ${req.originalUrl} not found`,
-    method: req.method,
-    timestamp: new Date().toISOString()
+} else {
+  // Development: Show API-only message
+  app.get('/', (req, res) => {
+    res.json({
+      success: true,
+      message: '🍽️ TasteSphere API Server (Development Mode)',
+      note: 'Frontend should run separately on http://localhost:5173',
+      api: {
+        health: 'http://localhost:5000/api/health',
+        docs: 'http://localhost:5000/api'
+      }
+    });
   });
-});
+}
 
-// Global Error Handler
+// ==================== ERROR HANDLING ====================
+
+// Global Error Handler (must be last)
 app.use((err, req, res, next) => {
   console.error('Server Error:', err.message);
   console.error('Stack:', err.stack);
@@ -289,6 +423,13 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`📦 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`💳 Razorpay: ${process.env.RAZORPAY_KEY_ID ? 'Configured ✅' : 'Missing ❌'}`);
   console.log(`🔐 Google OAuth: ${googleOAuthEnabled ? 'Configured ✅' : 'Disabled ⚠️'}`);
+  
+  // Check if frontend exists in production
+  if (process.env.NODE_ENV === 'production') {
+    const frontendExists = fs.existsSync(path.join(__dirname, '../project/dist'));
+    console.log(`🎨 Frontend: ${frontendExists ? 'Deployed ✅' : 'Not found ⚠️'}`);
+  }
+  
   console.log('========================================');
   console.log('\n📋 Key Endpoints:');
   if (googleOAuthEnabled) {
