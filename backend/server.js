@@ -1,32 +1,40 @@
-// server.js - FIXED: Remove duplicate import
+// server.js - FIXED: Handle missing .env in production
 // ⚠️ CRITICAL: Load environment variables FIRST
 import dotenv from 'dotenv';
 
-// Load .env file IMMEDIATELY
+// Load .env file (but don't fail in production where Render provides env vars)
 const envResult = dotenv.config();
 
 if (envResult.error) {
-  console.error('❌ CRITICAL: Failed to load .env file:', envResult.error);
-  process.exit(1);
+  if (process.env.NODE_ENV === 'production') {
+    console.log('ℹ️  .env file not found - using platform environment variables (Render/Heroku)');
+  } else {
+    console.error('❌ CRITICAL: Failed to load .env file:', envResult.error);
+    console.error('Please create a .env file in the backend directory for local development');
+    process.exit(1);
+  }
 }
 
 // Verify critical environment variables
 console.log('\n🔍 Environment Variable Check:');
-console.log('✓ MONGODB_URI:', process.env.MONGODB_URI ? 'LOADED' : '❌ MISSING');
-console.log('✓ JWT_SECRET:', process.env.JWT_SECRET ? 'LOADED' : '❌ MISSING');
-console.log('✓ RAZORPAY_KEY_ID:', process.env.RAZORPAY_KEY_ID ? 'LOADED' : '❌ MISSING');
-console.log('✓ RAZORPAY_KEY_SECRET:', process.env.RAZORPAY_KEY_SECRET ? 'LOADED' : '❌ MISSING');
-console.log('✓ GOOGLE_CLIENT_ID:', process.env.GOOGLE_CLIENT_ID ? 'LOADED' : '❌ MISSING');
-console.log('✓ GOOGLE_CLIENT_SECRET:', process.env.GOOGLE_CLIENT_SECRET ? 'LOADED' : '❌ MISSING');
-console.log('✓ EMAIL_USER:', process.env.EMAIL_USER ? 'LOADED' : '⚠️  OPTIONAL');
-console.log('✓ TWILIO_ACCOUNT_SID:', process.env.TWILIO_ACCOUNT_SID ? 'LOADED' : '⚠️  OPTIONAL\n');
+console.log('✓ NODE_ENV:', process.env.NODE_ENV || 'development');
+console.log('✓ MONGODB_URI:', process.env.MONGODB_URI ? 'LOADED ✅' : '❌ MISSING');
+console.log('✓ JWT_SECRET:', process.env.JWT_SECRET ? 'LOADED ✅' : '❌ MISSING');
+console.log('✓ RAZORPAY_KEY_ID:', process.env.RAZORPAY_KEY_ID ? 'LOADED ✅' : '❌ MISSING');
+console.log('✓ RAZORPAY_KEY_SECRET:', process.env.RAZORPAY_KEY_SECRET ? 'LOADED ✅' : '❌ MISSING');
+console.log('✓ GOOGLE_CLIENT_ID:', process.env.GOOGLE_CLIENT_ID ? 'LOADED ✅' : '⚠️  OPTIONAL');
+console.log('✓ GOOGLE_CLIENT_SECRET:', process.env.GOOGLE_CLIENT_SECRET ? 'LOADED ✅' : '⚠️  OPTIONAL');
+console.log('✓ EMAIL_USER:', process.env.EMAIL_USER ? 'LOADED ✅' : '⚠️  OPTIONAL');
+console.log('✓ TWILIO_ACCOUNT_SID:', process.env.TWILIO_ACCOUNT_SID ? 'LOADED ✅' : '⚠️  OPTIONAL\n');
 
-// Verify Razorpay credentials
-if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
-  console.error('❌ CRITICAL: Razorpay credentials missing!');
-  console.error('Please check your .env file contains:');
-  console.error('  RAZORPAY_KEY_ID=rzp_test_...');
-  console.error('  RAZORPAY_KEY_SECRET=...\n');
+// Verify critical variables are present
+const requiredVars = ['MONGODB_URI', 'JWT_SECRET', 'RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET'];
+const missingVars = requiredVars.filter(varName => !process.env[varName]);
+
+if (missingVars.length > 0) {
+  console.error('❌ CRITICAL: Missing required environment variables:');
+  missingVars.forEach(varName => console.error(`   - ${varName}`));
+  console.error('\nPlease set these in Render Dashboard → Environment tab\n');
   process.exit(1);
 }
 
@@ -41,12 +49,11 @@ import { initializeSocket } from './config/socket.js';
 import connectDB from './connectDB.js';
 import passport from 'passport';
 
-// ✅ CRITICAL FIX: Import passport module and CALL configuration function
+// ✅ Import passport configuration
 console.log('🔧 Loading Passport module...');
 const passportModule = await import('./config/passport.js');
 const configurePassport = passportModule.configurePassport;
 
-// NOW call the configuration function (after env vars are loaded)
 console.log('🔧 Calling Passport configuration function...');
 const passportConfigured = configurePassport();
 
@@ -96,11 +103,10 @@ import trendingRoutes from './routes/trendingRoutes.js';
 import viewHistoryRoutes from './routes/viewHistoryRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 import sellerSettingsRoutes from './routes/sellerSettings.js';
-import sellerSupportRoutes from './routes/sellerSupport.js'; // ✅ ONLY IMPORT ONCE
+import sellerSupportRoutes from './routes/sellerSupport.js';
 import offerRoutes from './routes/offerRoutes.js';
 import customerSupportRoutes from './routes/customerSupport.js';
 import adminRoutes from './routes/adminRoutes.js';
-// ❌ REMOVED DUPLICATE: import sellerSupportRoutes from './routes/sellerSupport.js';
 import adminSupportRoutes from './routes/adminSupport.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -226,14 +232,14 @@ app.use('/api/seller/orders', sellerOrderRoutes);
 app.use('/api/seller/analytics', analyticsRoutes);
 app.use('/api/seller/settings', sellerSettingsRoutes);
 app.use('/api/seller/offers', offerRoutes);
-app.use('/api/seller/support', sellerSupportRoutes); // ✅ Seller support routes
+app.use('/api/seller/support', sellerSupportRoutes);
 
 // Admin Routes
 app.use('/api/admin', adminRoutes);
 app.use('/api/admin/analytics', adminAnalyticsRoutes);
 app.use('/api/admin/bank-details', adminBankRoutes);
 app.use('/api/admin/faqs', adminFAQRoutes);
-app.use('/api/admin/support', adminSupportRoutes); // ✅ Admin support routes
+app.use('/api/admin/support', adminSupportRoutes);
 
 // ==================== ERROR HANDLING ====================
 
@@ -242,7 +248,6 @@ app.get('/favicon.ico', (req, res) => res.status(204).end());
 
 // 404 Handler
 app.use((req, res) => {
-  // Don't log favicon requests
   if (req.path !== '/favicon.ico') {
     console.log(`404 Not Found: ${req.method} ${req.originalUrl}`);
   }
