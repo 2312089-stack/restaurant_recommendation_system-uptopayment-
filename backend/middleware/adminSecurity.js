@@ -1,21 +1,15 @@
-// backend/middleware/adminSecurity.js - COMPREHENSIVE ADMIN SECURITY
+// backend/middleware/adminSecurity.js - FIXED RATE LIMITER
 
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import rateLimit from 'express-rate-limit';
-import bcrypt from 'bcryptjs';
 
 // ==================== IP WHITELIST ====================
 const ALLOWED_IPS = process.env.ADMIN_ALLOWED_IPS 
   ? process.env.ADMIN_ALLOWED_IPS.split(',').map(ip => ip.trim())
-  : []; // Empty array means allow all IPs
+  : [];
 
-/**
- * IP Whitelist Middleware
- * Only allows requests from whitelisted IPs if configured
- */
 export const checkIPWhitelist = (req, res, next) => {
-  // Skip if no IPs configured (allow all)
   if (ALLOWED_IPS.length === 0) {
     return next();
   }
@@ -39,11 +33,10 @@ export const checkIPWhitelist = (req, res, next) => {
   next();
 };
 
-// ==================== RATE LIMITING ====================
+// ==================== RATE LIMITING (FIXED) ====================
 
 /**
- * Strict rate limiter for admin login attempts
- * Prevents brute force attacks
+ * ✅ FIXED: IPv6-compatible rate limiter for admin login
  */
 export const loginRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -55,18 +48,12 @@ export const loginRateLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  // Key generator: Rate limit by IP + email combination
-  keyGenerator: (req) => {
-    const ip = req.ip || req.connection.remoteAddress;
-    const email = req.body?.email || 'unknown';
-    return `${ip}-${email}`;
-  },
-  // Skip successful requests (only count failures)
+  // ✅ FIXED: Removed custom keyGenerator to use default (handles IPv6)
   skipSuccessfulRequests: true
 });
 
 /**
- * General admin API rate limiter
+ * ✅ FIXED: IPv6-compatible general admin API rate limiter
  */
 export const adminApiRateLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute
@@ -82,12 +69,8 @@ export const adminApiRateLimiter = rateLimit({
 
 // ==================== SESSION MANAGEMENT ====================
 
-// Store active admin sessions (in production, use Redis)
 const activeSessions = new Map();
 
-/**
- * Create admin session
- */
 export const createAdminSession = (userId, token, req) => {
   const sessionId = `${userId}-${Date.now()}`;
   const session = {
@@ -98,20 +81,15 @@ export const createAdminSession = (userId, token, req) => {
     lastActivity: new Date(),
     ip: req.ip || req.connection.remoteAddress,
     userAgent: req.headers['user-agent'],
-    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
+    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
   };
 
   activeSessions.set(sessionId, session);
-  
-  // Cleanup expired sessions
   cleanupExpiredSessions();
   
   return sessionId;
 };
 
-/**
- * Validate admin session
- */
 export const validateAdminSession = (userId, token) => {
   for (const [sessionId, session] of activeSessions.entries()) {
     if (session.userId === userId && session.token === token) {
@@ -119,7 +97,6 @@ export const validateAdminSession = (userId, token) => {
         activeSessions.delete(sessionId);
         return false;
       }
-      // Update last activity
       session.lastActivity = new Date();
       return true;
     }
@@ -127,9 +104,6 @@ export const validateAdminSession = (userId, token) => {
   return false;
 };
 
-/**
- * Invalidate admin session (logout)
- */
 export const invalidateAdminSession = (userId) => {
   for (const [sessionId, session] of activeSessions.entries()) {
     if (session.userId === userId) {
@@ -138,9 +112,6 @@ export const invalidateAdminSession = (userId) => {
   }
 };
 
-/**
- * Cleanup expired sessions
- */
 const cleanupExpiredSessions = () => {
   const now = new Date();
   for (const [sessionId, session] of activeSessions.entries()) {
@@ -150,20 +121,14 @@ const cleanupExpiredSessions = () => {
   }
 };
 
-// Run cleanup every hour
 setInterval(cleanupExpiredSessions, 60 * 60 * 1000);
 
 // ==================== ADMIN AUTHENTICATION ====================
 
-/**
- * Enhanced admin authentication middleware
- * Validates token, session, and admin privileges
- */
 export const authenticateAdmin = async (req, res, next) => {
   try {
     console.log('🔐 Admin authentication check');
 
-    // Extract token
     let token = null;
     const authHeader = req.headers.authorization;
     
@@ -182,7 +147,6 @@ export const authenticateAdmin = async (req, res, next) => {
       });
     }
 
-    // Verify JWT token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const userId = decoded.id || decoded.userId;
 
@@ -194,7 +158,6 @@ export const authenticateAdmin = async (req, res, next) => {
       });
     }
 
-    // Validate session exists
     if (!validateAdminSession(userId, token)) {
       console.log('❌ Invalid or expired admin session');
       return res.status(401).json({
@@ -204,7 +167,6 @@ export const authenticateAdmin = async (req, res, next) => {
       });
     }
 
-    // Fetch admin user
     const admin = await User.findById(userId).select('-passwordHash');
 
     if (!admin) {
@@ -215,7 +177,6 @@ export const authenticateAdmin = async (req, res, next) => {
       });
     }
 
-    // Verify admin role
     if (admin.role !== 'admin') {
       console.log('❌ User is not admin:', admin.role);
       return res.status(403).json({
@@ -225,7 +186,6 @@ export const authenticateAdmin = async (req, res, next) => {
       });
     }
 
-    // Verify account is active
     if (!admin.isActive) {
       return res.status(403).json({
         success: false,
@@ -234,7 +194,6 @@ export const authenticateAdmin = async (req, res, next) => {
       });
     }
 
-    // Attach admin to request
     req.admin = {
       id: admin._id.toString(),
       email: admin.emailId,
@@ -242,7 +201,7 @@ export const authenticateAdmin = async (req, res, next) => {
       role: admin.role
     };
 
-    req.user = req.admin; // For compatibility with existing middleware
+    req.user = req.admin;
 
     console.log('✅ Admin authenticated:', admin.emailId);
     next();
@@ -276,14 +235,10 @@ export const authenticateAdmin = async (req, res, next) => {
 
 // ==================== ADMIN ACTIVITY LOGGING ====================
 
-/**
- * Log admin actions for audit trail
- */
 export const logAdminActivity = async (req, res, next) => {
   const originalJson = res.json.bind(res);
   
   res.json = function(data) {
-    // Log admin activity
     if (req.admin) {
       console.log('📝 Admin Activity:', {
         admin: req.admin.email,
@@ -292,16 +247,6 @@ export const logAdminActivity = async (req, res, next) => {
         ip: req.ip || req.connection.remoteAddress,
         success: data.success !== false
       });
-
-      // In production, save to database
-      // await AdminActivityLog.create({
-      //   adminId: req.admin.id,
-      //   action: req.originalUrl,
-      //   method: req.method,
-      //   ip: req.ip,
-      //   timestamp: new Date(),
-      //   success: data.success !== false
-      // });
     }
 
     return originalJson(data);
@@ -310,25 +255,19 @@ export const logAdminActivity = async (req, res, next) => {
   next();
 };
 
-// ==================== 2FA HELPER (Optional) ====================
+// ==================== 2FA HELPER ====================
 
-/**
- * Generate 2FA code (6 digits)
- */
 export const generate2FACode = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();
 };
 
-/**
- * Verify 2FA code
- */
 export const verify2FACode = (inputCode, storedCode, expiryTime) => {
   if (!storedCode || !expiryTime) {
     return false;
   }
 
   if (new Date() > new Date(expiryTime)) {
-    return false; // Code expired
+    return false;
   }
 
   return inputCode === storedCode;
@@ -336,9 +275,6 @@ export const verify2FACode = (inputCode, storedCode, expiryTime) => {
 
 // ==================== PASSWORD STRENGTH VALIDATION ====================
 
-/**
- * Validate strong admin password
- */
 export const validateAdminPassword = (password) => {
   const minLength = 12;
   const hasUpperCase = /[A-Z]/.test(password);
@@ -372,9 +308,6 @@ export const validateAdminPassword = (password) => {
 
 // ==================== SECURITY HEADERS ====================
 
-/**
- * Add security headers to admin responses
- */
 export const adminSecurityHeaders = (req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
