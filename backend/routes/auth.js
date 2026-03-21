@@ -489,4 +489,30 @@ router.post('/validate-token', (req, res) => {
   }
 });
 
+// Google OAuth Routes
+import passport from 'passport';
+
+router.get('/google', (req, res, next) => {
+  const signup = req.query.signup === 'true';
+  passport.authenticate('google', { 
+    scope: ['profile', 'email'],
+    state: signup ? 'signup' : 'login'
+  })(req, res, next);
+});
+
+router.get('/google/callback', 
+  passport.authenticate('google', { failureRedirect: `${getFrontendUrl()}/login?error=google-failed`, session: false }),
+  (req, res) => {
+    // Generate JWT for the authenticated user
+    const token = jwt.sign(
+      { id: req.user._id, userId: req.user._id, emailId: req.user.emailId, email: req.user.emailId },
+      getJwtSecret(),
+      { expiresIn: '7d' }
+    );
+    
+    // Redirect to frontend with token
+    res.redirect(`${getFrontendUrl()}/auth/callback?token=${token}&user=${encodeURIComponent(JSON.stringify(req.user))}`);
+  }
+);
+
 export default router;

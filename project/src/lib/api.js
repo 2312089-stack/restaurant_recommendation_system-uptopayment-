@@ -2,6 +2,9 @@ const rawApiUrl = import.meta.env.VITE_API_URL?.trim();
 
 const normalizeApiBaseUrl = (value) => {
   if (!value) {
+    if (import.meta.env.PROD) {
+      return 'https://tastesphere-hy30.onrender.com/api';
+    }
     return 'http://localhost:5000/api';
   }
 

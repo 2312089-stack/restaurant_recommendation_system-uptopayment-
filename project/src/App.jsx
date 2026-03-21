@@ -29,6 +29,7 @@ import AddressPage from "./components/AddressPage";
 import OrderSummaryPage from "./components/OrderSummaryPage";
 import PaymentPage from "./components/PaymentPage";
 import ConfirmationPage from "./components/ConfirmationPage";
+import AuthCallback from "./components/AuthCallback";
 
 function App() {
   const [currentView, setCurrentView] = useState("splash");
@@ -179,6 +180,7 @@ function App() {
    <Route path="/payment" element={<PaymentPage />} />
    <Route path="/confirmation" element={<ConfirmationPage />} />
   <Route path="/payment-success" element={<PaymentSuccessPage />} />
+  <Route path="/auth/callback" element={<AuthCallback onLoginComplete={handleLoginComplete} />} />
 
           {/* Main app route - This catches all other routes */}
           <Route path="*" element={renderMainView()} />

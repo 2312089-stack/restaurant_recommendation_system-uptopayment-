@@ -37,6 +37,23 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
+import passport from 'passport';
+import session from 'express-session';
+import './config/passport.js';
+
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'tastesphere-session-secret',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 24 * 60 * 60 * 1000
+  }
+}));
+
+app.use(passport.initialize());
+app.use(passport.session());
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
