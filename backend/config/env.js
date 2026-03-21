@@ -7,7 +7,7 @@ const getFrontendUrl = () => {
   if (frontendUrl) return frontendUrl.replace(/\/+$/, '');
   
   if (process.env.NODE_ENV === 'production') {
-    return 'https://tastesphere-hy30.onrender.com';
+    return 'https://tastesphere-frontend.onrender.com';
   }
   
   return 'http://localhost:5173';
@@ -34,7 +34,8 @@ const getAllowedOrigins = () => {
     getFrontendUrl(),
     'http://localhost:5173',
     'http://localhost:3000',
-    'https://tastesphere-hy30.onrender.com'
+    'https://tastesphere-hy30.onrender.com',
+    'https://tastesphere-frontend.onrender.com'
   ];
 
   return [...new Set([...configuredOrigins, ...defaults])];
