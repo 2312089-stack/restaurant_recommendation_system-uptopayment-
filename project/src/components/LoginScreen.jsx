@@ -186,6 +186,30 @@ const LoginScreen = ({ onLoginComplete, onForgotPassword, onCreateAccount }) => 
         >
           Create New Account
         </button>
+
+        {/* Google Login */}
+        <div className="mt-6 flex items-center justify-center space-x-2">
+          <div className="h-px bg-gray-200 flex-1"></div>
+          <span className="text-gray-400 text-xs font-semibold uppercase tracking-wider">OR</span>
+          <div className="h-px bg-gray-200 flex-1"></div>
+        </div>
+
+        <button
+          onClick={() => {
+            const googleAuthUrl = buildApiUrl('/auth/google');
+            console.log('🚀 Redirecting to Google Auth:', googleAuthUrl);
+            window.location.href = googleAuthUrl;
+          }}
+          disabled={loading}
+          className="w-full mt-6 bg-white border-2 border-gray-300 text-gray-700 font-semibold py-3 rounded-full hover:bg-gray-50 flex items-center justify-center transition-colors shadow-sm"
+        >
+          <img 
+            src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" 
+            alt="Google" 
+            className="w-5 h-5 mr-3" 
+          />
+          Continue with Google
+        </button>
       </div>
     </div>
   );
