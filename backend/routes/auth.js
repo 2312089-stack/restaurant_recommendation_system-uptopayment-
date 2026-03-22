@@ -150,13 +150,19 @@ router.post('/forgot-password', async (req, res) => {
       // Production Gmail setup
       console.log('Setting up Gmail transporter...');
       
-      // FIXED: Use createTransport (not createTransporter)
+      // FIXED: Use createTransport with timeouts to prevent hanging
       transporter = nodemailer.createTransport({
         service: 'gmail',
+        host: 'smtp.gmail.com',
+        port: 465,
+        secure: true,
         auth: {
           user: process.env.EMAIL_USER,
           pass: process.env.EMAIL_PASS
-        }
+        },
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 15000,
       });
       
       console.log('Gmail transporter created successfully');
@@ -170,7 +176,7 @@ router.post('/forgot-password', async (req, res) => {
       const testAccount = await nodemailer.createTestAccount();
       console.log('Test account created:', testAccount.user);
       
-      // FIXED: Use createTransport (not createTransporter)
+      // FIXED: Use createTransport
       transporter = nodemailer.createTransport({
         host: 'smtp.ethereal.email',
         port: 587,
@@ -179,13 +185,14 @@ router.post('/forgot-password', async (req, res) => {
           user: testAccount.user,
           pass: testAccount.pass,
         },
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 15000,
       });
     }
 
-    // Verify transporter
-    console.log('Testing email server connection...');
-    await transporter.verify();
-    console.log('Email server connection successful');
+    // Skipping verify() as it can block the request and hover indefinitely if connection drops
+    console.log('Email server connection configuration loaded (verify step skipped for performance and timeout stability)');
 
     // Email content
     const mailOptions = {

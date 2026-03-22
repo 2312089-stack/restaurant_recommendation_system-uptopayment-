@@ -31,20 +31,21 @@ router.post("/send", async (req, res) => {
   console.log('🔢 Generated OTP:', otp);
   
   try {
-    // FIXED: Use createTransport (not createTransporter)
+    // FIXED: Use createTransport (not createTransporter) with timeouts to prevent hanging
     const transporter = nodemailer.createTransport({
       service: 'gmail',
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true,
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
       },
+      // Important: Add timeouts so the request doesn't hang indefinitely 
+      connectionTimeout: 10000, // 10 seconds
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
     });
-
-    console.log('📬 Verifying transporter...');
-    
-    // Verify transporter
-    await transporter.verify();
-    console.log('✅ Transporter verified successfully');
 
     console.log('📬 Sending email...');
 
