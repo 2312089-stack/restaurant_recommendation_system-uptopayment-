@@ -44,7 +44,7 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-app.options('/*', cors());
+app.options('*', cors());
 
 import passport from 'passport';
 import session from 'express-session';
