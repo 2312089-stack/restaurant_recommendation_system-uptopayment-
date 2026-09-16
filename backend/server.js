@@ -1,6 +1,8 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+await import('./config/passport.js');
+
 import cors from 'cors';
 import express from 'express';
 import mongoose from 'mongoose';
@@ -46,7 +48,6 @@ app.use(cors({
 
 import passport from 'passport';
 import session from 'express-session';
-import './config/passport.js';
 
 app.use(session({
   secret: process.env.SESSION_SECRET || 'tastesphere-session-secret',
