@@ -3,13 +3,12 @@ import React, { useState } from 'react';
 import { ArrowLeft, Eye, EyeOff, ChevronRight, Check } from 'lucide-react';
 import { buildApiUrl } from '../lib/api';
 
-const SignupScreen = ({ onBackToLogin, onSignupComplete }) => {
+const SignupScreen = ({ onBackToLogin, onSignupComplete, startStep = 'email' }) => {
   const [email, setEmail] = useState('');
-  const [currentStep, setCurrentStep] = useState('email');
+  const [currentStep, setCurrentStep] = useState(startStep);
   const [otp, setOtp] = useState(['', '', '', '']);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [serverOtp, setServerOtp] = useState('');
   
   // Password setup state - Updated for 6+ characters
   const [password, setPassword] = useState('');
@@ -61,7 +60,6 @@ const SignupScreen = ({ onBackToLogin, onSignupComplete }) => {
       });
       const data = await response.json();
       if (data.success) {
-        setServerOtp(data.otp.toString());
         setCurrentStep('otp');
       } else {
         setError(data.error || 'Failed to send OTP');
@@ -91,13 +89,27 @@ const SignupScreen = ({ onBackToLogin, onSignupComplete }) => {
     }
   };
 
-  const handleVerify = () => {
+  const handleVerify = async () => {
     const enteredOtp = otp.join('');
     if (enteredOtp.length !== 4) return;
-    if (enteredOtp === serverOtp.slice(0, 4)) {
-      setCurrentStep('password');
-    } else {
-      setError('Invalid OTP. Please try again.');
+    setLoading(true);
+    setError('');
+    try {
+      const response = await fetch(buildApiUrl('/otp/verify'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, otp: enteredOtp }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        setCurrentStep('password');
+      } else {
+        setError(data.error || 'Invalid OTP. Please try again.');
+      }
+    } catch (err) {
+      setError('Network error. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -142,7 +154,6 @@ const SignupScreen = ({ onBackToLogin, onSignupComplete }) => {
     setCurrentStep('email');
     setOtp(['', '', '', '']);
     setError('');
-    setServerOtp('');
   };
 
   // Onboarding handlers
@@ -182,7 +193,23 @@ const SignupScreen = ({ onBackToLogin, onSignupComplete }) => {
       
       if (data.success) {
         console.log('Onboarding completed successfully');
-        
+
+        // Keep the stored user in sync so a refresh does not send the user
+        // back to onboarding (required for the Google OAuth flow).
+        try {
+          const storedUser = localStorage.getItem("user");
+          if (storedUser) {
+            const parsedUser = JSON.parse(storedUser);
+            parsedUser.onboardingCompleted = true;
+            if (data.user && data.user.preferences) {
+              parsedUser.preferences = data.user.preferences;
+            }
+            localStorage.setItem("user", JSON.stringify(parsedUser));
+          }
+        } catch (storageError) {
+          console.error('Could not update stored user after onboarding:', storageError);
+        }
+
         // Clean up signup data
         localStorage.removeItem("userId");
         

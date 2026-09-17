@@ -24,10 +24,9 @@ try {
   process.exit(1);
 }
 
-connectDB().catch((error) => {
-  console.error('Failed to initialize database connection:', error.message);
-  process.exit(1);
-});
+// Wait for MongoDB before opening the port so requests never hit a
+// half-initialized database (avoids transient "database: disconnected").
+await connectDB();
 
 const app = express();
 const allowedOrigins = getAllowedOrigins();

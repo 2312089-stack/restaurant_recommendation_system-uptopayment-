@@ -1,6 +1,70 @@
 // App.jsx - Updated with separate order flow pages
-import React, { useState, useEffect } from "react";
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import React, { useState, useEffect, useCallback } from "react";
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  useLocation,
+} from "react-router-dom";
+
+const hasStoredSession = () => {
+  try {
+    return Boolean(localStorage.getItem("token"));
+  } catch (error) {
+    return false;
+  }
+};
+
+const getStoredUser = () => {
+  try {
+    const rawUser = localStorage.getItem("user");
+    return rawUser ? JSON.parse(rawUser) : null;
+  } catch (error) {
+    return null;
+  }
+};
+
+// An authenticated user who has not finished onboarding must be sent there
+// before they can reach Home.
+const needsOnboarding = () => {
+  const user = getStoredUser();
+  return Boolean(user) && user.onboardingCompleted !== true;
+};
+
+// The main app is a state machine, but several components navigate to real
+// URLs ("/login", "/forgot-password", "/settings", "/menu"). Map those paths
+// back to the matching state-machine view so those navigations actually work.
+const viewForPath = (pathname) => {
+  switch (pathname) {
+    case "/login":
+      return "login";
+    case "/signup":
+      return "signup";
+    case "/forgot-password":
+      return "forgot-password";
+    case "/settings":
+      return "settings";
+    case "/onboarding":
+      return "profile-onboarding";
+    case "/menu":
+    case "/home":
+      return "main";
+    default:
+      return null;
+  }
+};
+
+// Lives inside <Router> so it can observe client-side navigation and sync the
+// state-machine view. Renders nothing.
+const PathSync = ({ onPathChange }) => {
+  const location = useLocation();
+
+  useEffect(() => {
+    onPathChange(location.pathname);
+  }, [location.pathname, onPathChange]);
+
+  return null;
+};
 
 // Auth flow components
 import SplashScreen from "./components/SplashScreen";
@@ -32,17 +96,62 @@ import ConfirmationPage from "./components/ConfirmationPage";
 import AuthCallback from "./components/AuthCallback";
 
 function App() {
-  const [currentView, setCurrentView] = useState("splash");
+  // Restore the authenticated session on load. An authenticated user who has
+  // not finished onboarding is sent to onboarding first; everyone else goes to
+  // Home. Deep links such as /login or /settings are honored on first load.
+  const [currentView, setCurrentView] = useState(() => {
+    const mappedView = viewForPath(window.location.pathname);
+    const isAuthenticated = hasStoredSession();
 
-  // Show splash for 3 seconds
+    if (isAuthenticated && needsOnboarding()) {
+      return "profile-onboarding";
+    }
+
+    if (mappedView === "main" || mappedView === "profile-onboarding") {
+      return isAuthenticated ? mappedView : "login";
+    }
+
+    if (mappedView) {
+      return mappedView;
+    }
+
+    return isAuthenticated ? "main" : "splash";
+  });
+
+  const handlePathChange = useCallback((pathname) => {
+    const mappedView = viewForPath(pathname);
+
+    if (!mappedView) {
+      return;
+    }
+
+    const isAuthenticated = hasStoredSession();
+    const requiresAuth =
+      mappedView === "main" || mappedView === "profile-onboarding";
+
+    if (requiresAuth && !isAuthenticated) {
+      setCurrentView("login");
+      return;
+    }
+
+    setCurrentView(mappedView);
+  }, []);
+
+  // Show splash for 3 seconds only while we are actually on the splash view.
+  // This is cancelled automatically if auth completes (e.g. OAuth callback)
+  // and moves the view to "main" before the timeout fires.
   useEffect(() => {
+    if (currentView !== "splash") {
+      return undefined;
+    }
+
     console.log("App initialized, showing splash screen");
     const timer = setTimeout(() => {
       console.log("Splash timeout, moving to onboarding");
       setCurrentView("onboarding");
     }, 3000);
     return () => clearTimeout(timer);
-  }, []);
+  }, [currentView]);
 
   // Debug: Log current view changes
   useEffect(() => {
@@ -55,10 +164,35 @@ function App() {
     setCurrentView("login");
   };
 
-  const handleLoginComplete = () => {
+  const handleLoginComplete = useCallback(() => {
+    // Any authenticated user who has not finished onboarding must complete it
+    // before reaching Home (covers Google and email/password accounts that
+    // abandoned onboarding earlier).
+    const user = getStoredUser();
+
+    if (user && user.onboardingCompleted !== true) {
+      const userId = user.id || user._id;
+      if (userId) {
+        localStorage.setItem("userId", userId);
+      }
+      console.log("🎯 handleLoginComplete: onboarding required");
+      setCurrentView("profile-onboarding");
+      return;
+    }
+
     console.log("🎯 handleLoginComplete called, setting view to main");
     setCurrentView("main");
-  };
+  }, []);
+
+  const handleOnboardingRequired = useCallback(() => {
+    console.log("🎯 handleOnboardingRequired called, setting view to profile onboarding");
+    setCurrentView("profile-onboarding");
+  }, []);
+
+  const handleAuthFailed = useCallback(() => {
+    console.log("🎯 handleAuthFailed called, returning to login");
+    setCurrentView("login");
+  }, []);
 
   const handleForgotPassword = () => {
     console.log("🎯 handleForgotPassword called");
@@ -90,12 +224,13 @@ function App() {
     setCurrentView("main");
   };
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     console.log("🎯 handleLogout called, clearing auth and going to login");
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    localStorage.removeItem('userPreferences');
     setCurrentView("login");
-  };
+  }, []);
 
   // CLEAN: Direct render function for the main state-machine view
   const renderMainView = () => {
@@ -107,6 +242,18 @@ function App() {
         
       case "onboarding":
         return <OnboardingFlow onComplete={handleOnboardingComplete} />;
+
+      // Profile preferences onboarding for authenticated users who have not
+      // finished it (e.g. brand new Google accounts). Reuses the existing
+      // SignupScreen onboarding step instead of duplicating the UI.
+      case "profile-onboarding":
+        return (
+          <SignupScreen
+            startStep="onboarding"
+            onBackToLogin={handleLoginComplete}
+            onSignupComplete={handleLoginComplete}
+          />
+        );
         
       case "login":
         return (
@@ -157,6 +304,7 @@ function App() {
   return (
     <Router>
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+        <PathSync onPathChange={handlePathChange} />
         <Routes>
           {/* Original reset password from forgot password flow */}
           <Route
@@ -180,7 +328,16 @@ function App() {
    <Route path="/payment" element={<PaymentPage />} />
    <Route path="/confirmation" element={<ConfirmationPage />} />
   <Route path="/payment-success" element={<PaymentSuccessPage />} />
-  <Route path="/auth/callback" element={<AuthCallback onLoginComplete={handleLoginComplete} />} />
+  <Route
+    path="/auth/callback"
+    element={
+      <AuthCallback
+        onLoginComplete={handleLoginComplete}
+        onOnboardingRequired={handleOnboardingRequired}
+        onAuthFailed={handleAuthFailed}
+      />
+    }
+  />
 
           {/* Main app route - This catches all other routes */}
           <Route path="*" element={renderMainView()} />

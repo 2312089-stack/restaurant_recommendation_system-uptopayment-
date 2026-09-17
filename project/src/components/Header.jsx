@@ -17,7 +17,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 
-const Header = ({ onOpenSettings }) => {
+const Header = ({ onOpenSettings, onLogout }) => {
   const [location, setLocation] = useState("Detecting location...");
   const [isLocationDropdownOpen, setIsLocationDropdownOpen] = useState(false);
   const [isNotificationDropdownOpen, setIsNotificationDropdownOpen] = useState(false);
@@ -25,7 +25,14 @@ const Header = ({ onOpenSettings }) => {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [cartCount] = useState(3);
   const [notificationCount] = useState(2);
-  const [user, setUser] = useState({ email: "user@example.com", name: "John Doe" });
+  const [user, setUser] = useState(() => {
+    try {
+      const storedUser = localStorage.getItem("user");
+      return storedUser ? JSON.parse(storedUser) : null;
+    } catch (error) {
+      return null;
+    }
+  });
 
   // Real-time location detection
   useEffect(() => {
@@ -82,10 +89,15 @@ const Header = ({ onOpenSettings }) => {
   };
 
   const handleLogout = () => {
-    setUser(null);
     setIsAccountDropdownOpen(false);
-    // Add your logout logic here
     console.log("User logged out");
+    if (onLogout) {
+      onLogout();
+    } else {
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
+      setUser(null);
+    }
   };
 
   const notifications = [
@@ -254,7 +266,7 @@ const Header = ({ onOpenSettings }) => {
                 {isAccountDropdownOpen && (
                   <div className="absolute top-12 right-0 w-64 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">
                     <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-                      <p className="font-semibold text-gray-900 dark:text-white">{user ? user.email : "Guest User"}</p>
+                      <p className="font-semibold text-gray-900 dark:text-white">{user ? (user.emailId || user.email) : "Guest User"}</p>
                       {user && user.name && (
                         <p className="text-sm text-gray-500 dark:text-gray-400">{user.name}</p>
                       )}
@@ -296,21 +308,21 @@ const Header = ({ onOpenSettings }) => {
         <div className="border-t border-gray-200 dark:border-gray-700">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <nav className="flex space-x-8 overflow-x-auto">
-              <a href="#" className="flex items-center space-x-2 px-3 py-3 text-orange-600 border-b-2 border-orange-600 font-medium">
+              <button type="button" className="flex items-center space-x-2 px-3 py-3 bg-transparent text-orange-600 border-b-2 border-orange-600 font-medium">
                 <Home className="w-4 h-4" /><span>Home</span>
-              </a>
-              <a href="#" className="flex items-center space-x-2 px-3 py-3 text-gray-600 hover:text-orange-600 dark:text-gray-400 dark:hover:text-orange-600 transition-colors">
+              </button>
+              <button type="button" className="flex items-center space-x-2 px-3 py-3 bg-transparent text-gray-600 hover:text-orange-600 dark:text-gray-400 dark:hover:text-orange-600 transition-colors">
                 <Compass className="w-4 h-4" /><span>Discover</span>
-              </a>
-              <a href="#" className="flex items-center space-x-2 px-3 py-3 text-gray-600 hover:text-orange-600 dark:text-gray-400 dark:hover:text-orange-600 transition-colors">
+              </button>
+              <button type="button" className="flex items-center space-x-2 px-3 py-3 bg-transparent text-gray-600 hover:text-orange-600 dark:text-gray-400 dark:hover:text-orange-600 transition-colors">
                 <Calendar className="w-4 h-4" /><span>Reservations</span>
-              </a>
-              <a href="#" className="flex items-center space-x-2 px-3 py-3 text-gray-600 hover:text-orange-600 dark:text-gray-400 dark:hover:text-orange-600 transition-colors">
+              </button>
+              <button type="button" className="flex items-center space-x-2 px-3 py-3 bg-transparent text-gray-600 hover:text-orange-600 dark:text-gray-400 dark:hover:text-orange-600 transition-colors">
                 <Package className="w-4 h-4" /><span>Orders</span>
-              </a>
-              <a href="#" className="flex items-center space-x-2 px-3 py-3 text-gray-600 hover:text-orange-600 dark:text-gray-400 dark:hover:text-orange-600 transition-colors">
+              </button>
+              <button type="button" className="flex items-center space-x-2 px-3 py-3 bg-transparent text-gray-600 hover:text-orange-600 dark:text-gray-400 dark:hover:text-orange-600 transition-colors">
                 <Heart className="w-4 h-4" /><span>Wishlist</span>
-              </a>
+              </button>
             </nav>
           </div>
         </div>
