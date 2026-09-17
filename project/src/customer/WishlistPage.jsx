@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import { useWishlist } from '../contexts/WishlistContext';
 import { useCart } from '../contexts/CartContext';
-import { BACKEND_URL } from '../config/api.js';
+import { resolveImageUrl } from '../config/api.js';
 
 const WishlistPage = ({ onBack, onNavigateBack, onOpenCart, onAddToCart, onShareWishlist }) => {
   
@@ -525,7 +525,7 @@ const WishlistPage = ({ onBack, onNavigateBack, onOpenCart, onAddToCart, onShare
                   {/* Item Image */}
                   <div className={`relative ${viewMode === 'list' ? 'w-32 h-32' : 'h-48'} overflow-hidden ${viewMode === 'grid' ? 'rounded-t-lg' : 'rounded-l-lg'}`}>
                     <img
-                      src={item.image ? `${BACKEND_URL}${item.image}` : 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg?auto=compress&cs=tinysrgb&w=400&h=250&dpr=1'}
+                      src={resolveImageUrl(item.image, 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg?auto=compress&cs=tinysrgb&w=400&h=250&dpr=1')}
                       alt={item.name}
                       className="w-full h-full object-cover"
                       onError={(e) => {

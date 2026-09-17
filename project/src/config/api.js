@@ -27,6 +27,25 @@ export const BACKEND_URL = isDevelopment
 // VITE_BACKEND_URL=http://localhost:5000
 
 /**
+ * Turn a stored image path into a usable URL.
+ * Absolute URLs (http/https, protocol-relative, data:, blob:) are returned
+ * untouched; relative paths are served from the backend. Pass a fallback to
+ * use when the value is empty.
+ */
+export const resolveImageUrl = (path, fallback = '') => {
+  if (!path) return fallback;
+
+  const value = String(path).trim();
+  if (!value) return fallback;
+
+  if (/^(https?:)?\/\//i.test(value) || value.startsWith('data:') || value.startsWith('blob:')) {
+    return value;
+  }
+
+  return `${BACKEND_URL}${value.startsWith('/') ? '' : '/'}${value}`;
+};
+
+/**
  * API Endpoints Configuration
  */
 export const API_ENDPOINTS = {
@@ -142,5 +161,6 @@ export default {
   BACKEND_URL,
   API_ENDPOINTS,
   apiCall,
+  resolveImageUrl,
   isDevelopment,
 };

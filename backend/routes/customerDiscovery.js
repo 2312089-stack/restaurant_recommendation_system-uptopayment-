@@ -232,6 +232,105 @@ router.get('/dishes/featured', async (req, res) => {
   }
 });
 
+// GET trending dishes (most ordered) for TrendingInCity
+router.get('/dishes/trending', async (req, res) => {
+  try {
+    const { limit = 10, city } = req.query;
+
+    const query = { availability: true, isActive: true };
+    if (city) query['location.city'] = new RegExp(city, 'i');
+
+    const dishes = await Dish.find(query)
+      .populate('seller', 'businessName businessType address businessDetails.documents')
+      .sort({ orderCount: -1, 'rating.average': -1 })
+      .limit(parseInt(limit, 10))
+      .lean();
+
+    const enrichedDishes = await enrichDishesWithSellerStatus(dishes);
+
+    const transformedDishes = enrichedDishes.map((dish, index) => ({
+      id: dish._id,
+      name: dish.name,
+      description: dish.description,
+      restaurant: dish.seller?.businessName || dish.restaurantName || 'Restaurant',
+      restaurantId: dish.seller?._id,
+      image: dish.image,
+      price: dish.price,
+      currentPrice: dish.offer?.hasOffer && dish.offer.validUntil > new Date()
+        ? Math.round(dish.price * (1 - dish.offer.discountPercentage / 100))
+        : dish.price,
+      isSellerOnline: dish.isSellerOnline,
+      sellerDashboardStatus: dish.sellerDashboardStatus,
+      rating: dish.rating?.average || 4.2,
+      category: dish.category,
+      type: dish.type,
+      orderCount: dish.orderCount || 0,
+      trendRank: index + 1,
+      tags: dish.tags || [],
+      restaurantLogo: dish.seller?.businessDetails?.documents?.logo
+    }));
+
+    res.json({
+      success: true,
+      message: `Found ${transformedDishes.length} trending dishes`,
+      dishes: transformedDishes
+    });
+  } catch (error) {
+    console.error('Get trending dishes error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve trending dishes',
+      details: error.message
+    });
+  }
+});
+
+// GET dishes with active offers for SpecialOffers
+router.get('/dishes/offers', async (req, res) => {
+  try {
+    const { limit = 10, city } = req.query;
+
+    const dishes = await Dish.findActiveOffers({ city, limit: parseInt(limit, 10) })
+      .populate('seller', 'businessName businessType address businessDetails.documents')
+      .lean();
+
+    const enrichedDishes = await enrichDishesWithSellerStatus(dishes);
+
+    const transformedDishes = enrichedDishes.map(dish => ({
+      id: dish._id,
+      name: dish.name,
+      description: dish.description,
+      restaurant: dish.seller?.businessName || dish.restaurantName || 'Restaurant',
+      restaurantId: dish.seller?._id,
+      image: dish.image,
+      price: dish.price,
+      currentPrice: Math.round(dish.price * (1 - dish.offer.discountPercentage / 100)),
+      discountPercentage: dish.offer.discountPercentage,
+      validUntil: dish.offer.validUntil,
+      isSellerOnline: dish.isSellerOnline,
+      sellerDashboardStatus: dish.sellerDashboardStatus,
+      rating: dish.rating?.average || 4.2,
+      category: dish.category,
+      type: dish.type,
+      tags: dish.tags || [],
+      restaurantLogo: dish.seller?.businessDetails?.documents?.logo
+    }));
+
+    res.json({
+      success: true,
+      message: `Found ${transformedDishes.length} offers`,
+      dishes: transformedDishes
+    });
+  } catch (error) {
+    console.error('Get offers error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve offers',
+      details: error.message
+    });
+  }
+});
+
 // FIXED: Search dishes with real-time status
 router.get('/search', async (req, res) => {
   try {

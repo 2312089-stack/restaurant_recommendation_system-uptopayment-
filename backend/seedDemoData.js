@@ -166,6 +166,13 @@ export const seedDemoData = async ({ connect = true } = {}) => {
           'rating.count': 20 + index * 3,
           orderCount: 120 - index * 5,
           viewCount: 400 - index * 7,
+          offer: index % 3 === 0
+            ? {
+                hasOffer: true,
+                discountPercentage: 20 + (index % 3) * 10,
+                validUntil: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+              }
+            : { hasOffer: false, discountPercentage: 0, validUntil: null },
         },
       },
       { upsert: true, new: true, setDefaultsOnInsert: true }

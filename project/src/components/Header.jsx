@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Search,
   MapPin,
@@ -16,6 +16,8 @@ import {
   LogOut,
   ChevronDown,
 } from "lucide-react";
+import { useCart } from "../contexts/CartContext";
+import { API_BASE_URL } from "../config/api.js";
 
 const Header = ({ activeView = "main", onNavigate, onOpenSettings, onLogout }) => {
   const [location, setLocation] = useState("Detecting location...");
@@ -23,8 +25,9 @@ const Header = ({ activeView = "main", onNavigate, onOpenSettings, onLogout }) =
   const [isNotificationDropdownOpen, setIsNotificationDropdownOpen] = useState(false);
   const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
-  const [cartCount] = useState(3);
-  const [notificationCount] = useState(2);
+  const { itemCount } = useCart();
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [user, setUser] = useState(() => {
     try {
       const storedUser = localStorage.getItem("user");
@@ -100,11 +103,69 @@ const Header = ({ activeView = "main", onNavigate, onOpenSettings, onLogout }) =
     }
   };
 
-  const notifications = [
-    { id: 1, message: "Your order from Pizza Palace is ready!", time: "2 min ago" },
-    { id: 2, message: "Time to reorder your favorite Biryani 🍛", time: "1 hour ago" },
-    { id: 3, message: "50% off on all desserts today!", time: "3 hours ago" },
-  ];
+  const addNotification = useCallback((message) => {
+    setNotifications((prev) =>
+      [{ id: `${Date.now()}-${Math.random()}`, message, time: "Just now" }, ...prev].slice(0, 20)
+    );
+    setUnreadCount((prev) => prev + 1);
+  }, []);
+
+  // Turn live cart/wishlist activity into notifications.
+  useEffect(() => {
+    const cartMessages = {
+      add: "Item added to your cart",
+      update: "Your cart was updated",
+      remove: "Item removed from your cart",
+      clear: "Your cart was cleared",
+    };
+    const wishlistMessages = {
+      add: "Added to your wishlist",
+      remove: "Removed from your wishlist",
+      clear: "Your wishlist was cleared",
+    };
+
+    const handleCartUpdated = (event) =>
+      addNotification(cartMessages[event.detail?.action] || "Cart updated");
+    const handleWishlistUpdated = (event) =>
+      addNotification(wishlistMessages[event.detail?.action] || "Wishlist updated");
+
+    window.addEventListener("cartUpdated", handleCartUpdated);
+    window.addEventListener("wishlistUpdated", handleWishlistUpdated);
+
+    return () => {
+      window.removeEventListener("cartUpdated", handleCartUpdated);
+      window.removeEventListener("wishlistUpdated", handleWishlistUpdated);
+    };
+  }, [addNotification]);
+
+  // Surface recent order activity when the user is signed in.
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) return undefined;
+
+    let cancelled = false;
+
+    fetch(`${API_BASE_URL}/order-history/recent?limit=3`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.orders?.length) return;
+        const items = data.orders.map((order) => ({
+          id: order._id,
+          message: `Order ${String(order.currentStatus || "").replace(/_/g, " ")}${
+            order.snapshot?.restaurantName ? ` from ${order.snapshot.restaurantName}` : ""
+          }`,
+          time: new Date(order.createdAt).toLocaleDateString(),
+        }));
+        setNotifications((prev) => [...items, ...prev].slice(0, 20));
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const navTabs = [
     { id: "main", label: "Home", Icon: Home },
@@ -229,13 +290,19 @@ const Header = ({ activeView = "main", onNavigate, onOpenSettings, onLogout }) =
               {/* Notifications */}
               <div className="relative">
                 <button
-                  onClick={() => setIsNotificationDropdownOpen(!isNotificationDropdownOpen)}
+                  onClick={() =>
+                    setIsNotificationDropdownOpen((open) => {
+                      const next = !open;
+                      if (next) setUnreadCount(0);
+                      return next;
+                    })
+                  }
                   className="relative p-2 text-gray-600 hover:text-orange-500 dark:text-gray-400 dark:hover:text-orange-500 transition-colors"
                 >
                   <Bell className="w-5 h-5" />
-                  {notificationCount > 0 && (
+                  {unreadCount > 0 && (
                     <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
-                      {notificationCount}
+                      {unreadCount > 9 ? "9+" : unreadCount}
                     </span>
                   )}
                 </button>
@@ -245,6 +312,11 @@ const Header = ({ activeView = "main", onNavigate, onOpenSettings, onLogout }) =
                     <div className="p-4 border-b border-gray-200 dark:border-gray-700">
                       <h3 className="font-semibold text-gray-900 dark:text-white">Notifications</h3>
                     </div>
+                    {notifications.length === 0 && (
+                      <div className="p-6 text-center text-sm text-gray-500 dark:text-gray-400">
+                        No notifications yet
+                      </div>
+                    )}
                     {notifications.map((notification) => (
                       <div
                         key={notification.id}
@@ -259,11 +331,15 @@ const Header = ({ activeView = "main", onNavigate, onOpenSettings, onLogout }) =
               </div>
 
               {/* Cart */}
-              <button className="relative p-2 text-gray-600 hover:text-orange-500 dark:text-gray-400 dark:hover:text-orange-500 transition-colors">
+              <button
+                type="button"
+                onClick={() => handleTabClick("discover")}
+                className="relative p-2 text-gray-600 hover:text-orange-500 dark:text-gray-400 dark:hover:text-orange-500 transition-colors"
+              >
                 <ShoppingCart className="w-5 h-5" />
-                {cartCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-orange-500 text-white text-xs rounded-full flex items-center justify-center">
-                    {cartCount}
+                {itemCount > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 bg-orange-500 text-white text-xs rounded-full flex items-center justify-center">
+                    {itemCount > 9 ? "9+" : itemCount}
                   </span>
                 )}
               </button>

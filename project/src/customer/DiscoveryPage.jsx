@@ -9,7 +9,7 @@ import { useWishlist } from '../contexts/WishlistContext';
 import { useSocket } from '../contexts/SocketContext';
 import { useNavigate } from 'react-router-dom';
 
-import { API_BASE_URL, BACKEND_URL } from "../config/api.js";
+import { API_BASE_URL, resolveImageUrl } from "../config/api.js";
 const DiscoveryPage = ({ onBack, onShowDishDetails, onShowRestaurantMenu }) => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('dishes');
@@ -438,7 +438,7 @@ const DiscoveryPage = ({ onBack, onShowDishDetails, onShowRestaurantMenu }) => {
       name: dish.name,
       restaurant: dish.restaurant || dish.restaurantName || 'Restaurant',
       price: dish.price,
-      image: dish.image ? `${BACKEND_URL}${dish.image}` : 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg',
+      image: resolveImageUrl(dish.image, 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg'),
       rating: dish.rating || '4.2',
       deliveryTime: dish.deliveryTime || '25-30 min',
       category: dish.category,
@@ -501,7 +501,7 @@ const handleDishClick = (dish) => {
         
         <div className="relative" onClick={() => handleDishClick(dish)}>
           <img
-            src={dish.image ? `${BACKEND_URL}${dish.image}` : 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg'}
+            src={resolveImageUrl(dish.image, 'https://images.pexels.com/photos/1566837/pexels-photo-1566837.jpeg')}
             alt={dish.name}
             className={`w-full h-48 object-cover transition-transform duration-300 ${
               isOffline ? '' : 'group-hover:scale-105'
@@ -668,7 +668,7 @@ const handleDishClick = (dish) => {
       >
         <div className="relative">
           <img
-            src={restaurant.bannerImage ? `${BACKEND_URL}${restaurant.bannerImage}` : 'https://images.pexels.com/photos/262978/pexels-photo-262978.jpeg'}
+            src={resolveImageUrl(restaurant.bannerImage, 'https://images.pexels.com/photos/262978/pexels-photo-262978.jpeg')}
             alt={restaurant.name}
             className="w-full h-40 object-cover"
             onError={(e) => {
@@ -700,7 +700,7 @@ const handleDishClick = (dish) => {
             </div>
             {restaurant.logo && (
               <img
-                src={`${BACKEND_URL}${restaurant.logo}`}
+                src={resolveImageUrl(restaurant.logo)}
                 alt={`${restaurant.name} logo`}
                 className="w-12 h-12 rounded-lg object-cover border border-gray-200"
               />
