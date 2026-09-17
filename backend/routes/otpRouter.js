@@ -92,11 +92,72 @@ router.post("/send", async (req, res) => {
   }
 
   if (!process.env.GMAIL_REFRESH_TOKEN) {
-    console.error("❌ GMAIL_REFRESH_TOKEN not set");
-    return res.status(500).json({
-      success: false,
-      error: "Email service not configured. Admin: set GMAIL_REFRESH_TOKEN.",
-    });
+    // Fallback to SMTP when Gmail API refresh token is not configured
+    // (works locally; Render blocks SMTP so it uses Gmail API instead)
+    const otp = generateOTP();
+    console.log("🔢 Generated OTP:", otp, "via SMTP");
+
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+      console.error("❌ Missing email credentials");
+      return res.status(500).json({
+        success: false,
+        error: "Email service not configured",
+      });
+    }
+
+    try {
+      const nodemailer = (await import("nodemailer")).default;
+      const transporter = nodemailer.createTransport({
+        service: "gmail",
+        host: "smtp.gmail.com",
+        port: 587,
+        secure: false,
+        auth: {
+          user: process.env.EMAIL_USER,
+          pass: process.env.EMAIL_PASS,
+        },
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 15000,
+      });
+
+      const htmlBody = `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+          <div style="text-align:center;">
+            <h2 style="color:#f97316;margin:0;">TasteSphere</h2>
+            <p style="color:#666;margin:10px 0;">Your verification code</p>
+          </div>
+          <div style="background:#f8f9fa;padding:20px;border-radius:8px;margin:20px 0;">
+            <p style="color:#333;margin:0 0 10px 0;">Your OTP code is:</p>
+            <div style="font-size:36px;font-weight:bold;color:#f97316;text-align:center;padding:15px;background:white;border-radius:8px;letter-spacing:5px;border:2px solid #f97316;">${otp}</div>
+          </div>
+          <p style="color:#666;font-size:14px;text-align:center;margin:0;">
+            This code will expire in 5 minutes.<br>Don't share this code with anyone.
+          </p>
+        </div>`;
+      const textBody = `Your TasteSphere OTP is: ${otp}. This code will expire in 5 minutes.`;
+
+      const mailOptions = {
+        from: `"TasteSphere" <${process.env.EMAIL_USER}>`,
+        to: email,
+        subject: "TasteSphere - Your OTP Code",
+        html: htmlBody,
+        text: textBody,
+      };
+
+      const info = await transporter.sendMail(mailOptions);
+      console.log("✅ Email sent via SMTP!");
+      console.log("Message ID:", info.messageId);
+      console.log("OTP sent to:", email, "OTP:", otp);
+
+      return res.json({ success: true, otp });
+    } catch (err) {
+      console.error("❌ SMTP Mail Error:", err.message);
+      return res.status(500).json({
+        success: false,
+        error: "Failed to send OTP. " + err.message,
+      });
+    }
   }
 
   const otp = generateOTP();
