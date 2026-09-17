@@ -11,11 +11,15 @@ import connectDB from './connectDB.js';
 import { getAllowedOrigins, getMongoUri, validateCoreEnv } from './config/env.js';
 import addressRoutes from './routes/addressRoutes.js';
 import authRouter from './routes/auth.js';
+import cartRoutes from './routes/cartRoutes.js';
+import customerDiscoveryRoutes from './routes/customerDiscovery.js';
+import orderHistoryRoutes from './routes/orderHistoryRoutes.js';
 import otpRouter from './routes/otpRouter.js';
 import paymentRoutes from './routes/payment.js';
 import settingsAuthRoutes from './routes/settingsAuth.js';
 import uploadRoutes from './routes/uploadRoutes.js';
 import userRouter from './routes/userRouter.js';
+import wishlistRoutes from './routes/wishlistRoutes.js';
 
 try {
   validateCoreEnv();
@@ -27,6 +31,18 @@ try {
 // Wait for MongoDB before opening the port so requests never hit a
 // half-initialized database (avoids transient "database: disconnected").
 await connectDB();
+
+// Optional one-time demo seed for the customer pages. Set SEED_DEMO=1 in the
+// environment to populate demo restaurants/dishes on boot (skips if data
+// already exists). Remove the variable afterwards.
+if (process.env.SEED_DEMO === '1') {
+  try {
+    const { seedDemoData } = await import('./seedDemoData.js');
+    await seedDemoData({ connect: false });
+  } catch (error) {
+    console.error('Demo seed failed:', error.message);
+  }
+}
 
 const app = express();
 const allowedOrigins = getAllowedOrigins();
@@ -114,6 +130,10 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/settings-auth', settingsAuthRoutes);
 app.use('/api/addresses', addressRoutes);
 app.use('/api/payment', paymentRoutes);
+app.use('/api/discovery', customerDiscoveryRoutes);
+app.use('/api/wishlist', wishlistRoutes);
+app.use('/api/cart', cartRoutes);
+app.use('/api/order-history', orderHistoryRoutes);
 
 app.use((req, res) => {
   res.status(404).json({

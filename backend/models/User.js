@@ -1,6 +1,7 @@
 // models/User.js - Fixed with proper ES6 export
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 
 const userSchema = new mongoose.Schema({
   emailId: {
@@ -37,6 +38,33 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  // WISHLIST
+  wishlist: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Dish'
+  }],
+  wishlistAddedAt: [{
+    dishId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Dish'
+    },
+    addedAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
+
+  // RECENTLY VIEWED
+  recentlyViewed: [{
+    dish: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Dish'
+    },
+    viewedAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
   // Email change functionality
   pendingEmailChange: {
     newEmail: {
@@ -119,6 +147,102 @@ userSchema.methods.clearPendingEmailChange = function() {
   return this.save();
 };
 
+// Wishlist Methods
+userSchema.methods.addToWishlist = function(dishId) {
+  if (!this.wishlist) this.wishlist = [];
+  if (!this.wishlistAddedAt) this.wishlistAddedAt = [];
+
+  const dishObjectId = new mongoose.Types.ObjectId(dishId);
+  const isAlreadyInWishlist = this.wishlist.some(id =>
+    id.toString() === dishObjectId.toString()
+  );
+
+  if (!isAlreadyInWishlist) {
+    this.wishlist.push(dishObjectId);
+    this.wishlistAddedAt.push({
+      dishId: dishObjectId,
+      addedAt: new Date()
+    });
+  }
+
+  return this.save();
+};
+
+userSchema.methods.removeFromWishlist = function(dishId) {
+  if (!this.wishlist) this.wishlist = [];
+  if (!this.wishlistAddedAt) this.wishlistAddedAt = [];
+
+  const dishObjectId = new mongoose.Types.ObjectId(dishId);
+
+  this.wishlist = this.wishlist.filter(id =>
+    id.toString() !== dishObjectId.toString()
+  );
+
+  this.wishlistAddedAt = this.wishlistAddedAt.filter(item =>
+    item.dishId?.toString() !== dishObjectId.toString()
+  );
+
+  return this.save();
+};
+
+userSchema.methods.isInWishlist = function(dishId) {
+  if (!this.wishlist) return false;
+  const dishObjectId = new mongoose.Types.ObjectId(dishId);
+  return this.wishlist.some(id =>
+    id.toString() === dishObjectId.toString()
+  );
+};
+
+userSchema.methods.clearWishlist = function() {
+  this.wishlist = [];
+  this.wishlistAddedAt = [];
+  return this.save();
+};
+
+// Recently Viewed Methods
+userSchema.methods.addToRecentlyViewed = async function(dishId) {
+  if (!this.recentlyViewed) this.recentlyViewed = [];
+
+  const dishObjectId = new mongoose.Types.ObjectId(dishId);
+
+  this.recentlyViewed = this.recentlyViewed.filter(item =>
+    item.dish.toString() !== dishObjectId.toString()
+  );
+
+  this.recentlyViewed.unshift({
+    dish: dishObjectId,
+    viewedAt: new Date()
+  });
+
+  if (this.recentlyViewed.length > 20) {
+    this.recentlyViewed = this.recentlyViewed.slice(0, 20);
+  }
+
+  return this.save();
+};
+
+userSchema.methods.getRecentlyViewed = async function(limit = 10) {
+  if (!this.recentlyViewed || this.recentlyViewed.length === 0) {
+    return [];
+  }
+
+  const dishIds = this.recentlyViewed
+    .slice(0, limit)
+    .map(item => item.dish);
+
+  const Dish = mongoose.model('Dish');
+  return Dish.find({
+    _id: { $in: dishIds },
+    isActive: true,
+    availability: true
+  }).lean();
+};
+
+userSchema.methods.clearRecentlyViewed = function() {
+  this.recentlyViewed = [];
+  return this.save();
+};
+
 // Virtual for display
 userSchema.virtual('displayEmail').get(function() {
   return this.emailId;
@@ -146,6 +270,13 @@ userSchema.pre('save', function(next) {
   if (!this.isModified('passwordHash') || this.isNew) return next();
   
   this.passwordChangedAt = Date.now() - 1000; // Subtract 1 second to ensure JWT is created after password change
+  next();
+});
+
+// Pre-save middleware to default wishlist arrays
+userSchema.pre('save', function(next) {
+  if (!this.wishlist) this.wishlist = [];
+  if (!this.wishlistAddedAt) this.wishlistAddedAt = [];
   next();
 });
 

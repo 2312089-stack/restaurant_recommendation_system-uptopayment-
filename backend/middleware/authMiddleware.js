@@ -33,3 +33,32 @@ export const authenticateToken = async (req, res, next) => {
     return res.status(401).json({ success: false, error: 'Invalid token' });
   }
 };
+
+export const optionalAuth = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.startsWith('Bearer ')
+      ? authHeader.split(' ')[1]
+      : req.headers['x-access-token'];
+
+    if (token) {
+      try {
+        const decoded = jwt.verify(token.trim(), getJwtSecret());
+        const userId = decoded.id || decoded.userId || decoded.user?.id || decoded._id;
+
+        if (userId) {
+          const user = await User.findById(userId).select('-passwordHash');
+          if (user) {
+            req.user = user;
+          }
+        }
+      } catch (error) {
+        // Invalid token, continue without user
+      }
+    }
+
+    next();
+  } catch (error) {
+    next();
+  }
+};

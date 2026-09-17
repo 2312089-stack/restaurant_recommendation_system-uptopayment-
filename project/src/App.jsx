@@ -49,10 +49,28 @@ const viewForPath = (pathname) => {
     case "/menu":
     case "/home":
       return "main";
+    case "/discovery":
+      return "discover";
+    case "/wishlist":
+      return "wishlist";
+    case "/order-history":
+      return "orders";
+    case "/reservations":
+      return "reservations";
     default:
       return null;
   }
 };
+
+// Views that require an authenticated session.
+const AUTH_VIEWS = [
+  "main",
+  "profile-onboarding",
+  "discover",
+  "wishlist",
+  "orders",
+  "reservations",
+];
 
 // Lives inside <Router> so it can observe client-side navigation and sync the
 // state-machine view. Renders nothing.
@@ -95,6 +113,15 @@ import PaymentPage from "./components/PaymentPage";
 import ConfirmationPage from "./components/ConfirmationPage";
 import AuthCallback from "./components/AuthCallback";
 
+// Ported customer pages + the contexts they depend on
+import DiscoveryPage from "./customer/DiscoveryPage";
+import WishlistPage from "./customer/WishlistPage";
+import OrderHistoryApp from "./customer/OrderHistoryApp";
+import ReservationsPage from "./components/ReservationsPage";
+import { CartProvider } from "./contexts/CartContext";
+import { WishlistProvider } from "./contexts/WishlistContext";
+import { SocketProvider } from "./contexts/SocketContext";
+
 function App() {
   // Restore the authenticated session on load. An authenticated user who has
   // not finished onboarding is sent to onboarding first; everyone else goes to
@@ -107,7 +134,7 @@ function App() {
       return "profile-onboarding";
     }
 
-    if (mappedView === "main" || mappedView === "profile-onboarding") {
+    if (mappedView && AUTH_VIEWS.includes(mappedView)) {
       return isAuthenticated ? mappedView : "login";
     }
 
@@ -126,10 +153,8 @@ function App() {
     }
 
     const isAuthenticated = hasStoredSession();
-    const requiresAuth =
-      mappedView === "main" || mappedView === "profile-onboarding";
 
-    if (requiresAuth && !isAuthenticated) {
+    if (AUTH_VIEWS.includes(mappedView) && !isAuthenticated) {
       setCurrentView("login");
       return;
     }
@@ -224,6 +249,14 @@ function App() {
     setCurrentView("main");
   };
 
+  // Header tab navigation (Home / Discover / Reservations / Orders / Wishlist)
+  const handleNavigate = useCallback((view) => {
+    console.log(`🧭 handleNavigate called: ${view}`);
+    setCurrentView(view);
+  }, []);
+
+  const handleBackToHome = useCallback(() => setCurrentView("main"), []);
+
   const handleLogout = useCallback(() => {
     console.log("🎯 handleLogout called, clearing auth and going to login");
     localStorage.removeItem('token');
@@ -279,7 +312,12 @@ function App() {
         console.log("🏠 Rendering main home page with all components");
         return (
           <>
-            <Header onOpenSettings={handleOpenSettings} onLogout={handleLogout} />
+            <Header
+              activeView="main"
+              onNavigate={handleNavigate}
+              onOpenSettings={handleOpenSettings}
+              onLogout={handleLogout}
+            />
             <main>
               <HeroSection />
               <ReorderFavorites />
@@ -291,7 +329,76 @@ function App() {
             <Footer />
           </>
         );
-        
+
+      case "discover":
+        return (
+          <>
+            <Header
+              activeView="discover"
+              onNavigate={handleNavigate}
+              onOpenSettings={handleOpenSettings}
+              onLogout={handleLogout}
+            />
+            <DiscoveryPage
+              onBack={handleBackToHome}
+              onShowDishDetails={() => {}}
+              onShowRestaurantMenu={() => {}}
+            />
+            <Footer />
+          </>
+        );
+
+      case "wishlist":
+        return (
+          <>
+            <Header
+              activeView="wishlist"
+              onNavigate={handleNavigate}
+              onOpenSettings={handleOpenSettings}
+              onLogout={handleLogout}
+            />
+            <WishlistPage
+              onBack={handleBackToHome}
+              onNavigateBack={handleBackToHome}
+              onAddToCart={() => {}}
+              onShareWishlist={() => {}}
+            />
+            <Footer />
+          </>
+        );
+
+      case "orders":
+        return (
+          <>
+            <Header
+              activeView="orders"
+              onNavigate={handleNavigate}
+              onOpenSettings={handleOpenSettings}
+              onLogout={handleLogout}
+            />
+            <OrderHistoryApp
+              authToken={typeof localStorage !== "undefined" ? localStorage.getItem("token") : null}
+              onBack={handleBackToHome}
+              onNavigateBack={handleBackToHome}
+            />
+            <Footer />
+          </>
+        );
+
+      case "reservations":
+        return (
+          <>
+            <Header
+              activeView="reservations"
+              onNavigate={handleNavigate}
+              onOpenSettings={handleOpenSettings}
+              onLogout={handleLogout}
+            />
+            <ReservationsPage onBack={handleBackToHome} />
+            <Footer />
+          </>
+        );
+
       case "settings":
         return <Settings onClose={handleCloseSettings} />;
         
@@ -303,7 +410,10 @@ function App() {
 
   return (
     <Router>
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      <SocketProvider>
+        <WishlistProvider>
+          <CartProvider>
+            <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
         <PathSync onPathChange={handlePathChange} />
         <Routes>
           {/* Original reset password from forgot password flow */}
@@ -342,7 +452,10 @@ function App() {
           {/* Main app route - This catches all other routes */}
           <Route path="*" element={renderMainView()} />
         </Routes>
-      </div>
+            </div>
+          </CartProvider>
+        </WishlistProvider>
+      </SocketProvider>
     </Router>
   );
 }

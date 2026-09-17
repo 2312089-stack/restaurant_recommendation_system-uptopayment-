@@ -17,7 +17,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 
-const Header = ({ onOpenSettings, onLogout }) => {
+const Header = ({ activeView = "main", onNavigate, onOpenSettings, onLogout }) => {
   const [location, setLocation] = useState("Detecting location...");
   const [isLocationDropdownOpen, setIsLocationDropdownOpen] = useState(false);
   const [isNotificationDropdownOpen, setIsNotificationDropdownOpen] = useState(false);
@@ -105,6 +105,20 @@ const Header = ({ onOpenSettings, onLogout }) => {
     { id: 2, message: "Time to reorder your favorite Biryani 🍛", time: "1 hour ago" },
     { id: 3, message: "50% off on all desserts today!", time: "3 hours ago" },
   ];
+
+  const navTabs = [
+    { id: "main", label: "Home", Icon: Home },
+    { id: "discover", label: "Discover", Icon: Compass },
+    { id: "reservations", label: "Reservations", Icon: Calendar },
+    { id: "orders", label: "Orders", Icon: Package },
+    { id: "wishlist", label: "Wishlist", Icon: Heart },
+  ];
+
+  const handleTabClick = (tabId) => {
+    if (onNavigate) {
+      onNavigate(tabId);
+    }
+  };
 
   return (
     <div className={isDarkMode ? "dark" : ""}>
@@ -308,21 +322,23 @@ const Header = ({ onOpenSettings, onLogout }) => {
         <div className="border-t border-gray-200 dark:border-gray-700">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <nav className="flex space-x-8 overflow-x-auto">
-              <button type="button" className="flex items-center space-x-2 px-3 py-3 bg-transparent text-orange-600 border-b-2 border-orange-600 font-medium">
-                <Home className="w-4 h-4" /><span>Home</span>
-              </button>
-              <button type="button" className="flex items-center space-x-2 px-3 py-3 bg-transparent text-gray-600 hover:text-orange-600 dark:text-gray-400 dark:hover:text-orange-600 transition-colors">
-                <Compass className="w-4 h-4" /><span>Discover</span>
-              </button>
-              <button type="button" className="flex items-center space-x-2 px-3 py-3 bg-transparent text-gray-600 hover:text-orange-600 dark:text-gray-400 dark:hover:text-orange-600 transition-colors">
-                <Calendar className="w-4 h-4" /><span>Reservations</span>
-              </button>
-              <button type="button" className="flex items-center space-x-2 px-3 py-3 bg-transparent text-gray-600 hover:text-orange-600 dark:text-gray-400 dark:hover:text-orange-600 transition-colors">
-                <Package className="w-4 h-4" /><span>Orders</span>
-              </button>
-              <button type="button" className="flex items-center space-x-2 px-3 py-3 bg-transparent text-gray-600 hover:text-orange-600 dark:text-gray-400 dark:hover:text-orange-600 transition-colors">
-                <Heart className="w-4 h-4" /><span>Wishlist</span>
-              </button>
+              {navTabs.map(({ id, label, Icon }) => {
+                const isActive = activeView === id;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => handleTabClick(id)}
+                    className={
+                      isActive
+                        ? "flex items-center space-x-2 px-3 py-3 bg-transparent text-orange-600 border-b-2 border-orange-600 font-medium"
+                        : "flex items-center space-x-2 px-3 py-3 bg-transparent text-gray-600 hover:text-orange-600 dark:text-gray-400 dark:hover:text-orange-600 transition-colors"
+                    }
+                  >
+                    <Icon className="w-4 h-4" /><span>{label}</span>
+                  </button>
+                );
+              })}
             </nav>
           </div>
         </div>
