@@ -9,7 +9,9 @@ import mongoose from 'mongoose';
 
 import connectDB from './connectDB.js';
 import { getAllowedOrigins, getMongoUri, validateCoreEnv } from './config/env.js';
+import { ensureDefaultAdmin } from './utils/ensureDefaultAdmin.js';
 import addressRoutes from './routes/addressRoutes.js';
+import adminRoutes from './routes/adminRoutes.js';
 import authRouter from './routes/auth.js';
 import cartRoutes from './routes/cartRoutes.js';
 import customerDiscoveryRoutes from './routes/customerDiscovery.js';
@@ -44,6 +46,13 @@ if (process.env.SEED_DEMO === '1') {
   }
 }
 
+// Create/rotate the platform admin from ADMIN_EMAIL / ADMIN_PASSWORD when set.
+try {
+  await ensureDefaultAdmin();
+} catch (error) {
+  console.error('Admin bootstrap failed:', error.message);
+}
+
 const app = express();
 const allowedOrigins = getAllowedOrigins();
 
@@ -57,7 +66,7 @@ app.use(cors({
     }
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
@@ -134,6 +143,7 @@ app.use('/api/discovery', customerDiscoveryRoutes);
 app.use('/api/wishlist', wishlistRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/order-history', orderHistoryRoutes);
+app.use('/api/admin', adminRoutes);
 
 app.use((req, res) => {
   res.status(404).json({

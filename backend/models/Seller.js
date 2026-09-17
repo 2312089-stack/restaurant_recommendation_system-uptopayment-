@@ -206,6 +206,10 @@ const sellerSchema = new mongoose.Schema({
       default: '',
       trim: true
     },
+    isVerified: {
+      type: Boolean,
+      default: false
+    },
     verifiedAt: {
       type: Date,
       default: null

@@ -5,6 +5,7 @@ import {
   Routes,
   Route,
   useLocation,
+  Navigate,
 } from "react-router-dom";
 
 const hasStoredSession = () => {
@@ -113,6 +114,10 @@ import PaymentPage from "./components/PaymentPage";
 import ConfirmationPage from "./components/ConfirmationPage";
 import AuthCallback from "./components/AuthCallback";
 
+// Admin panel (separate auth: localStorage adminToken + userRole === 'admin')
+import AdminLogin from "./components/admin/AdminLogin";
+import AdminDashboard from "./components/admin/AdminDashboard";
+
 // Ported customer pages + the contexts they depend on
 import DiscoveryPage from "./customer/DiscoveryPage";
 import WishlistPage from "./customer/WishlistPage";
@@ -121,6 +126,24 @@ import ReservationsPage from "./components/ReservationsPage";
 import { CartProvider } from "./contexts/CartContext";
 import { WishlistProvider } from "./contexts/WishlistContext";
 import { SocketProvider } from "./contexts/SocketContext";
+
+// Admin routes use their own token and never touch the customer session.
+const ProtectedAdminRoute = ({ children }) => {
+  let token = null;
+  let role = null;
+  try {
+    token = localStorage.getItem("adminToken");
+    role = localStorage.getItem("userRole");
+  } catch (error) {
+    token = null;
+  }
+
+  if (!token || role !== "admin") {
+    return <Navigate to="/admin/login" replace />;
+  }
+
+  return children;
+};
 
 function App() {
   // Restore the authenticated session on load. An authenticated user who has
@@ -448,6 +471,17 @@ function App() {
       />
     }
   />
+
+          {/* Admin panel - separate token, own login/dashboard */}
+          <Route path="/admin/login" element={<AdminLogin />} />
+          <Route
+            path="/admin/dashboard"
+            element={
+              <ProtectedAdminRoute>
+                <AdminDashboard />
+              </ProtectedAdminRoute>
+            }
+          />
 
           {/* Main app route - This catches all other routes */}
           <Route path="*" element={renderMainView()} />
