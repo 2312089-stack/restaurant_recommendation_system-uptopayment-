@@ -118,6 +118,12 @@ import AuthCallback from "./components/AuthCallback";
 import AdminLogin from "./components/admin/AdminLogin";
 import AdminDashboard from "./components/admin/AdminDashboard";
 
+// Seller panel (separate auth: localStorage sellerToken)
+import SellerLogin from "./components/seller/auth/SellerLogin";
+import SellerSignup from "./components/seller/auth/SellerSignup";
+import SellerForgotPassword from "./components/seller/auth/SellerForgotPassword";
+import SellerDashboard from "./components/seller/dashboard/SellerDashboard";
+
 // Ported customer pages + the contexts they depend on
 import DiscoveryPage from "./customer/DiscoveryPage";
 import WishlistPage from "./customer/WishlistPage";
@@ -143,6 +149,51 @@ const ProtectedAdminRoute = ({ children }) => {
   }
 
   return children;
+};
+
+// Seller routes use their own token (sellerToken) and never touch the
+// customer or admin sessions.
+const ProtectedSellerRoute = ({ children }) => {
+  let token = null;
+  try {
+    token = localStorage.getItem("sellerToken");
+  } catch (error) {
+    token = null;
+  }
+
+  if (!token) {
+    return <Navigate to="/seller/login" replace />;
+  }
+
+  return children;
+};
+
+const SellerLoginPage = () => {
+  const navigate = useNavigate();
+  return (
+    <SellerLogin
+      onLoginComplete={() => navigate("/seller/dashboard", { replace: true })}
+      onForgotPassword={() => navigate("/seller/forgot-password")}
+      onCreateAccount={() => navigate("/seller/signup")}
+    />
+  );
+};
+
+const SellerSignupPage = () => {
+  const navigate = useNavigate();
+  return (
+    <SellerSignup
+      onBackToLogin={() => navigate("/seller/login")}
+      onSignupComplete={() => navigate("/seller/login")}
+    />
+  );
+};
+
+const SellerForgotPasswordPage = () => {
+  const navigate = useNavigate();
+  return (
+    <SellerForgotPassword onBackToLogin={() => navigate("/seller/login")} />
+  );
 };
 
 function App() {
@@ -480,6 +531,19 @@ function App() {
               <ProtectedAdminRoute>
                 <AdminDashboard />
               </ProtectedAdminRoute>
+            }
+          />
+
+          {/* Seller panel - separate token, own login/signup/dashboard */}
+          <Route path="/seller/login" element={<SellerLoginPage />} />
+          <Route path="/seller/signup" element={<SellerSignupPage />} />
+          <Route path="/seller/forgot-password" element={<SellerForgotPasswordPage />} />
+          <Route
+            path="/seller/dashboard"
+            element={
+              <ProtectedSellerRoute>
+                <SellerDashboard />
+              </ProtectedSellerRoute>
             }
           />
 

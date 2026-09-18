@@ -17,6 +17,7 @@ import cartRoutes from './routes/cartRoutes.js';
 import customerDiscoveryRoutes from './routes/customerDiscovery.js';
 import orderHistoryRoutes from './routes/orderHistoryRoutes.js';
 import otpRouter from './routes/otpRouter.js';
+import sellerRouter from './routes/sellerRouter.js';
 import paymentRoutes from './routes/payment.js';
 import settingsAuthRoutes from './routes/settingsAuth.js';
 import uploadRoutes from './routes/uploadRoutes.js';
@@ -144,6 +145,7 @@ app.use('/api/wishlist', wishlistRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/order-history', orderHistoryRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/seller', sellerRouter);
 
 app.use((req, res) => {
   res.status(404).json({

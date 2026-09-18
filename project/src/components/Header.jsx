@@ -15,11 +15,14 @@ import {
   Settings,
   LogOut,
   ChevronDown,
+  UtensilsCrossed,
 } from "lucide-react";
 import { useCart } from "../contexts/CartContext";
 import { API_BASE_URL } from "../config/api.js";
+import { useNavigate } from "react-router-dom";
 
 const Header = ({ activeView = "main", onNavigate, onOpenSettings, onLogout }) => {
+  const navigate = useNavigate();
   const [location, setLocation] = useState("Detecting location...");
   const [isLocationDropdownOpen, setIsLocationDropdownOpen] = useState(false);
   const [isNotificationDropdownOpen, setIsNotificationDropdownOpen] = useState(false);
@@ -287,6 +290,16 @@ const Header = ({ activeView = "main", onNavigate, onOpenSettings, onLogout }) =
 
             {/* Icons */}
             <div className="flex items-center space-x-4">
+              {/* Seller portal link */}
+              <button
+                onClick={() => navigate("/seller/login")}
+                className="hidden md:flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-orange-600 dark:hover:text-orange-400 transition-colors"
+                title="Restaurant partner portal"
+              >
+                <UtensilsCrossed className="w-4 h-4" />
+                <span>Seller</span>
+              </button>
+
               {/* Notifications */}
               <div className="relative">
                 <button
