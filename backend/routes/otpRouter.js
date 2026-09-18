@@ -93,7 +93,7 @@ function buildRawEmail(to, subject, htmlBody, textBody) {
 }
 
 // Build OTP email bodies
-function buildOtpBody(otp) {
+export function buildOtpBody(otp) {
   const htmlBody = `
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
       <div style="text-align:center;">
@@ -113,7 +113,7 @@ function buildOtpBody(otp) {
 }
 
 // Send the OTP to the requesting user (Gmail API, then SMTP fallback)
-async function deliverOtp(recipient, otp, { htmlBody, textBody }) {
+export async function deliverOtp(recipient, otp, { htmlBody, textBody }) {
   if (process.env.GMAIL_REFRESH_TOKEN) {
     const oauth2Client = getOAuth2Client();
     oauth2Client.setCredentials({
@@ -135,27 +135,38 @@ async function deliverOtp(recipient, otp, { htmlBody, textBody }) {
   }
 
   const nodemailer = (await import("nodemailer")).default;
-  const transporter = nodemailer.createTransport({
-    service: "gmail",
-    host: "smtp.gmail.com",
-    port: 587,
-    secure: false,
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
-    connectionTimeout: 10000,
-    greetingTimeout: 10000,
-    socketTimeout: 15000,
-  });
 
-  await transporter.sendMail({
-    from: `"TasteSphere" <${process.env.EMAIL_USER}>`,
-    to: recipient,
-    subject: "TasteSphere - Your OTP Code",
-    html: htmlBody,
-    text: textBody,
-  });
+  const sendVia = async (port, secure) => {
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      host: "smtp.gmail.com",
+      port,
+      secure,
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
+      socketTimeout: 20000,
+    });
+
+    await transporter.sendMail({
+      from: `"TasteSphere" <${process.env.EMAIL_USER}>`,
+      to: recipient,
+      subject: "TasteSphere - Your OTP Code",
+      html: htmlBody,
+      text: textBody,
+    });
+  };
+
+  // Prefer implicit TLS (465) like the rest of the backend; fall back to STARTTLS (587)
+  try {
+    await sendVia(465, true);
+  } catch (err) {
+    console.warn("465 failed, retrying 587:", err.message);
+    await sendVia(587, false);
+  }
 }
 
 // Send OTP to the user's own email address

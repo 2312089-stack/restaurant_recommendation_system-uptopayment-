@@ -8,6 +8,7 @@ import Dish from '../models/Dish.js';
 import Order from '../models/Order.js';
 import { getJwtSecret } from '../config/env.js';
 import { authenticateSeller } from '../middleware/sellerAuthMiddleware.js';
+import { deliverOtp, buildOtpBody } from './otpRouter.js';
 
 const router = express.Router();
 
@@ -37,13 +38,20 @@ router.post('/otp/send', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Email is required' });
     }
 
+    const normalizedEmail = String(email).toLowerCase().trim();
     const otp = generateOtp();
 
-    let seller = await Seller.findOne({ email: String(email).toLowerCase().trim() });
+    let seller = await Seller.findOne({ email: normalizedEmail });
     if (seller) {
       seller.otp = { code: otp, expiresAt: new Date(Date.now() + 10 * 60 * 1000), isUsed: false };
       await seller.save();
     }
+
+    // Deliver the OTP by email (best effort, non-blocking so the OTP
+    // in the response is still available to the signup flow).
+    deliverOtp(normalizedEmail, otp, buildOtpBody(otp))
+      .then(() => console.log(`Seller OTP emailed to ${normalizedEmail}`))
+      .catch((err) => console.error(`Seller OTP email failed for ${normalizedEmail}:`, err.message));
 
     return res.json({ success: true, otp });
   } catch (error) {
