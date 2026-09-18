@@ -5,6 +5,7 @@ import {
   Routes,
   Route,
   useLocation,
+  useNavigate,
   Navigate,
 } from "react-router-dom";
 
